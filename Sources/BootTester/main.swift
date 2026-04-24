@@ -410,6 +410,7 @@ func renderCurrentFrame(machine: Machine) -> [UInt8] {
             palette: palette,
             columns80: machine.bus.columns80,
             textRows: crtcLines,
+            graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
             into: &pixelBuffer
         )
     } else {
@@ -421,6 +422,7 @@ func renderCurrentFrame(machine: Machine) -> [UInt8] {
             palette: palette,
             columns80: machine.bus.columns80,
             textRows: crtcLines,
+            graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
             into: &pixelBuffer
         )
     }
@@ -794,6 +796,16 @@ for i in 0..<(textData.count - 1) {
     }
 }
 print("\n  'Ok' found: \(okFound)")
+
+if let screenshotPath {
+    do {
+        let pixels = renderCurrentFrame(machine: m)
+        try writePPMScreenshot(path: screenshotPath, pixels: pixels)
+        print("  Screenshot written to \(screenshotPath)")
+    } catch {
+        print("  Screenshot write failed: \(error)")
+    }
+}
 
 // Tape-mode: capture screenshot and cassette playback progress.
 if ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil {

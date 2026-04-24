@@ -289,6 +289,7 @@ public struct ScreenRenderer {
         palette: [(r: UInt8, g: UInt8, b: UInt8)],
         columns80: Bool = true,
         textRows: Int = 25,
+        graphicsDisplayEnabled: Bool = true,
         into buffer: inout [UInt8]
     ) {
         let bytesPerLine = 80
@@ -312,10 +313,20 @@ public struct ScreenRenderer {
                 )
                 let color = palette[min(Int((attr >> 5) & 0x07), palette.count - 1)]
                 let reverse = (attr & 0x01) != 0
-                let brg = blueVRAM[srcOffset + byteIndex]
-                    | redVRAM[srcOffset + byteIndex]
-                    | greenVRAM[srcOffset + byteIndex]
-                let bits = reverse ? (brg ^ 0xFF) : brg
+                // When graphics display is disabled, the attribute-graph XOR
+                // semantics (reverse ⇒ invert plane bits) don't apply — the
+                // text overlay handles reverse itself. Leave the cell as all
+                // background so text glyph "transparent" pixels fall through
+                // to bg color, not to 0xFF-invert fill.
+                let bits: UInt8
+                if graphicsDisplayEnabled {
+                    let brg = blueVRAM[srcOffset + byteIndex]
+                        | redVRAM[srcOffset + byteIndex]
+                        | greenVRAM[srcOffset + byteIndex]
+                    bits = reverse ? (brg ^ 0xFF) : brg
+                } else {
+                    bits = 0
+                }
 
                 for bit in stride(from: 7, through: 0, by: -1) {
                     let pixel = byteIndex * 8 + (7 - bit)
@@ -347,6 +358,7 @@ public struct ScreenRenderer {
         palette: [(r: UInt8, g: UInt8, b: UInt8)],
         columns80: Bool = true,
         textRows: Int = 25,
+        graphicsDisplayEnabled: Bool = true,
         into buffer: inout [UInt8]
     ) {
         let bytesPerLine = 80
@@ -371,7 +383,16 @@ public struct ScreenRenderer {
                 )
                 let color = palette[min(Int((attr >> 5) & 0x07), palette.count - 1)]
                 let reverse = (attr & 0x01) != 0
-                let bits = reverse ? (plane[srcOffset + byteIndex] ^ 0xFF) : plane[srcOffset + byteIndex]
+                // See renderAttributeGraph200 comment — when graphics display is
+                // off, skip the attribute-graph XOR so reverse text cells don't
+                // pre-fill to white and hide text-overlay glyphs.
+                let bits: UInt8
+                if graphicsDisplayEnabled {
+                    let planeByte = plane[srcOffset + byteIndex]
+                    bits = reverse ? (planeByte ^ 0xFF) : planeByte
+                } else {
+                    bits = 0
+                }
 
                 for bit in stride(from: 7, through: 0, by: -1) {
                     let pixel = byteIndex * 8 + (7 - bit)

@@ -473,24 +473,29 @@ public final class Pc88Bus: Bus {
             if ramMode {
                 return mainRAM[Int(addr)]
             }
-            // Port 0x71 bits 7-1 select external expansion ROMs (active low).
-            // If any external slot is selected and no board is emulated, the bus is open.
-            if externalExtROMSelected {
-                return 0xFF
-            }
-            // 0x6000-0x7FFF: ROMバンク
-            // When ext ROM is selected (port 0x71 bit 0 = 0):
-            //   - If ext ROM data loaded → return ext ROM bank data
-            //   - If ext ROM not loaded → return 0xFF (open bus, like empty socket)
-            // When ext ROM is NOT selected → return standard ROM
-            if extROMEnabled {
-                if let extBanks = n88ExtROM {
-                    let bank = Int(n88ExtROMSelect & 0x03)
-                    if bank < extBanks.count {
-                        return extBanks[bank][Int(addr) - 0x6000]
-                    }
+            // Ext ROM (4th ROM / external expansion) is only valid in N88 mode.
+            // QUASI88 pc88main.c:411-422: in N-BASIC mode, 0x6000-0x7FFF always
+            // comes from main_rom_n[0x6000] regardless of port 0x71 state.
+            if romModeN88 {
+                // Port 0x71 bits 7-1 select external expansion ROMs (active low).
+                // If any external slot is selected and no board is emulated, the bus is open.
+                if externalExtROMSelected {
+                    return 0xFF
                 }
-                return 0xFF  // ext ROM selected but not loaded → open bus
+                // 0x6000-0x7FFF: ROMバンク
+                // When ext ROM is selected (port 0x71 bit 0 = 0):
+                //   - If ext ROM data loaded → return ext ROM bank data
+                //   - If ext ROM not loaded → return 0xFF (open bus, like empty socket)
+                // When ext ROM is NOT selected → return standard ROM
+                if extROMEnabled {
+                    if let extBanks = n88ExtROM {
+                        let bank = Int(n88ExtROMSelect & 0x03)
+                        if bank < extBanks.count {
+                            return extBanks[bank][Int(addr) - 0x6000]
+                        }
+                    }
+                    return 0xFF  // ext ROM selected but not loaded → open bus
+                }
             }
             return readROM(addr)
 
