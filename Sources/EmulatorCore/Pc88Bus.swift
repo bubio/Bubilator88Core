@@ -726,13 +726,15 @@ public final class Pc88Bus: Bus {
             return port32
 
         // Port 0x40 read: VRTC flag, control signals
-        // QUASI88 (pc88main.c:1665): in_ctrl_signal() | 0xc0 | 0x04
-        // bits: 7-6=always 1, 5=VRTC, 4=calendar CDO, 3=ROM boot, 2=always 1
+        // BubiC (pc88.cpp:1895) / QUASI88 (pc88main.c:1665): bit 3 is NOT
+        // exposed here — real hardware does not route the ROM/DISK boot
+        // strap DIP through port 0x40. The strap is latched at reset into
+        // dipSw2 bit 3 for the CPU's internal boot-mode decision only.
+        // bits: 7-6=always 1, 5=VRTC, 4=calendar CDO, 3=always 0, 2=DCD
         case 0x40:
             var value: UInt8 = 0xC0  // bits 7-6 always 1
             if vrtcFlag { value |= 0x20 }  // bit 5: VRTC
             if calendar?.cdo == true { value |= 0x10 }  // bit 4: calendar CDO
-            if (dipSw2 & 0x08) != 0 { value |= 0x08 }  // bit 3: ROM boot (from DIP SW2)
             // bit 2: USART DCD. With a tape loaded, reflects CMT carrier
             // detection; otherwise defaults to 1 (matches QUASI88 stub).
             if let deck = cassette, deck.isLoaded {
@@ -1199,13 +1201,16 @@ public final class Pc88Bus: Bus {
     /// BubiC: (mode==N ? 0 : 1) | 0xC2; QUASI88 V2: 0xDB
     public var dipSw1: UInt8 = 0xC3
 
-    /// DIP switch 2 value (port 0x31 read)
+    /// DIP switch 2 base value.
     /// bit 7 (SW_V1): 0=V2 mode, 1=V1 mode
     /// bit 6 (SW_H):  0=Standard speed, 1=High speed
     /// bit 5-4: serial baud rate / parity
-    /// bit 3 (SW_ROMBOOT): 0=disk boot, 1=ROM boot
+    /// bit 3 (SW_ROMBOOT): 0=disk boot, 1=ROM boot — latched at reset
+    ///        for the internal boot-mode decision only; real hardware does
+    ///        not expose this bit on any readable I/O port.
     /// bit 2-0: serial settings
-    /// Default 0x71 = V2 mode, High speed, FDD boot
+    /// Port 0x31 read forces bit 3 high (BubiC/QUASI88-compatible).
+    /// Default base 0x71 = V2 mode, high speed, disk boot selected.
     public var dipSw2: UInt8 = 0x71
 
     private func dipSwitch1() -> UInt8 {
@@ -1213,7 +1218,10 @@ public final class Pc88Bus: Bus {
     }
 
     private func dipSwitch2() -> UInt8 {
-        return dipSw2
+        // Port 0x31 does not expose the disk/ROM boot strap bit directly.
+        // Real hardware and BubiC return the mode/config bits with bit 3 high;
+        // the disk boot strap is instead visible via port 0x40 bit 3.
+        dipSw2 | 0x08
     }
 
     // MARK: - Text VRAM Access

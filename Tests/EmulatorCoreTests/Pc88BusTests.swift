@@ -627,19 +627,33 @@ struct Pc88BusTests {
 
     // MARK: - DIP Switch 2 (Bootstrap)
 
-    @Test("DIP switch 2 has bootstrap disabled by default")
+    @Test("DIP switch 2 reports high-speed/V2 bits on port 0x31 by default")
     func dipSwitch2BootstrapDisabled() {
         let bus = Pc88Bus()
         let dip2 = bus.ioRead(0x31)
-        #expect(dip2 & 0x40 != 0)  // bit 6 = 1 → bootstrap disabled
+        #expect(dip2 & 0x40 != 0)  // bit 6 = 1 → high-speed/V2 family
     }
 
-    @Test("DIP switch 2 default matches QUASI88/BubiC base 0x39 | H")
+    @Test("DIP switch 2 default matches QUASI88/BubiC port 0x31 value")
     func dipSwitch2DisplayDefaults() {
         let bus = Pc88Bus()
         let dip2 = bus.ioRead(0x31)
-        // Default dipSw2=0x71: base 0x31 | H(0x40), FDD boot (bit3=0)
-        #expect(dip2 == 0x71)
+        // Default base dipSw2=0x71 → port 0x31 forces bit 3 high, so V2 reads 0x79.
+        #expect(dip2 == 0x79)
+    }
+
+    @Test("Port 0x40 bit 3 is always 0 (BubiC/QUASI88 parity)")
+    func port40Bit3AlwaysZero() {
+        // Real hardware does not route the ROM/DISK boot strap DIP through
+        // port 0x40. BubiC (pc88.cpp:1895) and QUASI88 (pc88main.c:1665)
+        // both return bit 3 = 0 regardless of dipSw2.
+        let bus = Pc88Bus()
+
+        bus.dipSw2 = 0x71  // disk boot
+        #expect(bus.ioRead(0x40) & 0x08 == 0x00)
+
+        bus.dipSw2 = 0x79  // ROM boot
+        #expect(bus.ioRead(0x40) & 0x08 == 0x00)
     }
 
     // MARK: - USART (uPD8251C)

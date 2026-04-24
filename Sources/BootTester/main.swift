@@ -70,6 +70,8 @@ let pioFlowPath: String? = {
 /// between the two logs reveals the first divergent instruction.
 /// BOOTTEST_CPU_TRACE_WHICH selects "main" (default) or "sub".
 /// BOOTTEST_CPU_TRACE_LIMIT caps lines written (default unlimited).
+/// BOOTTEST_CPU_TRACE_START_FRAME skips earlier frames to keep late-boot
+/// traces small and focused.
 let cpuTracePath: String? = {
     let raw = ProcessInfo.processInfo.environment["BOOTTEST_CPU_TRACE_PATH"] ?? ""
     return raw.isEmpty ? nil : raw
@@ -80,6 +82,10 @@ let cpuTraceWhich: String = {
 }()
 let cpuTraceLimit: Int = {
     let raw = ProcessInfo.processInfo.environment["BOOTTEST_CPU_TRACE_LIMIT"] ?? ""
+    return Int(raw) ?? 0
+}()
+let cpuTraceStartFrame: Int = {
+    let raw = ProcessInfo.processInfo.environment["BOOTTEST_CPU_TRACE_START_FRAME"] ?? ""
     return Int(raw) ?? 0
 }()
 
@@ -124,6 +130,7 @@ func parseHexWordList(from envName: String) -> [UInt16] {
 }
 
 let watchedMainRAMAddresses: [UInt16] = parseHexWordList(from: "BOOTTEST_RAM_WATCH")
+let watchedTVRAMAddresses: [UInt16] = parseHexWordList(from: "BOOTTEST_TVRAM_WATCH")
 let watchedPCs: Set<UInt16> = Set(parseHexWordList(from: "BOOTTEST_PC_WATCH"))
 let watchedSubPCs: Set<UInt16> = Set(parseHexWordList(from: "BOOTTEST_SUBPC_WATCH"))
 let irqTraceEnabled: Bool = {
@@ -362,6 +369,25 @@ func formatWatchedRAM(_ machine: Machine, addresses: [UInt16]) -> String {
             String(format: "%04X=%02X", addr, machine.bus.mainRAM[Int(addr)])
         }
         .joined(separator: " ")
+}
+
+func formatWatchedTVRAM(_ machine: Machine, addresses: [UInt16]) -> String {
+    guard !addresses.isEmpty else { return "" }
+    return addresses
+        .map { addr in
+            let offset = Int(addr & 0x0FFF)
+            let value = machine.bus.tvram[offset]
+            return String(format: "%04X=%02X", addr, value)
+        }
+        .joined(separator: " ")
+}
+
+func formatWatchContext(_ machine: Machine) -> String {
+    let fields = [
+        formatWatchedRAM(machine, addresses: watchedMainRAMAddresses),
+        formatWatchedTVRAM(machine, addresses: watchedTVRAMAddresses)
+    ].filter { !$0.isEmpty }
+    return fields.joined(separator: " ")
 }
 
 func bootTestAttributeGraphAttributes(
@@ -1185,7 +1211,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         }
 
         // CPU instruction trace (per-opcode pre-fetch state).
-        // Format: seq=N PC=XXXX AF=XXXX BC=XXXX DE=XXXX HL=XXXX IX=XXXX IY=XXXX SP=XXXX I=XX R=XX IFF=X
+        // Format: seq=N f=F PC=XXXX AF=XXXX BC=XXXX DE=XXXX HL=XXXX IX=XXXX IY=XXXX SP=XXXX I=XX R=XX IFF=X
         var cpuTraceHandle: FileHandle? = nil
         var cpuTraceSeq: Int = 0
         if let cpuTracePath {
@@ -1193,17 +1219,23 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
             cpuTraceHandle = FileHandle(forWritingAtPath: cpuTracePath)
             let targetCPU: Z80 = (cpuTraceWhich == "sub") ? dm.subSystem.subCpu : dm.cpu
             let limit = cpuTraceLimit
+            let startFrame = cpuTraceStartFrame
             targetCPU.onInstructionTrace = { cpu in
                 guard let h = cpuTraceHandle else { return }
+                guard currentTraceFrame >= startFrame else { return }
                 if limit > 0, cpuTraceSeq >= limit { return }
                 let line = String(
-                    format: "seq=%d PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X I=%02X R=%02X IFF=%d\n",
-                    cpuTraceSeq, cpu.pc, cpu.af, cpu.bc, cpu.de, cpu.hl,
+                    format: "seq=%d f=%d PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X I=%02X R=%02X IFF=%d\n",
+                    cpuTraceSeq, currentTraceFrame, cpu.pc, cpu.af, cpu.bc, cpu.de, cpu.hl,
                     cpu.ix, cpu.iy, cpu.sp, cpu.i, cpu.r, cpu.iff1 ? 1 : 0)
                 cpuTraceSeq += 1
                 if let d = line.data(using: .utf8) { h.write(d) }
             }
-            print("  CPU trace (\(cpuTraceWhich)) → \(cpuTracePath)" + (limit > 0 ? " (limit \(limit))" : ""))
+            let suffix = [
+                limit > 0 ? "limit \(limit)" : nil,
+                startFrame > 0 ? "start frame \(startFrame)" : nil
+            ].compactMap { $0 }.joined(separator: ", ")
+            print("  CPU trace (\(cpuTraceWhich)) → \(cpuTracePath)" + (suffix.isEmpty ? "" : " (\(suffix))"))
         }
 
         // FDC data byte trace: logs premature 0xFF reads (readByteReady=false)
@@ -1286,6 +1318,14 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
             let value = dm.bus.mainRAM[Int(addr)]
             trackedMainRAMInitial[addr] = value
             trackedMainRAMLastValue[addr] = value
+        }
+        var trackedTVRAMInitial: [UInt16: UInt8] = [:]
+        var trackedTVRAMFirstChangeFrame: [UInt16: Int] = [:]
+        var trackedTVRAMLastValue: [UInt16: UInt8] = [:]
+        for addr in watchedTVRAMAddresses {
+            let value = dm.bus.tvram[Int(addr & 0x0FFF)]
+            trackedTVRAMInitial[addr] = value
+            trackedTVRAMLastValue[addr] = value
         }
 
         struct MainStepSample {
@@ -1436,7 +1476,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
                             dm.cpu.bc,
                             dm.cpu.de,
                             dm.cpu.hl,
-                            formatWatchedRAM(dm, addresses: watchedMainRAMAddresses)
+                            formatWatchContext(dm)
                         )
                         watchTraceLines.append(line)
                     }
@@ -1453,10 +1493,33 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
                                     addr,
                                     previous,
                                     value,
-                                    formatWatchedRAM(dm, addresses: watchedMainRAMAddresses)
+                                    formatWatchContext(dm)
                                 )
                                 watchTraceLines.append(line)
                             }
+                        }
+                    }
+                    if !watchedTVRAMAddresses.isEmpty {
+                        for addr in watchedTVRAMAddresses {
+                            let value = dm.bus.tvram[Int(addr & 0x0FFF)]
+                            let previous = trackedTVRAMLastValue[addr] ?? value
+                            if value != previous {
+                                let line = String(
+                                    format: "TVRAM_WRITE frame=%d PC=%04X SP=%04X %04X:%02X->%02X %@",
+                                    frame,
+                                    postPC,
+                                    dm.cpu.sp,
+                                    addr,
+                                    previous,
+                                    value,
+                                    formatWatchContext(dm)
+                                )
+                                watchTraceLines.append(line)
+                            }
+                            if value != trackedTVRAMInitial[addr] && trackedTVRAMFirstChangeFrame[addr] == nil {
+                                trackedTVRAMFirstChangeFrame[addr] = frame
+                            }
+                            trackedTVRAMLastValue[addr] = value
                         }
                     }
                     if traceArmed && (delta > 3 || delta < 0) {
@@ -1788,6 +1851,19 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
                              addr, initial, final, frame))
             } else {
                 print(String(format: "    %04X: %02X (unchanged)", addr, initial))
+            }
+        }
+        if !watchedTVRAMAddresses.isEmpty {
+            print("  Tracked TVRAM writes:")
+            for addr in watchedTVRAMAddresses {
+                let initial = trackedTVRAMInitial[addr] ?? 0
+                let final = trackedTVRAMLastValue[addr] ?? initial
+                if let frame = trackedTVRAMFirstChangeFrame[addr] {
+                    print(String(format: "    %04X: %02X -> %02X (first changed at frame %d)",
+                                 addr, initial, final, frame))
+                } else {
+                    print(String(format: "    %04X: %02X (unchanged)", addr, initial))
+                }
             }
         }
         if !watchTraceLines.isEmpty {

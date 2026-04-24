@@ -308,6 +308,39 @@ struct UPD765ATests {
         #expect(results[5] == 21)
     }
 
+    // アークスロード Track 20 保護セクタ: ID R=0 N=5 の単一 4096B セクタを、
+    // loader は ReadData R=1 で要求する。実機は回転しながら読めた ID を渡
+    // すのでここが通るが、D88 ベースの本実装では明示的に「単一 R=0 セクタ
+    // トラックを論理スロット 1 として受理」する必要がある。
+    // EOT=2 で要求しても実際には 1 セクタしか存在しないため、転送完了後は
+    // ST0 AT (0x40) + ST1 EN (0x80) で Abnormal Termination となる (実機互換)。
+    @Test func readDataTreatsSingleR0SectorAsLogicalSlotOne() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 10
+        sector.h = 0
+        sector.r = 0
+        sector.n = 5
+        sector.data = Array(repeating: 0x00, count: 4096)
+        sector.data[0] = 0x91
+        disk.tracks[20] = [sector]
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 10
+
+        writeReadDataCmd(fdc, c: 10, h: 0, r: 1, n: 5, eot: 2, gpl: 0x0E, dtl: 0xFF)
+
+        #expect(fdc.phase == .execution)
+        let data = readExecutionBytes(fdc, count: 4096)
+        #expect(data[0] == 0x91)                // 先頭バイトがそのまま返る
+        #expect(data[0x0F80] == 0x00)           // 末尾付近も保護セクタ実体のまま
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)      // ST0: AT (EOT 不達)
+        #expect(results[1] & 0x80 != 0)         // ST1: EN (End of Cylinder)
+    }
+
     @Test func readDataLiteralEOTMissingReadsUntilTrackEnd() {
         let disk = makeDisk(track: 2, c: 1, h: 0, sectors: [
             (r: 1, data: Array(repeating: 0x11, count: 256)),

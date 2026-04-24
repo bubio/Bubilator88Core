@@ -1372,6 +1372,27 @@ public final class UPD765A {
 
     // MARK: - CHRN Advancement
 
+    /// Matches a copy-protected track that stores a single sector with
+    /// ID R=0 (instead of R=1) and gets addressed as logical slot 1 by the
+    /// loader. Seen on アークスロード Track 20 (C=10/H=0, R=0 N=5 4096B).
+    /// Real uPD765A reads whatever ID/Data the protected track exposes;
+    /// Bubilator88's D88-based path needs this heuristic to avoid a
+    /// NOTFOUND that would never happen on real hardware.
+    private func isSingleR0LogicalSlot(
+        sectors: [D88Disk.Sector],
+        startC: UInt8,
+        startH: UInt8,
+        startR: UInt8,
+        startN: UInt8
+    ) -> Bool {
+        return startR == 1 &&
+            sectors.count == 1 &&
+            sectors[0].c == startC &&
+            sectors[0].h == startH &&
+            sectors[0].r == 0 &&
+            sectors[0].n == startN
+    }
+
     private func resolveReadSequence(
         sectors: [D88Disk.Sector],
         startC: UInt8,
@@ -1384,6 +1405,10 @@ public final class UPD765A {
         // index and tolerate N mismatch — the loader relies on the FDC to pick
         // the nth sector on the track regardless of its recorded size.
         //
+        // Some PC-88 protected tracks store a single large sector with ID R=0
+        // but address it as logical slot 1. When no literal CHR match exists,
+        // accept that one-sector zero-based track as slot 1.
+        //
         // Prefer exact C/H/R/N match; fall back to C/H/R-only match (N
         // mismatch) so that copy-protection probes (F2グランプリSR: R=2 N=2 on
         // R=2 N=1 disk, マイト&マジック: R=1 N=3 on R=1 N=1 track) enter the
@@ -1391,12 +1416,15 @@ public final class UPD765A {
         // matched sector, pads the transfer to 2^(cmdN+7) bytes, and fails
         // CRC. The caller (resolveReadCandidate/executeRead) marks ST1_DE.
         let allowNMismatch = eot < startR
+        let singleSectorLogicalSlot = !tc && isSingleR0LogicalSlot(
+            sectors: sectors, startC: startC, startH: startH,
+            startR: startR, startN: startN)
         guard !tc,
               let startIndex = sectors.firstIndex(where: {
                   $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
               }) ?? sectors.firstIndex(where: {
                   $0.c == startC && $0.h == startH && $0.r == startR
-              }) else {
+              }) ?? (singleSectorLogicalSlot ? 0 : nil) else {
             let startSector = sectors.first(where: {
                 $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
             }).map { [$0] } ?? []
@@ -1405,11 +1433,11 @@ public final class UPD765A {
 
         let startSector = sectors[startIndex]
 
-        if allowNMismatch {
+        if allowNMismatch || singleSectorLogicalSlot {
             // Logical slot path: consume D88 sectors in physical order.
-            let logicalEndIndex = min(Int(eot) - 1, sectors.count - 1)
+            let logicalEndIndex = min(max(Int(eot) - 1, startIndex), sectors.count - 1)
             guard logicalEndIndex >= startIndex else {
-                return ([startSector], false)
+                return ([startSector], singleSectorLogicalSlot)
             }
             return (Array(sectors[startIndex...logicalEndIndex]), true)
         }
@@ -1443,13 +1471,17 @@ public final class UPD765A {
     ) -> (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)? {
         let allowNMismatch = eot < startR
         guard track >= 0, track < disk.tracks.count else { return nil }
+        let trackSectors = disk.tracks[track]
+        let singleSectorLogicalSlot = isSingleR0LogicalSlot(
+            sectors: trackSectors, startC: startC, startH: startH,
+            startR: startR, startN: startN)
         // Prefer an exact C/H/R/N match. Fall back to C/H/R-only (N
         // mismatch) so copy-protection probes enter the execution phase —
         // real uPD765A can't infer data-field length from the ID alone, so
         // it reads anyway, pads the transfer with post-data gap bytes up to
         // 2^(cmdN+7), and fails CRC. executeRead marks ST1_DE when the
         // selected sector's N differs from the command's N.
-        let exactMatch = disk.tracks[track].first(where: {
+        let exactMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
         })
         let sector: D88Disk.Sector?
@@ -1457,14 +1489,16 @@ public final class UPD765A {
             sector = exactMatch
         } else if allowNMismatch {
             sector = disk.findSector(track: track, c: startC, h: startH, r: startR, n: startN)
-        } else if let chrMatch = disk.tracks[track].first(where: {
+        } else if singleSectorLogicalSlot {
+            sector = trackSectors[0]
+        } else if let chrMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR
         }) {
             let cmdSize = 0x80 << min(Int(startN), 7)
             if chrMatch.data.count < cmdSize {
                 var padded = chrMatch
                 let synth = rawTrackContinuationBytes(
-                    sectors: disk.tracks[track],
+                    sectors: trackSectors,
                     diskType: disk.diskType,
                     startSector: chrMatch,
                     targetByteCount: cmdSize
@@ -1479,7 +1513,7 @@ public final class UPD765A {
         }
         guard let sector else { return nil }
         let resolution = resolveReadSequence(
-            sectors: disk.tracks[track],
+            sectors: trackSectors,
             startC: startC,
             startH: startH,
             startR: startR,
