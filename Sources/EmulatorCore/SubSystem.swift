@@ -338,6 +338,19 @@ public final class SubSystem {
         drives[drive] = nil
     }
 
+    /// Toggle or set the write-protect flag on the currently mounted disk.
+    /// No-op if no disk is mounted on the drive.
+    public func setWriteProtect(drive: Int, protected: Bool) {
+        guard drive >= 0 && drive < 2 else { return }
+        drives[drive]?.writeProtected = protected
+    }
+
+    /// Return the write-protect flag for the mounted disk (false if empty).
+    public func isWriteProtected(drive: Int) -> Bool {
+        guard drive >= 0 && drive < 2 else { return false }
+        return drives[drive]?.writeProtected ?? false
+    }
+
     /// Check if a drive has a disk mounted.
     public func hasDisk(drive: Int) -> Bool {
         guard drive >= 0 && drive < 2 else { return false }

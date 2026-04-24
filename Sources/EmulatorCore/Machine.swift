@@ -630,6 +630,16 @@ public final class Machine: @unchecked Sendable {
         subSystem.ejectDisk(drive: drive)
     }
 
+    /// Set the write-protect flag on the disk mounted in the specified drive.
+    public func setWriteProtect(drive: Int, protected: Bool) {
+        subSystem.setWriteProtect(drive: drive, protected: protected)
+    }
+
+    /// Return whether the disk in the specified drive is write-protected.
+    public func isWriteProtected(drive: Int) -> Bool {
+        subSystem.isWriteProtected(drive: drive)
+    }
+
     // MARK: - Tape Operations
 
     /// Mount a cassette image. Accepts T88 or raw CMT; the format is
