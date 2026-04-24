@@ -58,6 +58,11 @@ public final class CassetteDeck {
     /// True when a tape image has been loaded (buffer is non-empty).
     public var isLoaded: Bool { !buffer.isEmpty }
 
+    /// Playback position as 0.0–1.0 (0 when no tape is loaded).
+    public var progress: Double {
+        buffer.isEmpty ? 0 : Double(bufPtr) / Double(buffer.count)
+    }
+
     private weak var usart: I8251?
     private var tickAccum: Int = 0
 
