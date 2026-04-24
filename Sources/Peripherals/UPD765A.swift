@@ -1463,7 +1463,13 @@ public final class UPD765A {
             let cmdSize = 0x80 << min(Int(startN), 7)
             if chrMatch.data.count < cmdSize {
                 var padded = chrMatch
-                padded.data = chrMatch.data + [UInt8](repeating: 0xFF, count: cmdSize - chrMatch.data.count)
+                let synth = rawTrackContinuationBytes(
+                    sectors: disk.tracks[track],
+                    diskType: disk.diskType,
+                    startSector: chrMatch,
+                    targetByteCount: cmdSize
+                )
+                padded.data = synth ?? chrMatch.data + [UInt8](repeating: 0xFF, count: cmdSize - chrMatch.data.count)
                 sector = padded
             } else {
                 sector = chrMatch
@@ -1488,6 +1494,125 @@ public final class UPD765A {
             sequence[0] = sector
         }
         return (track, sector, sequence, resolution.usedLogicalSlot)
+    }
+
+    // When a command reads with N larger than the recorded data field, a real
+    // uPD765A keeps clocking post-data gap/ID/next-sector bytes until the
+    // transfer length is met, then reports CRC error. Might & Magic's copy-
+    // protection probe on track 79 relies on that continuation pattern. D88
+    // does not store raw track bytes, so we synthesize a plausible MFM layout
+    // (IDAM + CHRN + CRC + gap2 + DAM + data + CRC + gap3) from the sector
+    // list and read forward from the matched sector's data field.
+    private func rawTrackContinuationBytes(
+        sectors: [D88Disk.Sector],
+        diskType: D88Disk.DiskType,
+        startSector: D88Disk.Sector,
+        targetByteCount: Int
+    ) -> [UInt8]? {
+        guard targetByteCount > 0 else { return [] }
+        guard let startIndex = sectors.firstIndex(where: {
+            $0.c == startSector.c && $0.h == startSector.h && $0.r == startSector.r && $0.n == startSector.n
+        }) else { return nil }
+        let layout = synthesizeMFMTrack(sectors: sectors, diskType: diskType)
+        guard startIndex < layout.dataPositions.count, !layout.bytes.isEmpty else { return nil }
+
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(targetByteCount)
+        var position = layout.dataPositions[startIndex]
+        while bytes.count < targetByteCount {
+            bytes.append(layout.bytes[position])
+            position += 1
+            if position >= layout.bytes.count { position = 0 }
+        }
+        return bytes
+    }
+
+    private struct SyntheticTrack {
+        var bytes: [UInt8]
+        var dataPositions: [Int]
+    }
+
+    private func synthesizeMFMTrack(sectors: [D88Disk.Sector], diskType: D88Disk.DiskType) -> SyntheticTrack {
+        let syncSize = 12
+        let amSize = 3
+        let gap0Size = 80
+        let gap1Size = 50
+        let gap2Size = 22
+        let gapData: UInt8 = 0x4E
+        let trackSize = diskType == .twoHD ? 10410 : 6250
+        let refSize = sectors.last?.data.count ?? 0
+        let gap3Size = estimatedGap3(diskType: diskType, sectorSize: refSize, sectorCount: sectors.count)
+
+        var dataPositions = Array(repeating: 0, count: sectors.count)
+        let preamble = gap0Size + syncSize + (amSize + 1) + gap1Size
+        var total = preamble
+        for (index, sector) in sectors.enumerated() {
+            total += syncSize + (amSize + 1) + 4 + 2 + gap2Size
+            if sector.data.count > 0 {
+                total += syncSize + (amSize + 1)
+                dataPositions[index] = total
+                total += sector.data.count + 2 + gap3Size
+            } else {
+                dataPositions[index] = total
+            }
+        }
+
+        var bytes = [UInt8](repeating: gapData, count: max(total, trackSize))
+
+        var q = gap0Size
+        for _ in 0..<syncSize { bytes[q] = 0x00; q += 1 }
+        for _ in 0..<amSize { bytes[q] = 0xC2; q += 1 }
+        bytes[q] = 0xFC
+
+        var p = preamble
+        for sector in sectors {
+            for _ in 0..<syncSize { bytes[p] = 0x00; p += 1 }
+            var crc: UInt16 = 0xFFFF
+            for _ in 0..<amSize { bytes[p] = 0xA1; p += 1; crc = crc16(crc, 0xA1) }
+            bytes[p] = 0xFE; p += 1; crc = crc16(crc, 0xFE)
+            for byte in [sector.c, sector.h, sector.r, sector.n] {
+                bytes[p] = byte; p += 1; crc = crc16(crc, byte)
+            }
+            bytes[p] = UInt8(crc >> 8); p += 1
+            bytes[p] = UInt8(crc & 0xFF); p += 1
+            p += gap2Size
+
+            guard sector.data.count > 0 else { continue }
+
+            for _ in 0..<syncSize { bytes[p] = 0x00; p += 1 }
+            crc = 0xFFFF
+            for _ in 0..<amSize { bytes[p] = 0xA1; p += 1; crc = crc16(crc, 0xA1) }
+            let dam: UInt8 = sector.deleted ? 0xF8 : 0xFB
+            bytes[p] = dam; p += 1; crc = crc16(crc, dam)
+            for byte in sector.data {
+                bytes[p] = byte; p += 1; crc = crc16(crc, byte)
+            }
+            bytes[p] = UInt8(crc >> 8); p += 1
+            bytes[p] = UInt8(crc & 0xFF); p += 1
+            p += gap3Size
+        }
+
+        return SyntheticTrack(bytes: bytes, dataPositions: dataPositions)
+    }
+
+    private func estimatedGap3(diskType: D88Disk.DiskType, sectorSize: Int, sectorCount: Int) -> Int {
+        switch (diskType, sectorSize, sectorCount) {
+        case (.twoHD, 256, 26): return 54
+        case (.twoHD, 512, 15): return 84
+        case (.twoHD, 1024, 8): return 116
+        case (_, 256, 16): return 51
+        case (_, 512, 9): return 80
+        case (_, 1024, 5): return 116
+        default: return 32
+        }
+    }
+
+    private func crc16(_ crc: UInt16, _ byte: UInt8) -> UInt16 {
+        var c = crc ^ (UInt16(byte) << 8)
+        for _ in 0..<8 {
+            c = (c & 0x8000) != 0 ? (c << 1) ^ 0x1021 : c << 1
+        }
+        return c
     }
 
     private func preferredReadCandidate(
