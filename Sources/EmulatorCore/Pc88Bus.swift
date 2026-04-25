@@ -1302,19 +1302,18 @@ public final class Pc88Bus: Bus {
         let cols = Int(crtc.charsPerLine)
         let rows = Int(crtc.linesPerScreen)
         let rowStride = crtc.bytesPerDMARow
-        let nonTransparent = crtc.attrNonTransparent
         let totalChars = cols * rows
 
         var data = [UInt8](repeating: 0x00, count: totalChars)
         for row in 0..<rows {
             let rowBase = row * rowStride  // buffer-internal offset
             for col in 0..<cols {
-                if nonTransparent {
-                    // Non-transparent: char+attr interleaved, chars at even offsets
-                    data[row * cols + col] = crtc.readDMABuffer(at: rowBase + col * 2)
-                } else {
-                    data[row * cols + col] = crtc.readDMABuffer(at: rowBase + col)
-                }
+                // uPD3301 stores characters as a contiguous block in both
+                // transparent and non-transparent modes (in non-transparent
+                // there is no separate attribute area — the row is char-only,
+                // monochrome, see vraminfo.html and BubiC's `80 + attrib.num*2`
+                // where attrib.num=0 in non-transparent).
+                data[row * cols + col] = crtc.readDMABuffer(at: rowBase + col)
             }
         }
         return data
@@ -1354,10 +1353,12 @@ public final class Pc88Bus: Bus {
             let rowBase = row * rowStride  // buffer-internal offset
 
             if nonTransparent {
-                // Non-transparent mode: char+attr interleaved, attrs at odd byte offsets
+                // Non-transparent mode (uPD3301 AttrMode 4/5): row holds chars
+                // only, no attribute area. Display is monochrome with the
+                // default attribute applied uniformly.
+                let monoAttr = defaultAttr
                 for col in 0..<cols {
-                    let raw = crtc.readDMABuffer(at: rowBase + col * 2 + 1)
-                    data[row * cols + col] = remapAttribute(raw, currentAttr: &currentAttr)
+                    data[row * cols + col] = monoAttr
                 }
             } else {
                 currentAttr &= 0xF3

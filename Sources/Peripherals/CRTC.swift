@@ -117,10 +117,16 @@ public final class CRTC {
     /// Attribute bytes per line (from Reset param 4, bits 4-0 + 1)
     public var attrsPerLine: UInt8 = 20
 
-    /// Bytes per DMA row = charsPerLine + attrsPerLine * 2 (transparent mode)
+    /// Bytes per DMA row.
+    ///
+    /// uPD3301 attribute modes (param 4 bits 7-5):
+    /// - TRANSPARENT (0/2): char block + attribute pair block = charsPerLine + attrsPerLine * 2
+    /// - NONETRANSPARENT (4/5): char block only = charsPerLine (attributes not stored in VRAM,
+    ///   display is monochrome). Confirmed via vraminfo.html and BubiC pc88.cpp:2836
+    ///   `dmac.run(2, 80 + crtc.attrib.num * 2)` where attrib.num = 0 in non-transparent.
     public var bytesPerDMARow: Int {
         if attrNonTransparent {
-            return Int(charsPerLine) * 2  // char+attr interleaved
+            return Int(charsPerLine)
         }
         return Int(charsPerLine) + Int(attrsPerLine) * 2
     }
