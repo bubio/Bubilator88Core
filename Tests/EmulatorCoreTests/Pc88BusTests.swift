@@ -642,18 +642,21 @@ struct Pc88BusTests {
         #expect(dip2 == 0x79)
     }
 
-    @Test("Port 0x40 bit 3 is always 0 (BubiC/QUASI88 parity)")
-    func port40Bit3AlwaysZero() {
-        // Real hardware does not route the ROM/DISK boot strap DIP through
-        // port 0x40. BubiC (pc88.cpp:1895) and QUASI88 (pc88main.c:1665)
-        // both return bit 3 = 0 regardless of dipSw2.
+    @Test("Port 0x40 bit 3 reflects dipSw2 ROM boot strap (QUASI88 parity)")
+    func port40Bit3ReflectsBootStrap() {
+        // QUASI88 (pc88main.c:3199 in_ctrl_signal) exposes the ROM/DISK boot
+        // strap on bit 3 via `ctrl_boot = boot_from_rom ? SW_ROMBOOT : 0`.
+        // The N88 IPL reads this bit at boot to decide ROM vs disk boot, so
+        // dipSw2 bit 3 must surface here. Earlier we tried to hide it to
+        // match BubiC, but the strap then became invisible to the BIOS and
+        // the auto-switch in performReset stopped working.
         let bus = Pc88Bus()
 
-        bus.dipSw2 = 0x71  // disk boot
+        bus.dipSw2 = 0x71  // disk boot (bit 3 = 0)
         #expect(bus.ioRead(0x40) & 0x08 == 0x00)
 
-        bus.dipSw2 = 0x79  // ROM boot
-        #expect(bus.ioRead(0x40) & 0x08 == 0x00)
+        bus.dipSw2 = 0x79  // ROM boot (bit 3 = 1)
+        #expect(bus.ioRead(0x40) & 0x08 == 0x08)
     }
 
     // MARK: - USART (uPD8251C)

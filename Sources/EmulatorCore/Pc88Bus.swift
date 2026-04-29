@@ -726,15 +726,21 @@ public final class Pc88Bus: Bus {
             return port32
 
         // Port 0x40 read: VRTC flag, control signals
-        // BubiC (pc88.cpp:1895) / QUASI88 (pc88main.c:1665): bit 3 is NOT
-        // exposed here — real hardware does not route the ROM/DISK boot
-        // strap DIP through port 0x40. The strap is latched at reset into
-        // dipSw2 bit 3 for the CPU's internal boot-mode decision only.
-        // bits: 7-6=always 1, 5=VRTC, 4=calendar CDO, 3=always 0, 2=DCD
+        // QUASI88 (pc88main.c:3199 in_ctrl_signal): exposes the ROM/DISK
+        // boot strap on bit 3 via `ctrl_boot = boot_from_rom ? SW_ROMBOOT : 0`.
+        // The N88 IPL ROM reads this bit at boot to choose ROM vs disk boot,
+        // so dipSw2 bit 3 MUST surface here — without it the auto-switch in
+        // `EmulatorViewModel.performReset` is invisible to the BIOS and the
+        // machine always falls into "Insert correct disk" prompts even with
+        // drive 0 empty. (BubiC's port 0x40 omits bit 3, but BubiC handles
+        // boot-mode selection via a separate internal path; copying that
+        // shape without the matching plumbing breaks the strap entirely.)
+        // bits: 7-6=always 1, 5=VRTC, 4=calendar CDO, 3=ROM boot strap, 2=DCD
         case 0x40:
             var value: UInt8 = 0xC0  // bits 7-6 always 1
             if vrtcFlag { value |= 0x20 }  // bit 5: VRTC
             if calendar?.cdo == true { value |= 0x10 }  // bit 4: calendar CDO
+            if (dipSw2 & 0x08) != 0 { value |= 0x08 }  // bit 3: ROM boot strap
             // bit 2: USART DCD. With a tape loaded, reflects CMT carrier
             // detection; otherwise defaults to 1 (matches QUASI88 stub).
             if let deck = cassette, deck.isLoaded {
