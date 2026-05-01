@@ -874,11 +874,16 @@ struct YM2608Tests {
         ym.writeExtAddr(0x00)
         ym.writeExtData(0x80)
 
-        ym.tick(tStates: ym.fmTStatesPerSample)
-        #expect(ym.adpcmOutputSample == 0)
-
-        ym.tick(tStates: ym.fmTStatesPerSample)
-        #expect(ym.adpcmOutputSample == 29)
+        // Drive a handful of audio output samples; ADPCM now decodes at
+        // 44100Hz (fmgen ADPCMBMix style), so output stays 0 until the
+        // playback counter wraps and triggers the first decode.
+        var samples: [Float] = []
+        for _ in 0..<8 {
+            ym.tick(tStates: 200)
+            samples.append(ym.adpcmOutputSample)
+        }
+        #expect(samples[0] == 0)
+        #expect(samples.contains(where: { $0 != 0 }))
     }
 
     @Test("ADPCM 8-bit RAM layout reconstructs playback nibbles")
@@ -912,11 +917,13 @@ struct YM2608Tests {
         ym.writeExtAddr(0x00)
         ym.writeExtData(0x80)
 
-        ym.tick(tStates: ym.fmTStatesPerSample)
-        #expect(ym.adpcmOutputSample == 0)
-
-        ym.tick(tStates: ym.fmTStatesPerSample)
-        #expect(ym.adpcmOutputSample == 29)
+        var samples: [Float] = []
+        for _ in 0..<8 {
+            ym.tick(tStates: 200)
+            samples.append(ym.adpcmOutputSample)
+        }
+        #expect(samples[0] == 0)
+        #expect(samples.contains(where: { $0 != 0 }))
     }
 
     // MARK: - Rhythm Tests

@@ -540,11 +540,9 @@ public final class YM2608 {
             }
         }
 
-        // ADPCM-B decoding runs on the OPNA 72-clock domain.
         fmSampleCounter += tStates
         while fmSampleCounter >= fmTStatesPerSample {
             fmSampleCounter -= fmTStatesPerSample
-            advanceADPCM()
         }
 
         // Accumulate audio output samples (at audio rate: 44100Hz)
@@ -552,6 +550,9 @@ public final class YM2608 {
         audioSampleAccum += tStates * Self.sampleRate
         while audioSampleAccum >= cpuClockHz {
             audioSampleAccum -= cpuClockHz
+            // ADPCM-B decode/interpolate at audio output rate (fmgen
+            // ADPCMBMix runs at output `r`, with adplbase scaled to `r`).
+            advanceADPCM()
             generateFMSamples()
             advanceRhythm()
             let ssg = generateSSGSample()
@@ -839,9 +840,13 @@ public final class YM2608 {
         return decoded
     }
 
+    /// fmgen adplbase = 8192 * (clock/72) / outputRate.
+    /// OPNA clock/72 = 55467Hz, output = 44100Hz → 10302.
+    private static let adpcmPlaybackBase: Int = (adpcmFixedPointUnit * 55467) / sampleRate
+
     private func updateADPCMPlaybackDelta() {
         let deltaN = max(256, Int(adpcmDeltaN))
-        adpcmPlaybackDelta = max(1, (deltaN * Self.adpcmFixedPointUnit) >> 16)
+        adpcmPlaybackDelta = max(1, (deltaN * Self.adpcmPlaybackBase) >> 16)
     }
 
     private func writeADPCMRAMByte(_ value: UInt8) {
