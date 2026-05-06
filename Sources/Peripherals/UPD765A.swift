@@ -34,6 +34,7 @@ public final class UPD765A {
     package enum Command: Int {
         case readData = 1
         case readDeletedData = 2
+        case readDiagnostic = 3
         case readID = 4
         case writeData = 5
         case writeDeletedData = 6
@@ -87,6 +88,7 @@ public final class UPD765A {
         switch command {
         case .readData: return "ReadData"
         case .readDeletedData: return "ReadDelData"
+        case .readDiagnostic: return "ReadTrack"
         case .readID: return "ReadID"
         case .writeData: return "WriteData"
         case .writeDeletedData: return "WriteDelData"
@@ -332,7 +334,7 @@ public final class UPD765A {
 
         case .execution:
             switch command {
-            case .readData, .readDeletedData:
+            case .readData, .readDeletedData, .readDiagnostic:
                 // Read: one byte becomes ready every 128 T-states, matching QUASI88 CLOCK_BYTE().
                 if dataIndex < dataBuffer.count {
                     status = Self.DIO | Self.EXM | Self.CB
@@ -498,7 +500,7 @@ public final class UPD765A {
         if phase == .execution {
             finishExecution()
         } else if phase == .result {
-            if (command == .readData || command == .readDeletedData) &&
+            if (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
                (st0 & 0xC0 == Self.ST0_IC_AT) && (st1 & Self.ST1_EN != 0) {
                 // TC arrived just after finishExecution — retroactively fix AT+EN to NT
                 st0 = st0 & ~0xC0          // Clear IC bits → NT
@@ -516,7 +518,7 @@ public final class UPD765A {
     /// Advance FDC by T-states. Handles seek timing.
     public func tick(tStates: Int) {
         if phase == .execution &&
-            (command == .readData || command == .readDeletedData) &&
+            (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
             !readByteReady &&
             dataIndex < dataBuffer.count &&
             readByteWaitClocks > 0 {
@@ -537,7 +539,7 @@ public final class UPD765A {
         // giving Magical DOS / LION.d88 loaders the small pause they expect
         // before the controller collapses into result phase.
         if phase == .execution &&
-            (command == .readData || command == .readDeletedData) &&
+            (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
             readGraceClocks > 0 &&
             dataIndex >= dataBuffer.count {
             readGraceClocks -= tStates
@@ -628,7 +630,7 @@ public final class UPD765A {
             command = .writeDeletedData
             cmdBytesExpected = 8
         case 0x02: // Read Diagnostic (Read Track)
-            command = .readData  // treat similar
+            command = .readDiagnostic
             cmdBytesExpected = 8
         case 0x0A: // Read ID
             command = .readID
@@ -679,6 +681,9 @@ public final class UPD765A {
         case .readData, .readDeletedData:
             parseReadWrite()
             executeRead()
+        case .readDiagnostic:
+            parseReadWrite()
+            executeReadDiagnostic()
         case .writeData, .writeDeletedData:
             parseReadWrite()
             executeWrite()
@@ -961,6 +966,78 @@ public final class UPD765A {
             logCommand("ReadData:NOTFOUND", dataSize: 0)
             fdcLog.warning("FDC ReadData: sector NOT FOUND drive=\(us) pcnTrack=\(physicalTrack) cmdTrack=\(commandTrack) C=\(chrn.c) H=\(chrn.h) R=\(chrn.r)")
         }
+    }
+
+    private func executeReadDiagnostic() {
+        guard let disks = drives?() else {
+            abortNoReady()
+            return
+        }
+
+        guard us < disks.count, let disk = disks[us] else {
+            abortNoReady()
+            return
+        }
+
+        onDiskAccess?(us)
+
+        let physicalTrack = Int(pcn[us]) * 2 + hd
+        guard disk.tracks.indices.contains(physicalTrack),
+              let firstSector = disk.tracks[physicalTrack].first else {
+            st0 = UInt8(us) | UInt8(hd << 2) | Self.ST0_IC_AT
+            st1 = Self.ST1_MA
+            st2 = 0
+            setResult7()
+            phase = .result
+            interruptPending = true
+            onInterrupt?()
+            logCommand("ReadTrack:NOTFOUND", dataSize: 0)
+            return
+        }
+
+        st0 = UInt8(us) | UInt8(hd << 2)
+        st1 = 0
+        st2 = 0
+
+        // BubiC's Read Diagnostic checks only the first readable sector ID.
+        // If it does not match the requested CHRN, it still enters execution
+        // and streams the track from the first sector data field, with ST1_ND
+        // reported in the result phase.
+        if firstSector.c != chrn.c || firstSector.h != chrn.h ||
+            firstSector.r != chrn.r || firstSector.n != chrn.n {
+            st1 = Self.ST1_ND
+        }
+
+        let targetBytes = 0x80 << min(Int(chrn.n), 7)
+        var trackSector = firstSector
+        trackSector.data = rawTrackContinuationBytes(
+            sectors: disk.tracks[physicalTrack],
+            diskType: disk.diskType,
+            startSector: firstSector,
+            targetByteCount: targetBytes
+        ) ?? Array(firstSector.data.prefix(targetBytes))
+        if trackSector.data.count < targetBytes {
+            trackSector.data += [UInt8](repeating: 0xFF, count: targetBytes - trackSector.data.count)
+        }
+
+        let repeatCount = eot >= chrn.r ? max(1, Int(eot) - Int(chrn.r) + 1) : 1
+        executionReadSectors = Array(repeating: trackSector, count: repeatCount)
+        executionSectorSequence = (0..<repeatCount).map { offset in
+            (h: Int(chrn.h), r: UInt8(Int(chrn.r) + offset))
+        }
+        executionUsesLogicalSequence = false
+        executionStartR = chrn.r
+        executionStartH = chrn.h
+        executionMT = false
+        executionHD = hd
+        executionCurrentSectorIndex = 0
+        readGraceClocks = 0
+
+        phase = .execution
+        loadExecutionReadSector(index: 0)
+        let totalBytes = trackSector.data.count * repeatCount
+        logCommand("ReadTrack", dataSize: totalBytes)
+        fdcLog.debug("FDC ReadTrack: drive=\(us) track=\(physicalTrack) C=\(chrn.c) H=\(chrn.h) R=\(chrn.r) \(totalBytes) bytes")
     }
 
     private func executeWrite() {
@@ -1311,7 +1388,7 @@ public final class UPD765A {
         readGraceClocks = 0
 
         switch command {
-        case .readData, .readDeletedData:
+        case .readData, .readDeletedData, .readDiagnostic:
             if wasTC {
                 // TC received: normal termination, advance CHRN to next sector
                 advanceCHRNForTC()
