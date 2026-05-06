@@ -286,6 +286,7 @@ public final class CRTC {
 
         // Rising edge of VRTC → VSYNC interrupt
         if vrtcFlag && !wasVRTC {
+            updateBlink()
             onVSYNC?()
         }
     }

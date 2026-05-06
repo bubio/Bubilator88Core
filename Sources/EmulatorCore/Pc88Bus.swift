@@ -1338,7 +1338,6 @@ public final class Pc88Bus: Bus {
     /// Returns expanded per-character attribute array (cols × rows).
     public func readTextAttributes() -> [UInt8] {
         guard let crtc = crtc else { return Array(repeating: 0xE0, count: 2000) }
-        crtc.updateBlink()
         let cols = Int(crtc.charsPerLine)
         let rows = Int(crtc.linesPerScreen)
         let rowStride = crtc.bytesPerDMARow
