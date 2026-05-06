@@ -1155,7 +1155,7 @@ public final class YM2608 {
             adpcmMemAddr &= 0x3FFFFF
             updateIRQLine()
         }
-        if adpcmMemAddr >= adpcmLimitAddr {
+        if adpcmMemAddr == adpcmLimitAddr {
             adpcmMemAddr = 0
         }
 
@@ -1389,7 +1389,7 @@ public final class YM2608 {
                     adpcmMemAddr &= 0x3FFFFF
                     updateIRQLine()
                 }
-                if adpcmMemAddr >= adpcmLimitAddr {
+                if adpcmMemAddr == adpcmLimitAddr {
                     adpcmMemAddr = 0
                 }
             }

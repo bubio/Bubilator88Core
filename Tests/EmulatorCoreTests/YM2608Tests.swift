@@ -857,6 +857,41 @@ struct YM2608Tests {
         #expect(ym.adpcmRAM[0x28000] & 0x02 == 0x02)
     }
 
+    @Test("ADPCM RAM write wraps at limit only on exact address match")
+    func adpcmRAMWriteLimitUsesExactMatch() {
+        let ym = YM2608()
+        ym.reset()
+
+        ym.writeExtAddr(0x01)
+        ym.writeExtData(0x00)  // 1-bit RAM layout
+        ym.writeExtAddr(0x02)
+        ym.writeExtData(0xC0)
+        ym.writeExtAddr(0x03)
+        ym.writeExtData(0x43)  // start = 0x43C0 -> internal byte 0x10F00
+        ym.writeExtAddr(0x04)
+        ym.writeExtData(0xFF)
+        ym.writeExtAddr(0x05)
+        ym.writeExtData(0x3F)
+        ym.writeExtAddr(0x0C)
+        ym.writeExtData(0xFF)
+        ym.writeExtAddr(0x0D)
+        ym.writeExtData(0x3F)  // limit = 0x100000, below the start address
+
+        ym.writeExtAddr(0x00)
+        ym.writeExtData(0x60)
+        ym.writeExtAddr(0x08)
+        ym.writeExtData(0x11)
+        ym.writeExtAddr(0x08)
+        ym.writeExtData(0x22)
+        ym.writeExtAddr(0x08)
+        ym.writeExtData(0x33)
+
+        #expect(ym.adpcmRAM[0x10F00] == 0x11)
+        #expect(ym.adpcmRAM[0x10F01] == 0x22)
+        #expect(ym.adpcmRAM[0x10F02] == 0x33)
+        #expect(ym.adpcmRAM[0x00000] == 0x00)
+    }
+
     @Test("ADPCM output is fmgen-style interpolated")
     func adpcmInterpolatedOutput() {
         let ym = YM2608()
