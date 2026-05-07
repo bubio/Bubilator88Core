@@ -380,6 +380,31 @@ struct Pc88BusTests {
         #expect(bus.ioRead(0xE2) == 0xFE)
     }
 
+    @Test("Extended RAM port 0xE3 readback reports installed card")
+    func extRAMCardBankReadback() {
+        let bus = Pc88Bus()
+        let bank = Array(repeating: UInt8(0x00), count: 0x8000)
+        let card = Array(repeating: bank, count: 4)
+        bus.extRAM = [card, card]
+
+        bus.ioWrite(0xE3, value: 0x00)
+        #expect(bus.ioRead(0xE3) == 0xF0)
+
+        bus.ioWrite(0xE3, value: 0x06)  // card 1, bank 2
+        #expect(bus.ioRead(0xE3) == 0xF6)
+    }
+
+    @Test("Extended RAM port 0xE3 readback is open bus for missing card")
+    func extRAMMissingCardReadback() {
+        let bus = Pc88Bus()
+        let bank = Array(repeating: UInt8(0x00), count: 0x8000)
+        let card = Array(repeating: bank, count: 4)
+        bus.extRAM = [card]
+
+        bus.ioWrite(0xE3, value: 0x04)  // card 1, bank 0
+        #expect(bus.ioRead(0xE3) == 0xFF)
+    }
+
     @Test("Extended RAM card select uses bits 3-2 of port 0xE3")
     func extRAMCardSelectBits() {
         let bus = Pc88Bus()

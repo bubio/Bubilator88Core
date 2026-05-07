@@ -160,7 +160,7 @@ public final class Pc88Bus: Bus {
     /// Port 0xE2 bit 4 (RDEN): Extended RAM read enable
     public var extRAMReadEnable: Bool = false
 
-    /// Port 0xE3 bit 6-7: Selected card (0-3)
+    /// Port 0xE3 bit 3-2: Selected card (0-3)
     public var extRAMCard: Int = 0
 
     /// Port 0xE3 bit 0-1: Selected bank (0-3)
@@ -803,6 +803,14 @@ public final class Pc88Bus: Bus {
         case 0xE2:
             let ctrl: UInt8 = (extRAMReadEnable ? 0x01 : 0) | (extRAMWriteEnable ? 0x10 : 0)
             return ~ctrl | 0xEE
+
+        // Extended RAM card/bank select readback.
+        // X88000M returns 0xF0 | (card << 2) | bank when the selected card
+        // exists, or 0xFF when it does not. Some software uses this to detect
+        // the installed RAM-card capacity before probing memory contents.
+        case 0xE3:
+            guard let extRAM, extRAMCard < extRAM.count else { return 0xFF }
+            return 0xF0 | UInt8((extRAMCard & 0x03) << 2) | UInt8(extRAMBank & 0x03)
 
         // Kanji ROM Level 1 data (port 0xE9 = left, 0xE8 = right)
         case 0xE8:
@@ -1623,4 +1631,3 @@ public final class Pc88Bus: Bus {
         }
     }
 }
-
