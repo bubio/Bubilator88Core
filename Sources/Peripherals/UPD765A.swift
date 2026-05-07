@@ -1487,21 +1487,21 @@ public final class UPD765A {
         // accept that one-sector zero-based track as slot 1.
         //
         // Prefer exact C/H/R/N match; fall back to C/H/R-only match (N
-        // mismatch) so that copy-protection probes (F2グランプリSR: R=2 N=2 on
-        // R=2 N=1 disk, マイト&マジック: R=1 N=3 on R=1 N=1 track) enter the
-        // execution phase — real uPD765A reads whatever data sits at the
-        // matched sector, pads the transfer to 2^(cmdN+7) bytes, and fails
-        // CRC. The caller (resolveReadCandidate/executeRead) marks ST1_DE.
-        let allowNMismatch = eot < startR
+        // mismatch) for normal protection probes. High-R logical probes
+        // such as XYLOS R=0xF6,N=2 must stay "not found" when the disk only
+        // records R=0xF6,N=1; BubiC does not enter execution and the loader
+        // intentionally keeps the previous read buffer alive.
+        let rejectNMismatch = eot < startR && startR >= 0xF0
+        let allowNMismatch = eot < startR && !rejectNMismatch
         let singleSectorLogicalSlot = !tc && isSingleR0LogicalSlot(
             sectors: sectors, startC: startC, startH: startH,
             startR: startR, startN: startN)
         guard !tc,
               let startIndex = sectors.firstIndex(where: {
                   $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
-              }) ?? sectors.firstIndex(where: {
+              }) ?? (!rejectNMismatch ? sectors.firstIndex(where: {
                   $0.c == startC && $0.h == startH && $0.r == startR
-              }) ?? (singleSectorLogicalSlot ? 0 : nil) else {
+              }) : nil) ?? (singleSectorLogicalSlot ? 0 : nil) else {
             let startSector = sectors.first(where: {
                 $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
             }).map { [$0] } ?? []
@@ -1546,7 +1546,8 @@ public final class UPD765A {
         startN: UInt8,
         eot: UInt8
     ) -> (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)? {
-        let allowNMismatch = eot < startR
+        let rejectNMismatch = eot < startR && startR >= 0xF0
+        let allowNMismatch = eot < startR && !rejectNMismatch
         guard track >= 0, track < disk.tracks.count else { return nil }
         let trackSectors = disk.tracks[track]
         let singleSectorLogicalSlot = isSingleR0LogicalSlot(
@@ -1564,11 +1565,26 @@ public final class UPD765A {
         let sector: D88Disk.Sector?
         if let exactMatch {
             sector = exactMatch
-        } else if allowNMismatch {
-            sector = disk.findSector(track: track, c: startC, h: startH, r: startR, n: startN)
+        } else if allowNMismatch, let chrMatch = trackSectors.first(where: {
+            $0.c == startC && $0.h == startH && $0.r == startR
+        }) {
+            let cmdSize = 0x80 << min(Int(startN), 7)
+            if chrMatch.n != startN && chrMatch.data.count < cmdSize {
+                var padded = chrMatch
+                let synth = rawTrackContinuationBytes(
+                    sectors: trackSectors,
+                    diskType: disk.diskType,
+                    startSector: chrMatch,
+                    targetByteCount: cmdSize
+                )
+                padded.data = synth ?? chrMatch.data + [UInt8](repeating: 0xFF, count: cmdSize - chrMatch.data.count)
+                sector = padded
+            } else {
+                sector = chrMatch
+            }
         } else if singleSectorLogicalSlot {
             sector = trackSectors[0]
-        } else if let chrMatch = trackSectors.first(where: {
+        } else if !rejectNMismatch, let chrMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR
         }) {
             let cmdSize = 0x80 << min(Int(startN), 7)

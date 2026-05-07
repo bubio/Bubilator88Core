@@ -410,6 +410,42 @@ struct UPD765ATests {
         #expect(results[1] & UPD765A.ST1_DE != 0)
     }
 
+    @Test func readDataHighRWithEOTLessThanRRejectsNMismatchWithoutTransfer() {
+        // XYLOS protection first reads R=0xF7,N=2, then probes R=0xF6,N=2
+        // while the disk records R=0xF6 as N=1. BubiC treats that high-R
+        // N-mismatch as not found, without entering execution, so the loader
+        // can keep using the previous R=0xF7 data in the sub-CPU buffer.
+        var disk = D88Disk()
+        var sectorF6 = D88Disk.Sector()
+        sectorF6.c = 1
+        sectorF6.h = 1
+        sectorF6.r = 0xF6
+        sectorF6.n = 1
+        sectorF6.sectorCount = 17
+        sectorF6.data = Array(repeating: 0xA5, count: 256)
+        disk.tracks[3].append(sectorF6)
+
+        var sectorF7 = D88Disk.Sector()
+        sectorF7.c = 1
+        sectorF7.h = 1
+        sectorF7.r = 0xF7
+        sectorF7.n = 2
+        sectorF7.sectorCount = 17
+        sectorF7.data = Array(repeating: 0x5A, count: 512)
+        disk.tracks[3].append(sectorF7)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 1
+
+        writeReadDataCmd(fdc, head: 1, c: 1, h: 1, r: 0xF6, n: 2, eot: 0x1E, gpl: 0x1B, dtl: 0xFF)
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_ND != 0)
+        #expect(fdc.commandLog.last?.dataSize == 0)
+    }
+
     @Test func readDiagnosticStreamsTrackWhenFirstIDDoesNotMatch() {
         // Ultima III issues Read Diagnostic on a protection track whose first
         // sector ID is intentionally not the requested CHRN. BubiC still
