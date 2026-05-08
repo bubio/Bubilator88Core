@@ -19,6 +19,25 @@ struct UPD765ATests {
         return disk
     }
 
+    private func makeTwoHeadDisk(c: UInt8 = 0, n: UInt8 = 2,
+                                 head0: [(r: UInt8, data: [UInt8])],
+                                 head1: [(r: UInt8, data: [UInt8])]) -> D88Disk {
+        var disk = D88Disk()
+        for s in head0 {
+            var sector = D88Disk.Sector()
+            sector.c = c; sector.h = 0; sector.r = s.r; sector.n = n
+            sector.data = s.data
+            disk.tracks[0].append(sector)
+        }
+        for s in head1 {
+            var sector = D88Disk.Sector()
+            sector.c = c; sector.h = 1; sector.r = s.r; sector.n = n
+            sector.data = s.data
+            disk.tracks[1].append(sector)
+        }
+        return disk
+    }
+
     /// Create an FDC with a disk mounted in drive 0.
     private func makeFDCWithDisk(_ disk: D88Disk) -> (UPD765A, [D88Disk?]) {
         let fdc = UPD765A()
@@ -1061,5 +1080,33 @@ struct UPD765ATests {
             // If sector not found, that's also acceptable for missing sectors
             #expect(fdc.phase == .result)
         }
+    }
+
+    @Test("MT ReadData reports final head in ST0 after crossing to head 1")
+    func readDataMTResultST0UsesFinalHead() {
+        let sectorSize = 512
+        let disk = makeTwoHeadDisk(
+            head0: (1...9).map { (UInt8($0), Array(repeating: UInt8($0), count: sectorSize)) },
+            head1: (1...9).map { (UInt8($0), Array(repeating: UInt8($0 + 0x10), count: sectorSize)) }
+        )
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        fdc.writeData(0xC6)  // MT + MFM + Read Data
+        fdc.writeData(0x00)  // drive 0, head 0
+        fdc.writeData(0x00)  // C
+        fdc.writeData(0x00)  // H
+        fdc.writeData(0x02)  // R
+        fdc.writeData(0x02)  // N = 512 bytes
+        fdc.writeData(0x09)  // EOT
+        fdc.writeData(0x20)  // GPL
+        fdc.writeData(0xFF)  // DTL
+
+        _ = readExecutionBytes(fdc, count: 17 * sectorSize)
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0x04 != 0)
+        #expect(results[4] == 1)
+        #expect(results[5] == 9)
     }
 }

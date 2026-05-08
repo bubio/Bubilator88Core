@@ -1389,6 +1389,7 @@ public final class UPD765A {
 
         switch command {
         case .readData, .readDeletedData, .readDiagnostic:
+            let completedHead = completedReadHead()
             if wasTC {
                 // TC received: normal termination, advance CHRN to next sector
                 advanceCHRNForTC()
@@ -1398,6 +1399,7 @@ public final class UPD765A {
                 st1 |= Self.ST1_EN
                 advanceCHRNForEOT()
             }
+            refreshST0UnitAndHead(head: completedHead)
             setResult7()
             phase = .result
             interruptPending = true
@@ -1854,6 +1856,22 @@ public final class UPD765A {
             chrn.h = 1
         }
         chrn.r = eot
+    }
+
+    private func completedReadHead() -> UInt8 {
+        guard !executionSectorSequence.isEmpty else {
+            return chrn.h & 0x01
+        }
+        var sectorIndex = max(0, executionCurrentSectorIndex)
+        if dataIndex == 0 && sectorIndex > 0 {
+            sectorIndex -= 1
+        }
+        let currentIndex = min(sectorIndex, executionSectorSequence.count - 1)
+        return UInt8(executionSectorSequence[currentIndex].h & 0x01)
+    }
+
+    private func refreshST0UnitAndHead(head: UInt8) {
+        st0 = (st0 & 0xF8) | UInt8(us & 0x03) | ((head & 0x01) << 2)
     }
 
     // MARK: - Helpers
