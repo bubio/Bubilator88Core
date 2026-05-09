@@ -610,6 +610,9 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
     }
     machine.installExtRAM()
     machine.clock8MHz = (ProcessInfo.processInfo.environment["CLOCK_4MHZ"] == nil)
+    if let oc = ProcessInfo.processInfo.environment["BOOTTEST_CPU_OVERCLOCK"], let n = Int(oc) {
+        machine.cpuOverclock = n
+    }
     if ProcessInfo.processInfo.environment["BOOTTEST_FORCE_OPN"] != nil {
         machine.sound.forceOPNMode = true
     }

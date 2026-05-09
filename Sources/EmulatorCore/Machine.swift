@@ -192,6 +192,22 @@ public final class Machine: @unchecked Sendable {
         clock8MHz ? 133_333 : 66_667  // 8MHz/60Hz or 4MHz/60Hz
     }
 
+    /// CPU overclock multiplier (1 = real speed, 2 = 2×, 4 = 4×).
+    ///
+    /// "Processing-loss compensation" mode: CPU executes N× more
+    /// instructions per wall-clock frame, while CRTC, FM/SSG, RTC, and
+    /// sub-CPU progress at real speed. Game music tempo and 60Hz frame
+    /// pacing are preserved; CPU-bound scenes regain headroom.
+    ///
+    /// Only honored by the fast path of `run(tStates:)`. Debugger / trace
+    /// paths fall back to 1× (rare during normal play).
+    public var cpuOverclock: Int = 1 {
+        didSet {
+            if cpuOverclock < 1 { cpuOverclock = 1 }
+            if cpuOverclock > 8 { cpuOverclock = 8 }
+        }
+    }
+
     /// T-states per scanline (dynamic based on CRTC mode)
     public var tStatesPerLine: Int {
         tStatesPerFrame / crtc.dynamicTotalScanlines
@@ -456,44 +472,63 @@ public final class Machine: @unchecked Sendable {
         let _tStatesPerLine = tStatesPerLine
         let _tStatesPerRTC = tStatesPerRTC
         let _soundBatchThreshold = sound.fmTStatesPerSample  // 144 at 8MHz, 72 at 4MHz
-        var executed = 0
+        let _overclock = max(1, cpuOverclock)
+        let cpuTarget = target * _overclock
+        var cpuExecuted = 0
+        var executed = 0  // real wall-clock T-states (devices)
+        var realFracAccum = 0
         var soundAccum = 0
 
-        while executed < target {
+        while cpuExecuted < cpuTarget {
             let cycles = cpu.step(bus: bus)
 
             let waitCycles = bus.pendingWaitStates
             bus.pendingWaitStates = 0
-            let totalCycles = cycles + waitCycles
+            let totalCpuCycles = cycles + waitCycles
 
-            crtc.tick(tStates: totalCycles, tStatesPerLine: _tStatesPerLine)
-            cassette.tick(tStates: totalCycles)
-            soundAccum += totalCycles
-            if soundAccum >= _soundBatchThreshold {
-                sound.tick(tStates: soundAccum)
-                soundAccum = 0
+            // Devices progress in real wall-clock T-states (= cpu / N).
+            realFracAccum += totalCpuCycles
+            let realCycles = realFracAccum / _overclock
+            realFracAccum -= realCycles * _overclock
+
+            if realCycles > 0 {
+                crtc.tick(tStates: realCycles, tStatesPerLine: _tStatesPerLine)
+                cassette.tick(tStates: realCycles)
+                soundAccum += realCycles
+                if soundAccum >= _soundBatchThreshold {
+                    sound.tick(tStates: soundAccum)
+                    soundAccum = 0
+                }
+                driveSub(mainCycles: realCycles)
+                bus.vrtcFlag = crtc.vrtcFlag
+
+                rtcCounter += realCycles
+                if rtcCounter >= _tStatesPerRTC {
+                    rtcCounter -= _tStatesPerRTC
+                    interruptBox.controller.request(level: .rtc)
+                }
+
+                totalTStates += UInt64(realCycles)
+                executed += realCycles
             }
-            driveSub(mainCycles: totalCycles)
-            bus.vrtcFlag = crtc.vrtcFlag
 
-            rtcCounter += totalCycles
-            if rtcCounter >= _tStatesPerRTC {
-                rtcCounter -= _tStatesPerRTC
-                interruptBox.controller.request(level: .rtc)
-            }
-
-            totalTStates += UInt64(totalCycles)
-            executed += totalCycles
+            cpuExecuted += totalCpuCycles
 
             if cpu.iff1, let irq = interruptBox.controller.resolve() {
                 let ackCycles = cpu.interrupt(vector: irq.vectorOffset, bus: bus)
                 interruptBox.controller.acknowledge(level: irq.level)
-                crtc.tick(tStates: ackCycles, tStatesPerLine: _tStatesPerLine)
-                cassette.tick(tStates: ackCycles)
-                soundAccum += ackCycles
-                totalTStates += UInt64(ackCycles)
-                rtcCounter += ackCycles
-                executed += ackCycles
+                realFracAccum += ackCycles
+                let ackReal = realFracAccum / _overclock
+                realFracAccum -= ackReal * _overclock
+                if ackReal > 0 {
+                    crtc.tick(tStates: ackReal, tStatesPerLine: _tStatesPerLine)
+                    cassette.tick(tStates: ackReal)
+                    soundAccum += ackReal
+                    totalTStates += UInt64(ackReal)
+                    rtcCounter += ackReal
+                    executed += ackReal
+                }
+                cpuExecuted += ackCycles
             }
         }
 
