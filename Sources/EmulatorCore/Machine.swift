@@ -611,8 +611,13 @@ public final class Machine: @unchecked Sendable {
     }
 
     /// Install extended RAM (cards × banks × 32KB).
-    /// Default: 1 card, 4 banks = 128KB.
+    /// Default: 1 card, 4 banks = 128KB. cards=0 disables extended RAM.
+    /// cards=8 enables 1MB linear addressing via port 0xE3 (QUASI88-compatible).
     public func installExtRAM(cards: Int = 1, banksPerCard: Int = 4) {
+        if cards <= 0 {
+            bus.extRAM = nil
+            return
+        }
         let bank = Array(repeating: UInt8(0x00), count: 0x8000) // 32KB
         let card = Array(repeating: bank, count: banksPerCard)
         bus.extRAM = Array(repeating: card, count: cards)

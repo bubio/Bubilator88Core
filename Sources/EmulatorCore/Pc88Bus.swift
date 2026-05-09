@@ -149,10 +149,15 @@ public final class Pc88Bus: Bus {
  
     // MARK: - Extended RAM
 
-    /// Extended RAM: up to 4 cards × 4 banks × 32KB = 512KB total.
-    /// Indexed as [card][bank][offset], each bank is 32KB.
+    /// Extended RAM: up to N cards × 4 banks × 32KB. Default 1 card = 128KB.
+    /// 8 cards = 1MB (QUASI88-compatible extended addressing via port 0xE3
+    /// bits 4-5). Indexed as [card][bank][offset], each bank is 32KB.
     /// Nil if no extended RAM is installed.
     public var extRAM: [[[UInt8]]]?
+
+    /// Number of installed extended RAM cards. Derived from `extRAM.count`.
+    /// Selects the port 0xE3 bank decode range (cards × 4 banks).
+    public var extramCardCount: Int { extRAM?.count ?? 0 }
 
     /// Port 0xE2 bit 0 (WREN): Extended RAM write enable
     public var extRAMWriteEnable: Bool = false
@@ -160,11 +165,15 @@ public final class Pc88Bus: Bus {
     /// Port 0xE2 bit 4 (RDEN): Extended RAM read enable
     public var extRAMReadEnable: Bool = false
 
-    /// Port 0xE3 bit 3-2: Selected card (0-3)
+    /// Selected card index (decoded from port 0xE3 according to card count).
+    /// 0xFF = out-of-range select, returns 0xFF on read.
     public var extRAMCard: Int = 0
 
-    /// Port 0xE3 bit 0-1: Selected bank (0-3)
+    /// Selected bank index within the card (0-3).
     public var extRAMBank: Int = 0
+
+    /// Last raw value written to port 0xE3 (for readback).
+    public var extRAMBankRaw: UInt8 = 0
 
     // MARK: - Kanji ROM
 
@@ -358,6 +367,7 @@ public final class Pc88Bus: Bus {
         extRAMReadEnable = false
         extRAMCard = 0
         extRAMBank = 0
+        extRAMBankRaw = 0
         kanjiAddr1 = 0
         kanjiAddr2 = 0
         port30w = 0
@@ -805,12 +815,23 @@ public final class Pc88Bus: Bus {
             return ~ctrl | 0xEE
 
         // Extended RAM card/bank select readback.
-        // X88000M returns 0xF0 | (card << 2) | bank when the selected card
-        // exists, or 0xFF when it does not. Some software uses this to detect
-        // the installed RAM-card capacity before probing memory contents.
+        // QUASI88 non-linear ("実機っぽく") encoding (`pc88main.c:1772-1804`):
+        //   cards<=4: bank | 0xF0
+        //   cards==8: bank<8 → bank | 0xF0, else ((bank & 0x18)<<1) | (bank & 0x07)
+        // Returns 0xFF when no card is selected. Software probes installed
+        // capacity by writing each bank value and checking the readback.
         case 0xE3:
-            guard let extRAM, extRAMCard < extRAM.count else { return 0xFF }
-            return 0xF0 | UInt8((extRAMCard & 0x03) << 2) | UInt8(extRAMBank & 0x03)
+            let cards = extramCardCount
+            guard cards > 0, extRAMCard != 0xFF else { return 0xFF }
+            let bank = (extRAMCard << 2) | (extRAMBank & 0x03)
+            if cards <= 4 {
+                return UInt8(bank & 0x0F) | 0xF0
+            }
+            if cards == 8 {
+                if bank < 8 { return UInt8(bank) | 0xF0 }
+                return UInt8(((bank & 0x18) << 1) | (bank & 0x07))
+            }
+            return 0xFF
 
         // Kanji ROM Level 1 data (port 0xE9 = left, 0xE8 = right)
         case 0xE8:
@@ -1036,11 +1057,32 @@ public final class Pc88Bus: Bus {
             extRAMWriteEnable = (value & 0x10) != 0
             busLog.debug("Port 0xE2: val=0x\(hex(value)) readEnable=\(extRAMReadEnable) writeEnable=\(extRAMWriteEnable)")
 
-        // Extended RAM card/bank select (port 0xE3)
-        // BubiC: lower 4 bits only. bits 1-0=bank, bits 3-2=card
+        // Extended RAM card/bank select (port 0xE3).
+        // QUASI88 non-linear ("実機っぽく") decode (`pc88main.c:1378-1404`):
+        //   cards<=4: bank = data & 0x0F (valid if bank < cards*4)
+        //   cards==8: bank = ((data & 0x30) >> 1) | (data & 0x07) (5-bit, 32 banks)
+        // Out-of-range values disable selection (extRAMCard = 0xFF).
         case 0xE3:
-            extRAMCard = Int((value >> 2) & 0x03)
-            extRAMBank = Int(value & 0x03)
+            extRAMBankRaw = value
+            let cards = extramCardCount
+            var flatBank = -1
+            if cards <= 4 {
+                let b = Int(value & 0x0F)
+                if b < cards * 4 { flatBank = b }
+            } else if cards == 8 {
+                // Bit 3 must be 0 (QUASI88: valid patterns 00-07,10-17,20-27,30-37)
+                if (value & 0x08) == 0 {
+                    let b = Int(((value & 0x30) >> 1) | (value & 0x07))
+                    if b < 32 { flatBank = b }
+                }
+            }
+            if flatBank >= 0 {
+                extRAMCard = flatBank >> 2
+                extRAMBank = flatBank & 0x03
+            } else {
+                extRAMCard = 0xFF
+                extRAMBank = 0
+            }
             busLog.debug("Port 0xE3: val=0x\(hex(value)) card=\(extRAMCard) bank=\(extRAMBank)")
 
         // Kanji ROM Level 1 address (port 0xE8=low, 0xE9=high)

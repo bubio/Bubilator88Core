@@ -432,6 +432,66 @@ struct Pc88BusTests {
         #expect(bus.memRead(0x3000) == 0xBB)
     }
 
+    @Test("Extended RAM 1MB (8 cards) port 0xE3 5-bit bank select")
+    func extRAM1MBBankSelect() {
+        let bus = Pc88Bus()
+        let bankBuf = Array(repeating: UInt8(0x00), count: 0x8000)
+        let card = Array(repeating: bankBuf, count: 4)
+        bus.extRAM = Array(repeating: card, count: 8)  // 8 cards × 4 banks = 1MB
+
+        // Write 0x37 → bank = ((0x30 >> 1) | 0x07) = 0x1F = bank 31 (last)
+        bus.ioWrite(0xE3, value: 0x37)
+        bus.ioWrite(0xE2, value: 0x10)  // WREN
+        bus.memWrite(0x2000, value: 0xCC)
+
+        // Write 0x00 → bank 0 (first)
+        bus.ioWrite(0xE3, value: 0x00)
+        bus.memWrite(0x2000, value: 0xDD)
+
+        // Read back bank 31
+        bus.ioWrite(0xE2, value: 0x01)  // RDEN
+        bus.ioWrite(0xE3, value: 0x37)
+        #expect(bus.memRead(0x2000) == 0xCC)
+
+        // Read back bank 0
+        bus.ioWrite(0xE3, value: 0x00)
+        #expect(bus.memRead(0x2000) == 0xDD)
+    }
+
+    @Test("Extended RAM 1MB port 0xE3 readback round-trips written value")
+    func extRAM1MBReadback() {
+        let bus = Pc88Bus()
+        let bankBuf = Array(repeating: UInt8(0x00), count: 0x8000)
+        let card = Array(repeating: bankBuf, count: 4)
+        bus.extRAM = Array(repeating: card, count: 8)
+
+        // Banks 0-7 (data 0x00-0x07): readback = data | 0xF0
+        bus.ioWrite(0xE3, value: 0x05)
+        #expect(bus.ioRead(0xE3) == 0xF5)
+
+        // Banks 8+ (data 0x10-0x17, 0x20-0x27, 0x30-0x37): round-trip
+        bus.ioWrite(0xE3, value: 0x37)
+        #expect(bus.ioRead(0xE3) == 0x37)
+
+        // Bit 3 set is invalid in 1MB mode → 0xFF
+        bus.ioWrite(0xE3, value: 0x08)
+        #expect(bus.ioRead(0xE3) == 0xFF)
+    }
+
+    @Test("Extended RAM disabled (0 cards) returns ROM/RAM, not ext RAM")
+    func extRAMZeroCards() {
+        let bus = Pc88Bus()
+        bus.extRAM = nil  // No cards installed
+        bus.ramMode = true
+        bus.mainRAM[0x1000] = 0x42
+
+        // Even with read enable set, ext RAM is absent
+        bus.ioWrite(0xE2, value: 0x01)  // RDEN
+        bus.ioWrite(0xE3, value: 0x00)
+        #expect(bus.memRead(0x1000) == 0x42)
+        #expect(bus.ioRead(0xE3) == 0xFF)
+    }
+
     @Test("Extended RAM does not interfere when disabled")
     func extRAMDisabledNoInterference() {
         let bus = Pc88Bus()
