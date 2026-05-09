@@ -118,6 +118,11 @@ extension UPD765A {
         }
         buf.append(executionUsesLogicalSequence ? 1 : 0)
 
+        // Optional tail fields added after the original fixed layout so older
+        // save states can still be loaded by inferring M88M's reset default.
+        for i in 0..<4 { buf.append(physicalCylinder[i]) }
+        for i in 0..<4 { buf.append(doubleStep[i] ? 1 : 0) }
+
         return buf
     }
 
@@ -235,6 +240,14 @@ extension UPD765A {
             executionSectorSequence.append((h: h, r: rv))
         }
         executionUsesLogicalSequence = data[pos] != 0; pos += 1
+
+        if data.count - pos >= 8 {
+            for i in 0..<4 { physicalCylinder[i] = data[pos]; pos += 1 }
+            for i in 0..<4 { doubleStep[i] = data[pos] != 0; pos += 1 }
+        } else {
+            doubleStep = [false, false, false, false]
+            physicalCylinder = pcn
+        }
 
         return true
     }

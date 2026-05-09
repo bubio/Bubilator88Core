@@ -245,6 +245,35 @@ public struct D88Disk {
         return false
     }
 
+    /// Replace a track with freshly formatted sectors. Returns false if write-protected
+    /// or the target track is outside the D88 track table.
+    public mutating func formatTrack(
+        track: Int,
+        sectorIDs: [(c: UInt8, h: UInt8, r: UInt8, n: UInt8)],
+        fillByte: UInt8
+    ) -> Bool {
+        guard !writeProtected else { return false }
+        guard track >= 0 && track < tracks.count else { return false }
+
+        let sectorCount = UInt16(min(sectorIDs.count, Int(UInt16.max)))
+        tracks[track] = sectorIDs.map { id in
+            var sector = Sector()
+            sector.c = id.c
+            sector.h = id.h
+            sector.r = id.r
+            sector.n = id.n
+            sector.sectorCount = sectorCount
+            sector.density = 0x00
+            sector.deleted = false
+            sector.status = 0
+            let sizeCode = min(Int(id.n), 7)
+            sector.data = Array(repeating: fillByte, count: 128 << sizeCode)
+            return sector
+        }
+        dirty = true
+        return true
+    }
+
     // MARK: - Serialization
 
     /// Serialize back to D88 format. Returns nil if structure is invalid.

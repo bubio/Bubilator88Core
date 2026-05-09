@@ -139,6 +139,8 @@ public final class UPD765A {
 
     /// Per-drive state
     public var pcn: [UInt8] = [0, 0, 0, 0]  // Present cylinder number
+    package var physicalCylinder: [UInt8] = [0, 0, 0, 0]
+    package var doubleStep: [Bool] = [false, false, false, false]
 
     /// Seek state per drive
     package enum SeekState {
@@ -184,6 +186,9 @@ public final class UPD765A {
 
     /// Write sector back to disk (via closure)
     public var writeSector: ((_ drive: Int, _ track: Int, _ c: UInt8, _ h: UInt8, _ r: UInt8, _ data: [UInt8]) -> Bool)?
+
+    /// Format a track on disk (via closure)
+    public var formatTrack: ((_ drive: Int, _ track: Int, _ sectorIDs: [(c: UInt8, h: UInt8, r: UInt8, n: UInt8)], _ fillByte: UInt8) -> Bool)?
 
     /// Disk access indicator callback (drive number)
     public var onDiskAccess: ((_ drive: Int) -> Void)?
@@ -300,6 +305,8 @@ public final class UPD765A {
         writeByteWaitClocks = 0
         st0 = 0; st1 = 0; st2 = 0; st3 = 0
         pcn = [0, 0, 0, 0]
+        physicalCylinder = [0, 0, 0, 0]
+        doubleStep = [false, false, false, false]
         seekState = [.stopped, .stopped, .stopped, .stopped]
         seekMoving = [false, false, false, false]
         seekTarget = [0, 0, 0, 0]
@@ -513,6 +520,18 @@ public final class UPD765A {
         }
     }
 
+    /// Update drive density/track-step mode from the PC-8801 FDC drive-control port.
+    ///
+    /// Port 0xF4 TD bits match M88M:
+    /// - TDx=0: 48TPI logical cylinders double-step on a 96TPI mechanism.
+    /// - TDx=1: 96TPI direct stepping.
+    public func setDriveControl(_ value: UInt8) {
+        for drive in 0..<2 {
+            doubleStep[drive] = (value & UInt8(0x04 << drive)) == 0
+            physicalCylinder[drive] = physicalCylinderForLogical(pcn[drive], drive: drive)
+        }
+    }
+
     // MARK: - Timing
 
     /// Advance FDC by T-states. Handles seek timing.
@@ -581,9 +600,11 @@ public final class UPD765A {
             while seekWait[i] <= 0 {
                 if pcn[i] < seekTarget[i] {
                     pcn[i] += 1
+                    physicalCylinder[i] = physicalCylinderForLogical(pcn[i], drive: i)
                     onSeekStep?(i, pcn[i])
                 } else if pcn[i] > seekTarget[i] {
                     pcn[i] -= 1
+                    physicalCylinder[i] = physicalCylinderForLogical(pcn[i], drive: i)
                     onSeekStep?(i, pcn[i])
                 }
 
@@ -781,6 +802,25 @@ public final class UPD765A {
         logCommand("Specify", dataSize: 0)
     }
 
+    private func d88Track(cylinder: UInt8, drive: Int, head: Int) -> Int {
+        Int(cylinder) * 2 + head
+    }
+
+    private func d88TrackForCurrentPosition(drive: Int, head: Int) -> Int {
+        let cylinder: UInt8
+        if doubleStep.indices.contains(drive), doubleStep[drive] {
+            cylinder = physicalCylinder.indices.contains(drive) ? physicalCylinder[drive] : 0
+        } else {
+            cylinder = pcn.indices.contains(drive) ? pcn[drive] : 0
+        }
+        return d88Track(cylinder: cylinder, drive: drive, head: head)
+    }
+
+    private func physicalCylinderForLogical(_ cylinder: UInt8, drive: Int) -> UInt8 {
+        guard doubleStep.indices.contains(drive), doubleStep[drive] else { return cylinder }
+        return cylinder <= 0x7F ? cylinder << 1 : cylinder
+    }
+
     // MARK: - Command Execution
 
     private func executeRead() {
@@ -805,8 +845,8 @@ public final class UPD765A {
         // - Some loaders in the wild tolerate stale PCN and still expect the command cylinder to
         //   win. For normal R..EOT reads we evaluate both candidates and keep the longer sequence.
         let usesLogicalSlotOrdering = eot < chrn.r
-        let physicalTrack = Int(pcn[us]) * 2 + hd
-        let commandTrack = Int(chrn.c) * 2 + hd
+        let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
+        let commandTrack = d88Track(cylinder: chrn.c, drive: us, head: hd)
 
         let selectedCandidate: (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)?
         if usesLogicalSlotOrdering {
@@ -981,7 +1021,7 @@ public final class UPD765A {
 
         onDiskAccess?(us)
 
-        let physicalTrack = Int(pcn[us]) * 2 + hd
+        let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
         guard disk.tracks.indices.contains(physicalTrack),
               let firstSector = disk.tracks[physicalTrack].first else {
             st0 = UInt8(us) | UInt8(hd << 2) | Self.ST0_IC_AT
@@ -1066,19 +1106,35 @@ public final class UPD765A {
             return
         }
 
-        let d88Track = Int(chrn.c) * 2 + hd
+        let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
+        let commandTrack = d88Track(cylinder: chrn.c, drive: us, head: hd)
 
         // Resolve the multi-sector write sequence via the same R..EOT walk as
         // reads, so duplicate/missing sector handling stays consistent.
-        let writeCandidate = resolveWriteSequence(
+        let physicalCandidate = resolveWriteSequence(
             disk: disk,
-            track: d88Track,
+            track: physicalTrack,
             startC: chrn.c,
             startH: UInt8(hd),
             startR: chrn.r,
             startN: chrn.n,
             eot: eot
         )
+        let commandCandidate: (track: Int, sectors: [D88Disk.Sector])?
+        if commandTrack == physicalTrack {
+            commandCandidate = physicalCandidate
+        } else {
+            commandCandidate = resolveWriteSequence(
+                disk: disk,
+                track: commandTrack,
+                startC: chrn.c,
+                startH: UInt8(hd),
+                startR: chrn.r,
+                startN: chrn.n,
+                eot: eot
+            )
+        }
+        let writeCandidate = physicalCandidate ?? commandCandidate
         if let writeCandidate {
             st0 = UInt8(us) | UInt8(hd << 2)
             st1 = 0; st2 = 0
@@ -1180,7 +1236,7 @@ public final class UPD765A {
             return
         }
 
-        let d88Track = Int(pcn[us]) * 2 + hd
+        let d88Track = d88TrackForCurrentPosition(drive: us, head: hd)
 
         // Pick the next sector ID on the current track. Real hardware rotates
         // through IDs as the disk spins; some protection routines enumerate all
@@ -1224,6 +1280,30 @@ public final class UPD765A {
     }
 
     private func executeFormatTrack() {
+        guard let disks = drives?() else {
+            abortNoReady()
+            return
+        }
+
+        guard us < disks.count, let disk = disks[us] else {
+            abortNoReady()
+            return
+        }
+
+        onDiskAccess?(us)
+
+        if disk.writeProtected {
+            st0 = UInt8(us) | UInt8(hd << 2) | Self.ST0_IC_AT
+            st1 = Self.ST1_NW
+            st2 = 0
+            setResult7()
+            phase = .result
+            interruptPending = true
+            onInterrupt?()
+            logCommand("FormatTrack:WP", dataSize: 0)
+            return
+        }
+
         // Receive 4 bytes per sector (C, H, R, N) × sc sectors
         formatIDs = []
         formatIDIndex = 0
@@ -1238,26 +1318,17 @@ public final class UPD765A {
     }
 
     private func handleFormatByte(_ value: UInt8) {
-        // Accumulate 4 bytes per sector ID
-        if dataIndex % 4 == 0 && dataIndex > 0 {
-            let base = dataIndex - 4
-            formatIDs.append((
-                c: dataBuffer[base],
-                h: dataBuffer[base + 1],
-                r: dataBuffer[base + 2],
-                n: dataBuffer[base + 3]
-            ))
-        }
         if dataIndex >= dataBufferExpectedSize {
-            // Parse last ID
-            if dataIndex >= 4 {
-                let base = dataIndex - 4
+            formatIDs = []
+            var base = 0
+            while base + 3 < dataBufferExpectedSize {
                 formatIDs.append((
                     c: dataBuffer[base],
                     h: dataBuffer[base + 1],
                     r: dataBuffer[base + 2],
                     n: dataBuffer[base + 3]
                 ))
+                base += 4
             }
             finishFormatExecution()
         }
@@ -1270,8 +1341,13 @@ public final class UPD765A {
         st1 = 0; st2 = 0
         chrn = formatIDs.last.map { (c: $0.c, h: $0.h, r: $0.r, n: $0.n) }
             ?? (c: 0, h: 0, r: 0, n: 0)
-        // Format is not actually written to disk image (stub)
+        let track = d88TrackForCurrentPosition(drive: us, head: hd)
+        if formatTrack?(us, track, formatIDs, fillByte) != true {
+            st0 |= Self.ST0_IC_AT
+            st1 = Self.ST1_NW
+        }
         setResult7()
+        logCommand("FormatTrack", dataSize: dataBufferExpectedSize)
         phase = .result
         interruptPending = true
         onInterrupt?()
@@ -1353,11 +1429,18 @@ public final class UPD765A {
         let diskInserted = us < disks.count && disks[us] != nil
         let writeProtected = diskInserted && (disks[us]?.writeProtected ?? false)
 
-        if diskExchanged[us] {
+        if !diskInserted {
+            // M88M reports the drive mechanism as ready even when no disk is
+            // inserted, but does not assert the two-sided media bit. Digan's
+            // disk-change flow probes Drive 2 this way and treats Not Ready
+            // as a hard read error before it can prompt for the user disk.
+            st3 |= 0x20
+            if pcn[us] == 0 { st3 |= 0x10 }
+        } else if diskExchanged[us] {
             // Disk was just swapped — return Ready but WITHOUT Two-Sided/WP.
             // (QUASI88: disk_ex_drv toggle)
             diskExchanged[us] = false
-            if diskInserted { st3 |= 0x20 }  // Ready
+            st3 |= 0x20  // Ready
             if pcn[us] == 0 { st3 |= 0x10 }  // Track 0
         } else {
             // BubiC (upd765a.cpp:697): TS is always asserted when the drive

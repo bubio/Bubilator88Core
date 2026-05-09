@@ -177,6 +177,7 @@ public final class SubBus: Bus {
         case 0xF4:
             // Drive/side select
             driveSelect = value
+            fdc?.setDriveControl(value)
 
         case 0xF7:
             // Sub-CPU flag (side select, etc.)

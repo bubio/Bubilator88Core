@@ -46,6 +46,9 @@ struct UPD765ATests {
         fdc.writeSector = { drive, track, c, h, r, data in
             disks[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
         }
+        fdc.formatTrack = { drive, track, sectorIDs, fillByte in
+            disks[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+        }
         return (fdc, disks)
     }
 
@@ -147,7 +150,8 @@ struct UPD765ATests {
 
         #expect(fdc.phase == .result)
         let st3 = fdc.readData()
-        #expect(st3 & 0x20 == 0)  // Not ready
+        #expect(st3 & 0x20 != 0)  // Drive mechanism ready (M88M-compatible)
+        #expect(st3 & 0x08 == 0)  // No two-sided media bit when empty
         #expect(fdc.phase == .idle)
     }
 
@@ -587,6 +591,86 @@ struct UPD765ATests {
         #expect(written?.data[255] == 0xFF)
     }
 
+    @Test("WriteData targets current PCN track, not command cylinder track")
+    func writeDataUsesCurrentTrack() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 1
+        sector.h = 0
+        sector.r = 1
+        sector.n = 1
+        sector.sectorCount = 1
+        sector.data = Array(repeating: 0, count: 256)
+        disk.tracks[4].append(sector) // PCN 2, head 0
+
+        var disks: [D88Disk?] = [disk, nil]
+        let fdc = UPD765A()
+        fdc.drives = { disks }
+        fdc.writeSector = { drive, track, c, h, r, data in
+            disks[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+        }
+        fdc.pcn[0] = 2
+
+        fdc.writeData(0x45)
+        fdc.writeData(0x00)
+        fdc.writeData(1)     // C in sector ID differs from current PCN.
+        fdc.writeData(0)
+        fdc.writeData(1)
+        fdc.writeData(1)
+        fdc.writeData(1)
+        fdc.writeData(0x1B)
+        fdc.writeData(0xFF)
+
+        let newData = Array(repeating: UInt8(0x56), count: 256)
+        writeExecutionBytes(fdc, bytes: newData)
+        _ = readResults(fdc)
+
+        #expect(disks[0]?.readSector(track: 4, c: 1, h: 0, r: 1) == newData)
+        #expect(disks[0]?.tracks[2].isEmpty == true)
+    }
+
+    @Test("DriveControl double-step affects current head position only")
+    func driveControlDoubleStepCurrentPositionRead() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 6
+        sector.h = 0
+        sector.r = 2
+        sector.n = 3
+        sector.sectorCount = 5
+        sector.data = Array(repeating: 0x42, count: 1024)
+        disk.tracks[24].append(sector) // logical C=6 double-stepped -> physical cylinder 12, head 0
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 6
+        fdc.setDriveControl(0x00) // TD0=0: 48TPI/double-step
+        writeReadDataCmd(fdc, c: 6, h: 0, r: 2, n: 3, eot: 2)
+
+        let bytes = readExecutionBytes(fdc, count: 1024)
+        #expect(bytes == Array(repeating: UInt8(0x42), count: 1024))
+    }
+
+    @Test("DriveControl double-step keeps command-cylinder fallback unscaled")
+    func driveControlDoesNotScaleCommandFallback() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 1
+        sector.h = 0
+        sector.r = 1
+        sector.n = 1
+        sector.sectorCount = 1
+        sector.data = Array(repeating: 0x24, count: 256)
+        disk.tracks[2].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 0
+        fdc.setDriveControl(0x00)
+        writeReadDataCmd(fdc, c: 1, h: 0, r: 1, n: 1, eot: 1)
+
+        let bytes = readExecutionBytes(fdc, count: 256)
+        #expect(bytes == Array(repeating: UInt8(0x24), count: 256))
+    }
+
     @Test func writeDataProtected() {
         var disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0, count: 256))])
         disk.writeProtected = true
@@ -900,9 +984,12 @@ struct UPD765ATests {
     @Test("Format track command accepts sector IDs")
     func formatTrackAcceptsSectorIDs() {
         let fdc = UPD765A()
-        let disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0, count: 256))])
-        let diskCopy = disk
-        fdc.drives = { [diskCopy, nil] }
+        var disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0, count: 256))])
+        fdc.drives = { [disk] in [disk, nil] }
+        fdc.formatTrack = { drive, track, sectorIDs, fillByte in
+            guard drive == 0 else { return false }
+            return disk.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte)
+        }
 
         // Write ID (Format Track) command: 0x4D (MFM)
         fdc.writeData(0x4D)  // Format Track (MFM)
@@ -928,7 +1015,31 @@ struct UPD765ATests {
         // Read 7 result bytes
         let results = readResults(fdc)
         #expect(results[0] & 0xC0 == 0x00)  // Normal termination
+        #expect(disk.tracks[0].count == 2)
+        #expect(disk.tracks[0][0].r == 1)
+        #expect(disk.tracks[0][1].r == 2)
+        #expect(disk.tracks[0][0].data == Array(repeating: UInt8(0xE5), count: 256))
         #expect(fdc.phase == .idle)
+    }
+
+    @Test("Format track rejects write-protected disk")
+    func formatTrackWriteProtected() {
+        var disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0, count: 256))])
+        disk.writeProtected = true
+        let (fdc, disks) = makeFDCWithDisk(disk)
+
+        fdc.writeData(0x4D)
+        fdc.writeData(0x00)
+        fdc.writeData(0x01)
+        fdc.writeData(0x02)
+        fdc.writeData(0x1B)
+        fdc.writeData(0xE5)
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_NW == UPD765A.ST1_NW)
+        #expect(disks[0]?.tracks[0].count == 1)
     }
 
     @Test("ReadData with N=2 (512-byte sectors)")

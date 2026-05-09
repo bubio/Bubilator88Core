@@ -113,6 +113,10 @@ public final class SubSystem {
             guard let self = self, drive < self.drives.count else { return false }
             return self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
         }
+        fdc.formatTrack = { [weak self] drive, track, sectorIDs, fillByte in
+            guard let self = self, drive < self.drives.count else { return false }
+            return self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+        }
         fdc.onDiskAccess = { [weak self] drive in
             guard let self = self, drive < 2 else { return }
             self.diskAccess[drive] = true
@@ -152,6 +156,10 @@ public final class SubSystem {
         fdc.writeSector = { [weak self] drive, track, c, h, r, data in
             guard let self = self, drive < self.drives.count else { return false }
             return self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+        }
+        fdc.formatTrack = { [weak self] drive, track, sectorIDs, fillByte in
+            guard let self = self, drive < self.drives.count else { return false }
+            return self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
         }
 
         // Legacy reset

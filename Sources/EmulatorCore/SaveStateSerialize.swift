@@ -598,6 +598,7 @@ extension SubSystem {
         // FDC (length-prefixed blob)
         let fdcData = try r.readLengthPrefixedBytes()
         fdc.deserializeState(fdcData)
+        fdc.setDriveControl(subBus.driveSelect)
 
         // Access indicators
         diskAccess[0] = try r.readBool()
