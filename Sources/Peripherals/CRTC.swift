@@ -145,8 +145,9 @@ public final class CRTC {
     /// Cursor display mode (from Reset param 2: 0=underline, 1=block)
     public var cursorMode: UInt8 = 0
 
-    /// Blink rate (from Reset param 1, bits 7-6)
-    public var blinkRate: Int = 16
+    /// Blink rate in frames (BubiC pc88.cpp:4012,4076 — default 24,
+    /// reset param 1 bits 7-6 give 32/64/96/128).
+    public var blinkRate: Int = 24
 
     /// Frame-scoped blink counter. Advanced once per rendered frame.
     public var blinkCounter: Int = 0
@@ -155,11 +156,22 @@ public final class CRTC {
     /// BubiC pc88.cpp:4178 — reuses the SECRET bit to hide blinking text.
     public var blinkAttribBit: UInt8 = 0
 
+    /// CRTC hardware cursor blink-off flag. True = cursor is HIDDEN this frame.
+    /// BubiC pc88.cpp:4179-4181 — toggles twice per `blinkRate` window, so the
+    /// cursor blinks at ~rate/2 cadence (≈ 0.2s @ rate=24, 60Hz) — about twice
+    /// as fast as the attribute BLINK rate.
+    public var blinkCursorOff: Bool = false
+
     /// Advance blink counter. Called once per rendered frame.
+    /// BubiC pc88.cpp:4173 — counter wraps at `blinkRate`, attribute BLINK
+    /// is masked while counter is below `blinkRate / 4` (off ~25%, on ~75%).
     public func updateBlink() {
         blinkCounter += 1
         if blinkCounter > blinkRate { blinkCounter = 0 }
         blinkAttribBit = blinkCounter < blinkRate / 4 ? 0x02 : 0x00
+        let q = blinkRate / 4
+        let h = blinkRate / 2
+        blinkCursorOff = (blinkCounter <= q) || (h <= blinkCounter && blinkCounter <= 3 * q)
     }
 
     /// Vertical retrace lines (from Reset param 3, bits 7-5)
@@ -244,7 +256,7 @@ public final class CRTC {
         cursorY = -1
         cursorEnabled = false
         cursorMode = 0
-        blinkRate = 16
+        blinkRate = 24
         blinkCounter = 0
         blinkAttribBit = 0
         vretrace = 1
@@ -422,8 +434,8 @@ public final class CRTC {
         } else {
             linesPerScreen = 25
         }
-        // QUASI88: blink_cycle = (value >> 6) * 8 + 8 → gives 8, 16, 24, 32 frames
-        blinkRate = Int((parameters[1] >> 6) & 0x03) * 8 + 8
+        // BubiC pc88.cpp:4076 — blink.rate = 32 * ((data >> 6) + 1) → 32/64/96/128 frames
+        blinkRate = 32 * (Int((parameters[1] >> 6) & 0x03) + 1)
 
         // Parameter 2: char height (bits 4-0 + 1), cursor mode (bits 6-5), skip line (bit 7)
         charLinesPerRow = (parameters[2] & 0x1F) + 1
