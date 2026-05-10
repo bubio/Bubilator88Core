@@ -2054,15 +2054,17 @@ public final class UPD765A {
     }
 
     private func completedReadHead() -> UInt8 {
-        guard !executionSectorSequence.isEmpty else {
-            return chrn.h & 0x01
-        }
         var sectorIndex = max(0, executionCurrentSectorIndex)
         if dataIndex == 0 && sectorIndex > 0 {
             sectorIndex -= 1
         }
-        let currentIndex = min(sectorIndex, executionSectorSequence.count - 1)
-        return UInt8(executionSectorSequence[currentIndex].h & 0x01)
+        if executionMT && executionHD == 0 {
+            let head0Max = max(1, Int(eot) - Int(executionStartR) + 1)
+            if sectorIndex >= head0Max {
+                return 1
+            }
+        }
+        return UInt8(executionHD & 0x01)
     }
 
     private func refreshST0UnitAndHead(head: UInt8) {

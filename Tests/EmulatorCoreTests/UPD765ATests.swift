@@ -1133,6 +1133,53 @@ struct UPD765ATests {
         #expect(results[1] & 0x80 == 0)      // ST1.EN cleared
     }
 
+    @Test("ReadData TC result ST0 keeps physical head when ID H is nonstandard")
+    func readDataTCResultST0KeepsPhysicalHeadForNonstandardIDH() {
+        var disk = D88Disk()
+
+        var first = D88Disk.Sector()
+        first.c = 0
+        first.h = 0x52
+        first.r = 0x57
+        first.n = 3
+        first.sectorCount = 3
+        first.data = Array(repeating: 0x57, count: 1024)
+
+        var second = D88Disk.Sector()
+        second.c = 0
+        second.h = 0x52
+        second.r = 0x52
+        second.n = 3
+        second.sectorCount = 3
+        second.data = Array(repeating: 0x52, count: 1024)
+
+        disk.tracks[5] = [first, second]
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 2
+
+        writeReadDataCmd(
+            fdc,
+            head: 1,
+            c: 0,
+            h: 0x52,
+            r: 0x57,
+            n: 3,
+            eot: 0x10,
+            gpl: 0x33
+        )
+
+        _ = readExecutionBytes(fdc, count: 1024)
+        fdc.terminalCount()
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0x04 != 0)
+        #expect(results[0] & 0xC0 == 0x00)
+        #expect(results[1] == 0x00)
+        #expect(results[4] == 0x52)
+        #expect(results[5] == 0x52)
+    }
+
     @Test("Seek step-rate timing advances one track per SRT interval")
     func seekStepRateTiming() {
         let fdc = UPD765A()
