@@ -807,13 +807,42 @@ public final class UPD765A {
     }
 
     private func d88TrackForCurrentPosition(drive: Int, head: Int) -> Int {
-        let cylinder: UInt8
-        if doubleStep.indices.contains(drive), doubleStep[drive] {
-            cylinder = physicalCylinder.indices.contains(drive) ? physicalCylinder[drive] : 0
-        } else {
-            cylinder = pcn.indices.contains(drive) ? pcn[drive] : 0
-        }
+        let cylinder = pcn.indices.contains(drive) ? pcn[drive] : 0
         return d88Track(cylinder: cylinder, drive: drive, head: head)
+    }
+
+    private func d88DoubleStepTrackForCurrentPosition(drive: Int, head: Int) -> Int? {
+        guard doubleStep.indices.contains(drive), doubleStep[drive] else { return nil }
+        let cylinder = physicalCylinder.indices.contains(drive) ? physicalCylinder[drive] : 0
+        return d88Track(cylinder: cylinder, drive: drive, head: head)
+    }
+
+    private func d88TrackWithDataForCurrentPosition(disk: D88Disk, drive: Int, head: Int) -> Int {
+        let directTrack = d88TrackForCurrentPosition(drive: drive, head: head)
+        if disk.tracks.indices.contains(directTrack), !disk.tracks[directTrack].isEmpty {
+            return directTrack
+        }
+        if let doubleStepTrack = d88DoubleStepTrackForCurrentPosition(drive: drive, head: head),
+           doubleStepTrack != directTrack,
+           disk.tracks.indices.contains(doubleStepTrack),
+           !disk.tracks[doubleStepTrack].isEmpty {
+            return doubleStepTrack
+        }
+        return directTrack
+    }
+
+    private func hasExactSector(
+        disk: D88Disk,
+        track: Int,
+        c: UInt8,
+        h: UInt8,
+        r: UInt8,
+        n: UInt8
+    ) -> Bool {
+        guard disk.tracks.indices.contains(track) else { return false }
+        return disk.tracks[track].contains {
+            $0.c == c && $0.h == h && $0.r == r && $0.n == n
+        }
     }
 
     private func physicalCylinderForLogical(_ cylinder: UInt8, drive: Int) -> UInt8 {
@@ -846,6 +875,7 @@ public final class UPD765A {
         //   win. For normal R..EOT reads we evaluate both candidates and keep the longer sequence.
         let usesLogicalSlotOrdering = eot < chrn.r
         let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
+        let doubleStepTrack = d88DoubleStepTrackForCurrentPosition(drive: us, head: hd)
         let commandTrack = d88Track(cylinder: chrn.c, drive: us, head: hd)
 
         let selectedCandidate: (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)?
@@ -868,8 +898,34 @@ public final class UPD765A {
                 startN: chrn.n,
                 eot: eot
             )
-            if physicalCandidate != nil || commandTrack == physicalTrack {
+            if let doubleStepTrack,
+               doubleStepTrack != physicalTrack,
+               !hasExactSector(disk: disk, track: physicalTrack, c: chrn.c, h: chrn.h, r: chrn.r, n: chrn.n),
+               let doubleStepCandidate = resolveReadCandidate(
+                disk: disk,
+                track: doubleStepTrack,
+                startC: chrn.c,
+                startH: chrn.h,
+                startR: chrn.r,
+                startN: chrn.n,
+                eot: eot
+               ),
+               hasExactSector(disk: disk, track: doubleStepTrack, c: chrn.c, h: chrn.h, r: chrn.r, n: chrn.n) {
+                selectedCandidate = doubleStepCandidate
+            } else if physicalCandidate != nil || commandTrack == physicalTrack {
                 selectedCandidate = physicalCandidate
+            } else if let doubleStepTrack,
+                      doubleStepTrack != physicalTrack,
+                      let doubleStepCandidate = resolveReadCandidate(
+                        disk: disk,
+                        track: doubleStepTrack,
+                        startC: chrn.c,
+                        startH: chrn.h,
+                        startR: chrn.r,
+                        startN: chrn.n,
+                        eot: eot
+                      ) {
+                selectedCandidate = doubleStepCandidate
             } else {
                 selectedCandidate = resolveReadCandidate(
                     disk: disk,
@@ -882,6 +938,14 @@ public final class UPD765A {
                 )
             }
         } else {
+            let physicalHasExact = hasExactSector(
+                disk: disk,
+                track: physicalTrack,
+                c: chrn.c,
+                h: chrn.h,
+                r: chrn.r,
+                n: chrn.n
+            )
             let physicalCandidate = resolveReadCandidate(
                 disk: disk,
                 track: physicalTrack,
@@ -891,6 +955,39 @@ public final class UPD765A {
                 startN: chrn.n,
                 eot: eot
             )
+            let doubleStepCandidate: (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)?
+            let doubleStepHasExact: Bool
+            if let doubleStepTrack,
+               doubleStepTrack != physicalTrack {
+                doubleStepHasExact = hasExactSector(
+                    disk: disk,
+                    track: doubleStepTrack,
+                    c: chrn.c,
+                    h: chrn.h,
+                    r: chrn.r,
+                    n: chrn.n
+                )
+                if physicalCandidate == nil || (!physicalHasExact && doubleStepHasExact) {
+                    doubleStepCandidate = resolveReadCandidate(
+                        disk: disk,
+                        track: doubleStepTrack,
+                        startC: chrn.c,
+                        startH: chrn.h,
+                        startR: chrn.r,
+                        startN: chrn.n,
+                        eot: eot
+                    )
+                } else {
+                    doubleStepCandidate = nil
+                }
+            } else {
+                doubleStepCandidate = nil
+                doubleStepHasExact = false
+            }
+            var currentCandidate = physicalCandidate
+            if currentCandidate == nil || (!physicalHasExact && doubleStepHasExact) {
+                currentCandidate = doubleStepCandidate
+            }
             let commandCandidate: (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)?
             if commandTrack == physicalTrack {
                 commandCandidate = physicalCandidate
@@ -905,7 +1002,7 @@ public final class UPD765A {
                     eot: eot
                 )
             }
-            selectedCandidate = preferredReadCandidate(physicalCandidate, commandCandidate)
+            selectedCandidate = preferredReadCandidate(currentCandidate, commandCandidate)
         }
 
         if let selectedCandidate {
@@ -1021,7 +1118,7 @@ public final class UPD765A {
 
         onDiskAccess?(us)
 
-        let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
+        let physicalTrack = d88TrackWithDataForCurrentPosition(disk: disk, drive: us, head: hd)
         guard disk.tracks.indices.contains(physicalTrack),
               let firstSector = disk.tracks[physicalTrack].first else {
             st0 = UInt8(us) | UInt8(hd << 2) | Self.ST0_IC_AT
@@ -1107,6 +1204,7 @@ public final class UPD765A {
         }
 
         let physicalTrack = d88TrackForCurrentPosition(drive: us, head: hd)
+        let doubleStepTrack = d88DoubleStepTrackForCurrentPosition(drive: us, head: hd)
         let commandTrack = d88Track(cylinder: chrn.c, drive: us, head: hd)
 
         // Resolve the multi-sector write sequence via the same R..EOT walk as
@@ -1120,6 +1218,20 @@ public final class UPD765A {
             startN: chrn.n,
             eot: eot
         )
+        var currentCandidate = physicalCandidate
+        if currentCandidate == nil,
+           let doubleStepTrack,
+           doubleStepTrack != physicalTrack {
+            currentCandidate = resolveWriteSequence(
+                disk: disk,
+                track: doubleStepTrack,
+                startC: chrn.c,
+                startH: UInt8(hd),
+                startR: chrn.r,
+                startN: chrn.n,
+                eot: eot
+            )
+        }
         let commandCandidate: (track: Int, sectors: [D88Disk.Sector])?
         if commandTrack == physicalTrack {
             commandCandidate = physicalCandidate
@@ -1134,7 +1246,7 @@ public final class UPD765A {
                 eot: eot
             )
         }
-        let writeCandidate = physicalCandidate ?? commandCandidate
+        let writeCandidate = currentCandidate ?? commandCandidate
         if let writeCandidate {
             st0 = UInt8(us) | UInt8(hd << 2)
             st1 = 0; st2 = 0
@@ -1236,7 +1348,7 @@ public final class UPD765A {
             return
         }
 
-        let d88Track = d88TrackForCurrentPosition(drive: us, head: hd)
+        let d88Track = d88TrackWithDataForCurrentPosition(disk: disk, drive: us, head: hd)
 
         // Pick the next sector ID on the current track. Real hardware rotates
         // through IDs as the disk spins; some protection routines enumerate all

@@ -632,6 +632,15 @@ struct UPD765ATests {
     @Test("DriveControl double-step affects current head position only")
     func driveControlDoubleStepCurrentPositionRead() {
         var disk = D88Disk()
+        var directSector = D88Disk.Sector()
+        directSector.c = 6
+        directSector.h = 0
+        directSector.r = 2
+        directSector.n = 1
+        directSector.sectorCount = 16
+        directSector.data = Array(repeating: 0x11, count: 256)
+        disk.tracks[12].append(directSector)
+
         var sector = D88Disk.Sector()
         sector.c = 6
         sector.h = 0
@@ -648,6 +657,31 @@ struct UPD765ATests {
 
         let bytes = readExecutionBytes(fdc, count: 1024)
         #expect(bytes == Array(repeating: UInt8(0x42), count: 1024))
+    }
+
+    @Test("DriveControl double-step prefers matching direct current track")
+    func driveControlDoubleStepPrefersDirectCurrentTrack() {
+        var disk = D88Disk()
+        var directSector = D88Disk.Sector()
+        directSector.c = 1
+        directSector.h = 0
+        directSector.r = 1
+        directSector.n = 1
+        directSector.sectorCount = 1
+        directSector.data = Array(repeating: 0x11, count: 256)
+        disk.tracks[2].append(directSector)
+
+        var doubleStepSector = directSector
+        doubleStepSector.data = Array(repeating: 0x22, count: 256)
+        disk.tracks[4].append(doubleStepSector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.pcn[0] = 1
+        fdc.setDriveControl(0x00) // TD0=0 would map PCN 1 to physical cylinder 2.
+        writeReadDataCmd(fdc, c: 1, h: 0, r: 1, n: 1, eot: 1)
+
+        let bytes = readExecutionBytes(fdc, count: 256)
+        #expect(bytes == Array(repeating: UInt8(0x11), count: 256))
     }
 
     @Test("DriveControl double-step keeps command-cylinder fallback unscaled")
