@@ -1030,8 +1030,11 @@ public final class UPD765A {
                 }
             }
 
-            // Check sector status from D88 image
-            if sector.status != 0 {
+            // D88 status 0x10 is commonly used together with the deleted-data
+            // mark. Treat it as a control mark, not as a CRC/data error.
+            if sector.status == 0x10 {
+                st2 |= Self.ST2_CM
+            } else if sector.status != 0 {
                 st1 |= Self.ST1_DE
                 st0 |= Self.ST0_IC_AT
             }

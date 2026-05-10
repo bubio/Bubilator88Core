@@ -469,6 +469,31 @@ struct UPD765ATests {
         #expect(fdc.commandLog.last?.dataSize == 0)
     }
 
+    @Test func readDataD88Status10ReportsControlMarkNotDataError() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 0
+        sector.h = 0
+        sector.r = 3
+        sector.n = 1
+        sector.sectorCount = 1
+        sector.deleted = true
+        sector.status = 0x10
+        sector.data = Array(repeating: 0xFF, count: 256)
+        disk.tracks[0].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 3, n: 1, eot: 3, gpl: 0x0E, dtl: 0xFF)
+        _ = readExecutionBytes(fdc, count: 256)
+        fdc.terminalCount()
+
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x00)
+        #expect(results[1] & UPD765A.ST1_DE == 0)
+        #expect(results[2] & UPD765A.ST2_CM != 0)
+    }
+
     @Test func readDiagnosticStreamsTrackWhenFirstIDDoesNotMatch() {
         // Ultima III issues Read Diagnostic on a protection track whose first
         // sector ID is intentionally not the requested CHRN. BubiC still
