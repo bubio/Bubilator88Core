@@ -556,6 +556,41 @@ struct UPD765ATests {
         #expect(fdc.interruptPending == true)
     }
 
+    @Test("ReadData result read clears command-complete interrupt")
+    func readDataResultReadClearsInterruptPending() {
+        let disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0xA5, count: 256))])
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 1, eot: 1)
+        _ = readExecutionBytes(fdc, count: 256)
+
+        #expect(fdc.phase == .result)
+        #expect(fdc.interruptPending == true)
+
+        _ = fdc.readData()
+
+        #expect(fdc.interruptPending == false)
+    }
+
+    @Test("Result read keeps pending seek interrupts queued")
+    func resultReadDoesNotClearPendingSeekInterrupt() {
+        let disk = makeDisk(sectors: [(r: 1, data: Array(repeating: 0x5A, count: 256))])
+        let (fdc, _) = makeFDCWithDisk(disk)
+        fdc.seekState[1] = .interrupt
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 1, eot: 1)
+        _ = readExecutionBytes(fdc, count: 256)
+
+        _ = fdc.readData()
+        _ = readResults(fdc, count: 6)
+
+        #expect(fdc.interruptPending == true)
+        fdc.writeData(0x08)
+        let results = readResults(fdc, count: 2)
+        #expect(results[0] == 0x21)
+        #expect(results[1] == 0)
+    }
+
     // MARK: - Write Data (0x05)
 
     @Test func writeDataSingleSector() {

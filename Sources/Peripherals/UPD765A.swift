@@ -445,6 +445,7 @@ public final class UPD765A {
             }
             let byte = resultBytes[resultIndex]
             resultIndex += 1
+            clearCommandResultInterruptIfNoSeekInterrupt()
             if resultIndex >= resultBytes.count {
                 phase = .idle
             }
@@ -453,6 +454,15 @@ public final class UPD765A {
         default:
             return 0xFF
         }
+    }
+
+    private func clearCommandResultInterruptIfNoSeekInterrupt() {
+        for state in seekState {
+            if case .interrupt = state {
+                return
+            }
+        }
+        interruptPending = false
     }
 
     /// Write Data Register (port 0xFB, CPU → FDC).
