@@ -1158,6 +1158,34 @@ struct YM2608Tests {
         #expect(FMOp.logToLin(FM.combinedLogEntries + 100) == 0)
     }
 
+    @Test("logToLin clamps negative SSG-EG indexes preserving sign")
+    func logToLinNegativeIndexClamps() {
+        #expect(FMOp.logToLin(-2) == FMOp.logToLin(0))
+        #expect(FMOp.logToLin(-1) == FMOp.logToLin(1))
+    }
+
+    @Test("SSG-EG inverted envelope cannot underflow log table")
+    func ssgEGInvertedEnvelopeCalcDoesNotCrash() {
+        var op = FMOp()
+        op.ar = 63
+        op.dr = 0
+        op.sr = 0
+        op.sl = 0
+        op.rr = 0
+        op.tl = 0
+        op.tlLatch = 0
+        op.ks = 0
+        op.ssgType = 0x0C
+        op.ssgOffset = 0
+        op.ssgVector = -1
+        op.egLevel = FM.ssgEGLimit
+        op.egPhase = .sustain
+        op.egUpdate()
+
+        #expect(op.egOut < 0)
+        _ = op.calc(0, ratio: 161)
+    }
+
     @Test("Phase accumulator wraps correctly at 32-bit boundary")
     func phaseAccumulatorWraparound() {
         var op = FMOp()

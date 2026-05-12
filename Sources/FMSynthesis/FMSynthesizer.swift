@@ -298,7 +298,10 @@ struct FMOp {
 
     @inline(__always)
     static func logToLin(_ a: Int) -> Int {
-        (a < FM.combinedLogEntries) ? Int(combinedLogTable[a]) : 0
+        if a < 0 {
+            return Int(combinedLogTable[a & 1])
+        }
+        return (a < FM.combinedLogEntries) ? Int(combinedLogTable[a]) : 0
     }
 
     @inline(__always)
