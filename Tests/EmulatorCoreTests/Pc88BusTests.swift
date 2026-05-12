@@ -927,6 +927,10 @@ struct Pc88BusTests {
         bus.ioWrite(0x71, value: 0xFB)
         #expect(bus.memRead(0x6000) == 0xFF)
 
+        // Internal ext ROM has priority when bit 0 is also active.
+        bus.ioWrite(0x71, value: 0xFA)
+        #expect(bus.memRead(0x6000) == 0x33)
+
         // Normal ROM mapping resumes when no ext ROM is selected
         bus.ioWrite(0x71, value: 0xFF)
         #expect(bus.memRead(0x6000) == 0x22)
