@@ -72,6 +72,32 @@ struct Pc88BusTests {
         #expect(bus.memRead(0x0000) == 0x55)
     }
 
+    @Test func resetCanPreserveRAMContents() {
+        let bus = Pc88Bus()
+        bus.mainRAM[0x9000] = 0x5A
+        bus.tvram[0x0123] = 0xA5
+        bus.gvram[0][0x0100] = 0x3C
+
+        bus.reset(preserveRAM: true)
+
+        #expect(bus.mainRAM[0x9000] == 0x5A)
+        #expect(bus.tvram[0x0123] == 0xA5)
+        #expect(bus.gvram[0][0x0100] == 0x3C)
+    }
+
+    @Test func coldResetReinitializesRAMContents() {
+        let bus = Pc88Bus()
+        bus.mainRAM[0x9000] = 0x5A
+        bus.tvram[0x0123] = 0xA5
+        bus.gvram[0][0x0100] = 0x3C
+
+        bus.reset()
+
+        #expect(bus.mainRAM[0x9000] != 0x5A)
+        #expect(bus.tvram[0x0123] == 0x00)
+        #expect(bus.gvram[0][0x0100] == 0x00)
+    }
+
     @Test func nBasicROMMode() {
         let bus = Pc88Bus()
         bus.n88BasicROM = Array(repeating: 0xAA, count: 32768)

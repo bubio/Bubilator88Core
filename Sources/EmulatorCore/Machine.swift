@@ -284,10 +284,14 @@ public final class Machine: @unchecked Sendable {
         }
     }
 
-    /// Cold reset — restore all components to power-on state.
-    public func reset() {
+    /// Reset the machine.
+    ///
+    /// The default is a cold/power-on reset. Use `preserveRAM` for the PC-88
+    /// front-panel RESET behavior where DRAM/VRAM contents remain available
+    /// across the CPU and device reset sequence.
+    public func reset(preserveRAM: Bool = false) {
         cpu.reset()
-        bus.reset()
+        bus.reset(preserveRAM: preserveRAM)
         interruptBox.controller.reset()
         keyboard.reset()
         dma.reset()

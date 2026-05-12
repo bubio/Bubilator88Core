@@ -879,6 +879,10 @@ let adpcmTracePath: String? = {
     return raw.isEmpty ? nil : raw
 }()
 
+let resetAfterLoadState: Bool = {
+    ProcessInfo.processInfo.environment["BOOTTEST_RESET_AFTER_LOAD"] == "1"
+}()
+
 if let loadStatePath {
     print("\n=== Save state load: \(loadStatePath) ===")
     guard let stateData = try? Array(Data(contentsOf: URL(fileURLWithPath: loadStatePath))) else {
@@ -891,6 +895,23 @@ if let loadStatePath {
         print("  State loaded successfully")
     } catch {
         print("  Failed to load save state: \(error)"); exit(1)
+    }
+
+    if resetAfterLoadState {
+        let use8MHz = sm.clock8MHz
+        let sw1 = sm.bus.dipSw1
+        let sw2 = sm.subSystem.drives[0] == nil ? (sm.bus.dipSw2 | 0x08) : (sm.bus.dipSw2 & ~UInt8(0x08))
+        let adpcmNonZeroBeforeReset = sm.sound.adpcmRAM.contains { $0 != 0 }
+        sm.bus.dipSw1 = sw1
+        sm.bus.dipSw2 = sw2
+        sm.reset(preserveRAM: true)
+        sm.clock8MHz = use8MHz
+        sm.bus.dipSw1 = sw1
+        sm.bus.dipSw2 = sw2
+        print(String(format: "  Reset after load: clock8MHz=%d dipSw1=%02X dipSw2=%02X ADPCM_RAM_before=%d ADPCM_RAM_after=%d",
+              sm.clock8MHz ? 1 : 0, sm.bus.dipSw1, sm.bus.dipSw2,
+              adpcmNonZeroBeforeReset ? 1 : 0,
+              sm.sound.adpcmRAM.contains { $0 != 0 } ? 1 : 0))
     }
 
     // Print ADPCM state after load

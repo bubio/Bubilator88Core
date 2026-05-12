@@ -340,10 +340,17 @@ public final class Pc88Bus: Bus {
 
     public init() {}
 
-    /// Cold reset — initialize all state
-    public func reset() {
-        powerOnRAMInit()
-        gvram = Array(repeating: Array(repeating: 0x00, count: 0x4000), count: 3)
+    /// Reset bus-visible registers and peripheral state.
+    ///
+    /// A power-on reset initializes DRAM/VRAM to their characteristic startup
+    /// pattern. The front-panel RESET key does not clear those RAM contents, and
+    /// some software deliberately asks the user to reset after installing data
+    /// or flags in RAM.
+    public func reset(preserveRAM: Bool = false) {
+        if !preserveRAM {
+            powerOnRAMInit()
+            gvram = Array(repeating: Array(repeating: 0x00, count: 0x4000), count: 3)
+        }
 
         romModeN88 = true
         ramMode = false
@@ -380,7 +387,9 @@ public final class Pc88Bus: Bus {
         graphicsColorMode = true
         mode200Line = true
         pendingWaitStates = 0
-        tvram = Array(repeating: 0x00, count: 4096)
+        if !preserveRAM {
+            tvram = Array(repeating: 0x00, count: 4096)
+        }
         tvramEnabled = true  // Port 0x32 initial=0x00 → TMODE=0 → tvram enabled
         nBasicROMWarned = false
         calendar?.reset()
