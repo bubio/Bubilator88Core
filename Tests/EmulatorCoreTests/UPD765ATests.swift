@@ -560,6 +560,79 @@ struct UPD765ATests {
         #expect(results[2] & UPD765A.ST2_CM != 0)
     }
 
+    @Test func readDataD88StatusB0ReportsDataFieldError() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 0
+        sector.h = 0
+        sector.r = 17
+        sector.n = 0
+        sector.sectorCount = 17
+        sector.status = 0xB0
+        sector.data = Array(repeating: 0x5A, count: 128)
+        disk.tracks[0].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 17, n: 0, eot: 0x10, gpl: 0x0E, dtl: 0xFF)
+        _ = readExecutionBytes(fdc, count: 128)
+
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_DE != 0)
+        #expect(results[2] & UPD765A.ST2_DD != 0)
+    }
+
+    @Test func readDataD88StatusB0SurvivesLateTerminalCount() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 0
+        sector.h = 0
+        sector.r = 17
+        sector.n = 0
+        sector.sectorCount = 17
+        sector.status = 0xB0
+        sector.data = Array(repeating: 0x5A, count: 128)
+        disk.tracks[0].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 17, n: 0, eot: 0x10, gpl: 0x0E, dtl: 0xFF)
+        _ = readExecutionBytes(fdc, count: 128)
+        fdc.terminalCount()
+
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_DE != 0)
+        #expect(results[2] & UPD765A.ST2_DD != 0)
+        #expect(results[5] == 17)
+    }
+
+    @Test func readDataD88StatusB0WithMidTransferTerminalCountKeepsErrorCHRN() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 0
+        sector.h = 0
+        sector.r = 17
+        sector.n = 0
+        sector.sectorCount = 17
+        sector.status = 0xB0
+        sector.data = Array(repeating: 0x5A, count: 128)
+        disk.tracks[0].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 17, n: 0, eot: 0x10, gpl: 0x0E, dtl: 0xFF)
+        _ = readExecutionBytes(fdc, count: 16)
+        fdc.terminalCount()
+
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_DE != 0)
+        #expect(results[2] & UPD765A.ST2_DD != 0)
+        #expect(results[5] == 17)
+    }
+
     @Test func readDiagnosticStreamsTrackWhenFirstIDDoesNotMatch() {
         // Ultima III issues Read Diagnostic on a protection track whose first
         // sector ID is intentionally not the requested CHRN. BubiC still

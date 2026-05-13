@@ -74,6 +74,7 @@ public final class UPD765A {
 
     /// ST2 bits
     package static let ST2_MD: UInt8 = 0x01  // Missing address mark in data
+    package static let ST2_DD: UInt8 = 0x20  // Data error in data field
     package static let ST2_CM: UInt8 = 0x40  // Control mark (deleted data)
 
     // MARK: - State
@@ -534,7 +535,10 @@ public final class UPD765A {
             finishExecution()
         } else if phase == .result {
             if (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
-               (st0 & 0xC0 == Self.ST0_IC_AT) && (st1 & Self.ST1_EN != 0) {
+               (st0 & 0xC0 == Self.ST0_IC_AT) &&
+               (st1 & Self.ST1_EN != 0) &&
+               (st1 & ~Self.ST1_EN == 0) &&
+               (st2 & ~Self.ST2_CM == 0) {
                 // TC arrived just after finishExecution — retroactively fix AT+EN to NT
                 st0 = st0 & ~0xC0          // Clear IC bits → NT
                 st1 = st1 & ~Self.ST1_EN   // Clear EN
@@ -1050,6 +1054,10 @@ public final class UPD765A {
             // mark. Treat it as a control mark, not as a CRC/data error.
             if sector.status == 0x10 {
                 st2 |= Self.ST2_CM
+            } else if sector.status == 0xB0 {
+                st1 |= Self.ST1_DE
+                st2 |= Self.ST2_DD
+                st0 |= Self.ST0_IC_AT
             } else if sector.status != 0 {
                 st1 |= Self.ST1_DE
                 st0 |= Self.ST0_IC_AT
@@ -1614,14 +1622,20 @@ public final class UPD765A {
         switch command {
         case .readData, .readDeletedData, .readDiagnostic:
             let completedHead = completedReadHead()
+            let hadReadError = hasReadErrorStatus()
             if wasTC {
-                // TC received: normal termination, advance CHRN to next sector
-                advanceCHRNForTC()
+                // TC normally terminates the read cleanly, but it must not
+                // erase an error already reported by the data field.
+                if !hadReadError {
+                    advanceCHRNForTC()
+                }
             } else {
-                // All data consumed (EOT reached): abnormal termination + End of Cylinder
-                st0 |= Self.ST0_IC_AT
-                st1 |= Self.ST1_EN
-                advanceCHRNForEOT()
+                if !hadReadError {
+                    // All data consumed (EOT reached): abnormal termination + End of Cylinder
+                    st0 |= Self.ST0_IC_AT
+                    st1 |= Self.ST1_EN
+                    advanceCHRNForEOT()
+                }
             }
             refreshST0UnitAndHead(head: completedHead)
             setResult7()
@@ -2197,6 +2211,12 @@ public final class UPD765A {
 
     private func refreshST0UnitAndHead(head: UInt8) {
         st0 = (st0 & 0xF8) | UInt8(us & 0x03) | ((head & 0x01) << 2)
+    }
+
+    private func hasReadErrorStatus() -> Bool {
+        (st0 & 0xC0) == Self.ST0_IC_AT ||
+        st1 != 0 ||
+        (st2 & ~Self.ST2_CM) != 0
     }
 
     // MARK: - Helpers
