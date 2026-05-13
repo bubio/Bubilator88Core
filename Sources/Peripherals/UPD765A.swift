@@ -1857,6 +1857,10 @@ public final class UPD765A {
     ) -> (track: Int, sector: D88Disk.Sector, sequence: [D88Disk.Sector], usedLogicalSlot: Bool)? {
         let rejectNMismatch = eot < startR && startR >= 0xF0
         let allowNMismatch = eot < startR && !rejectNMismatch
+        // Keep the raw-track N-mismatch compatibility for high-track
+        // protection probes, but let ordinary low-track reads match BubiC:
+        // a normal R..EOT Read Data with the wrong N is not found.
+        let allowProtectionNMismatch = allowNMismatch || startC >= 0x20
         guard track >= 0, track < disk.tracks.count else { return nil }
         let trackSectors = disk.tracks[track]
         let singleSectorLogicalSlot = isSingleR0LogicalSlot(
@@ -1904,7 +1908,7 @@ public final class UPD765A {
             }
         } else if singleSectorLogicalSlot {
             sector = trackSectors[0]
-        } else if !rejectNMismatch, let chrMatch = trackSectors.first(where: {
+        } else if allowProtectionNMismatch, let chrMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR
         }) {
             let cmdSize = 0x80 << min(Int(startN), 7)

@@ -477,6 +477,28 @@ struct UPD765ATests {
         #expect(results[1] & UPD765A.ST1_DE != 0)
     }
 
+    @Test func readDataLowTrackNormalReadRejectsNMismatch() {
+        var disk = D88Disk()
+        var sector = D88Disk.Sector()
+        sector.c = 0
+        sector.h = 0
+        sector.r = 1
+        sector.n = 1
+        sector.sectorCount = 1
+        sector.data = Array(repeating: 0xA5, count: 256)
+        disk.tracks[0].append(sector)
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, c: 0, h: 0, r: 1, n: 3, eot: 5, gpl: 0x0E, dtl: 0xFF)
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[0] & 0xC0 == 0x40)
+        #expect(results[1] & UPD765A.ST1_ND != 0)
+        #expect(fdc.commandLog.last?.dataSize == 0)
+    }
+
     @Test func readDataHighRWithEOTLessThanRRejectsNMismatchWithoutTransfer() {
         // XYLOS protection first reads R=0xF7,N=2, then probes R=0xF6,N=2
         // while the disk records R=0xF6 as N=1. BubiC treats that high-R
