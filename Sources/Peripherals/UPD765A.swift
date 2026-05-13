@@ -208,6 +208,21 @@ public final class UPD765A {
     /// successful ReadID and used modulo the current track's sector count.
     package var readIDIndex: [Int] = [0, 0, 0, 0]
 
+    private struct DuplicateReadCursorKey: Hashable {
+        let drive: Int
+        let track: Int
+        let c: UInt8
+        let h: UInt8
+        let r: UInt8
+        let n: UInt8
+    }
+
+    /// Rotational cursor for tracks with duplicate sector IDs. A real drive
+    /// can hit either duplicate ID depending on where the disk is when the
+    /// command starts; always returning the first D88 record makes protection
+    /// checks that compare repeated reads look stable when they should not.
+    private var duplicateReadCursor: [DuplicateReadCursorKey: Int] = [:]
+
     /// Remaining T-states before a pending ReadID transitions from .execution
     /// to .result phase. Models the rotational delay between sector ID
     /// headers passing under the head. Copy-protection loaders that poll
@@ -314,6 +329,7 @@ public final class UPD765A {
         tc = false
         interruptPending = false
         diskExchanged = [false, false, false, false]
+        duplicateReadCursor = [:]
         formatIDs = []
         formatIDIndex = 0
         commandLog = []
@@ -1680,13 +1696,75 @@ public final class UPD765A {
             sectors[0].n == startN
     }
 
+    private func hasDuplicateSectorID(
+        sectors: [D88Disk.Sector],
+        c: UInt8,
+        h: UInt8,
+        n: UInt8
+    ) -> Bool {
+        var seen = Set<UInt8>()
+        for sector in sectors where sector.c == c && sector.h == h && sector.n == n {
+            if seen.contains(sector.r) {
+                return true
+            }
+            seen.insert(sector.r)
+        }
+        return false
+    }
+
+    private func physicalReadSequenceThroughEOT(
+        sectors: [D88Disk.Sector],
+        startIndex: Int,
+        startC: UInt8,
+        startH: UInt8,
+        startN: UInt8,
+        eot: UInt8
+    ) -> [D88Disk.Sector]? {
+        var sequence: [D88Disk.Sector] = []
+        for index in startIndex..<sectors.count {
+            let sector = sectors[index]
+            guard sector.c == startC && sector.h == startH && sector.n == startN else {
+                continue
+            }
+            sequence.append(sector)
+            if sector.r == eot {
+                return sequence
+            }
+        }
+        return nil
+    }
+
+    private func rotatingDuplicateReadStartIndex(
+        sectors: [D88Disk.Sector],
+        drive: Int,
+        track: Int,
+        c: UInt8,
+        h: UInt8,
+        r: UInt8,
+        n: UInt8
+    ) -> Int? {
+        let matchingIndices = sectors.indices.filter {
+            sectors[$0].c == c &&
+                sectors[$0].h == h &&
+                sectors[$0].r == r &&
+                sectors[$0].n == n
+        }
+        guard matchingIndices.count > 1 else { return nil }
+
+        let key = DuplicateReadCursorKey(drive: drive, track: track, c: c, h: h, r: r, n: n)
+        let cursor = duplicateReadCursor[key, default: 0] % matchingIndices.count
+        duplicateReadCursor[key] = (cursor + 1) % matchingIndices.count
+        return matchingIndices[cursor]
+    }
+
     private func resolveReadSequence(
         sectors: [D88Disk.Sector],
         startC: UInt8,
         startH: UInt8,
         startR: UInt8,
         startN: UInt8,
-        eot: UInt8
+        eot: UInt8,
+        preferredStartIndex: Int? = nil
     ) -> (sectors: [D88Disk.Sector], usedLogicalSlot: Bool) {
         // LUXSOR-style "logical slot" reads (eot < startR) treat EOT as a slot
         // index and tolerate N mismatch — the loader relies on the FDC to pick
@@ -1706,10 +1784,18 @@ public final class UPD765A {
         let singleSectorLogicalSlot = !tc && isSingleR0LogicalSlot(
             sectors: sectors, startC: startC, startH: startH,
             startR: startR, startN: startN)
+        let exactStartIndex = preferredStartIndex.flatMap { index -> Int? in
+            guard sectors.indices.contains(index),
+                  sectors[index].c == startC,
+                  sectors[index].h == startH,
+                  sectors[index].r == startR,
+                  sectors[index].n == startN else { return nil }
+            return index
+        } ?? sectors.firstIndex(where: {
+            $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
+        })
         guard !tc,
-              let startIndex = sectors.firstIndex(where: {
-                  $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
-              }) ?? (!rejectNMismatch ? sectors.firstIndex(where: {
+              let startIndex = exactStartIndex ?? (!rejectNMismatch ? sectors.firstIndex(where: {
                   $0.c == startC && $0.h == startH && $0.r == startR
               }) : nil) ?? (singleSectorLogicalSlot ? 0 : nil) else {
             let startSector = sectors.first(where: {
@@ -1727,6 +1813,19 @@ public final class UPD765A {
                 return ([startSector], singleSectorLogicalSlot)
             }
             return (Array(sectors[startIndex...logicalEndIndex]), true)
+        }
+
+        if eot >= startR,
+           hasDuplicateSectorID(sectors: sectors, c: startC, h: startH, n: startN),
+           let physicalSequence = physicalReadSequenceThroughEOT(
+               sectors: sectors,
+               startIndex: startIndex,
+               startC: startC,
+               startH: startH,
+               startN: startN,
+               eot: eot
+           ) {
+            return (physicalSequence, false)
         }
 
         var sequence = [startSector]
@@ -1769,11 +1868,22 @@ public final class UPD765A {
         // it reads anyway, pads the transfer with post-data gap bytes up to
         // 2^(cmdN+7), and fails CRC. executeRead marks ST1_DE when the
         // selected sector's N differs from the command's N.
+        let duplicateStartIndex = rotatingDuplicateReadStartIndex(
+            sectors: trackSectors,
+            drive: us,
+            track: track,
+            c: startC,
+            h: startH,
+            r: startR,
+            n: startN
+        )
         let exactMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR && $0.n == startN
         })
         let sector: D88Disk.Sector?
-        if let exactMatch {
+        if let duplicateStartIndex {
+            sector = trackSectors[duplicateStartIndex]
+        } else if let exactMatch {
             sector = exactMatch
         } else if allowNMismatch, let chrMatch = trackSectors.first(where: {
             $0.c == startC && $0.h == startH && $0.r == startR
@@ -1821,7 +1931,8 @@ public final class UPD765A {
             startH: startH,
             startR: startR,
             startN: startN,
-            eot: eot
+            eot: eot,
+            preferredStartIndex: duplicateStartIndex
         )
         guard !resolution.sectors.isEmpty else { return nil }
         // When we padded the starting sector, substitute the padded copy into

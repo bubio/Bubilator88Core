@@ -331,6 +331,50 @@ struct UPD765ATests {
         #expect(results[5] == 21)
     }
 
+    @Test func readDataFollowsPhysicalOrderAcrossDuplicateSectorIDs() {
+        // デーモンズリング disk A track C=0/H=1 has a duplicated R=8 ID in
+        // physical order: 1,2,3,4,8,5,6,7,9,10,11,12,13,8,14,15,16.
+        // A ReadData R=8,EOT=16 must keep clocking the physical sequence from
+        // the first matching ID through the first EOT sector it encounters,
+        // including the second R=8 record, instead of collapsing duplicate IDs
+        // into a synthetic logical R=8...16 sequence.
+        let physicalIDs: [UInt8] = [1, 2, 3, 4, 8, 5, 6, 7, 9, 10, 11, 12, 13, 8, 14, 15, 16]
+        var disk = D88Disk()
+        for (index, r) in physicalIDs.enumerated() {
+            var sector = D88Disk.Sector()
+            sector.c = 0
+            sector.h = 1
+            sector.r = r
+            sector.n = 1
+            sector.data = Array(repeating: UInt8(index), count: 256)
+            disk.tracks[1].append(sector)
+        }
+
+        let (fdc, _) = makeFDCWithDisk(disk)
+
+        writeReadDataCmd(fdc, head: 1, c: 0, h: 1, r: 8, n: 1, eot: 16, gpl: 0x0E, dtl: 0xFF)
+
+        #expect(fdc.phase == .execution)
+        let data = readExecutionBytes(fdc, count: 256 * 13)
+        let observedSectorFills = stride(from: 0, to: data.count, by: 256).map { data[$0] }
+        #expect(observedSectorFills == [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+
+        #expect(fdc.phase == .result)
+        let results = readResults(fdc)
+        #expect(results[5] == 16)
+
+        writeReadDataCmd(fdc, head: 1, c: 0, h: 1, r: 8, n: 1, eot: 16, gpl: 0x0E, dtl: 0xFF)
+
+        #expect(fdc.phase == .execution)
+        let secondData = readExecutionBytes(fdc, count: 256 * 4)
+        let secondObservedSectorFills = stride(from: 0, to: secondData.count, by: 256).map { secondData[$0] }
+        #expect(secondObservedSectorFills == [13, 14, 15, 16])
+
+        #expect(fdc.phase == .result)
+        let secondResults = readResults(fdc)
+        #expect(secondResults[5] == 16)
+    }
+
     // アークスロード Track 20 保護セクタ: ID R=0 N=5 の単一 4096B セクタを、
     // loader は ReadData R=1 で要求する。実機は回転しながら読めた ID を渡
     // すのでここが通るが、D88 ベースの本実装では明示的に「単一 R=0 セクタ
