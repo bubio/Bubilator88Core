@@ -333,6 +333,21 @@ struct YM2608Tests {
         #expect(ym.audioBuffer.allSatisfy { $0 == 0 })
     }
 
+    @Test("SSG volume DAC outputs when tone and noise are disabled")
+    func ssgVolumeDACOutputsWithMixerDisabled() {
+        let ym = YM2608()
+        ym.reset()
+
+        ym.writeAddr(0x07)
+        ym.writeData(0x3F)  // Disable tone and noise on all SSG channels.
+        ym.writeAddr(0x08)
+        ym.writeData(0x0F)  // Channel A direct volume.
+
+        ym.tick(tStates: 182 * 5)
+
+        #expect(ym.audioBuffer.contains(where: { $0 != 0 }))
+    }
+
     // MARK: - FM Tests
 
     @Test("FM register write sets operator parameters")

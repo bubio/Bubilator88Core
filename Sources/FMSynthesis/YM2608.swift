@@ -917,16 +917,14 @@ public final class YM2608 {
             for ch in 0..<3 {
                 let toneBit = toneEnabled[ch]
                     ? Int((ssgTonePhase[ch] >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1)
-                    : 0
-                let noiseBit = noiseEnabled[ch] ? lastNoiseBit : 0
-                let gate = toneBit | noiseBit
+                    : 1
+                let noiseBit = noiseEnabled[ch] ? lastNoiseBit : 1
+                let gate = toneBit & noiseBit
                 // Per-channel mute mask (debug only; branch is always-taken in normal use).
                 let ssgMuted = (debugChannelMask.ssg >> ch) & 1 == 0
-                // When both tone and noise are disabled for a channel, output 0
-                // instead of -level. This eliminates the DC offset that causes
-                // audible clicks when games disable the mixer before clearing
-                // volumes. Real hardware removes this DC via AC coupling.
-                if !ssgMuted && !(!toneEnabled[ch] && !noiseEnabled[ch]) {
+                // Disabled tone/noise inputs are held high by the PSG mixer.
+                // Software uses this as a volume-DAC path for SSG speech.
+                if !ssgMuted {
                     let level = (ssgVolume[ch] & 0x10) != 0 ? envelopeLevel : ssgOutputLevel[ch]
                     sample += gate != 0 ? level : -level
                 }
