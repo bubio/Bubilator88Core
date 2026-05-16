@@ -1101,6 +1101,8 @@ public final class YM2608 {
     /// Bit layout: [5]=PCMBSY, [3]=BRDY (forced on), [2]=EOS, [1]=TimerB, [0]=TimerA
     /// BRDY is always forced on (status | 0x08) then masked by statusMask.
     public func readExtStatus() -> UInt8 {
+        // YM2203 has no second register bank on 0x46/0x47; return open bus.
+        if forceOPNMode { return 0xFF }
         var status: UInt8 = 0
         if timerAOverflow { status |= 0x01 }
         if timerBOverflow { status |= 0x02 }
@@ -1111,6 +1113,7 @@ public final class YM2608 {
 
     /// Read port 0x47: extended data read
     public func readExtData() -> UInt8 {
+        if forceOPNMode { return 0xFF }
         if selectedExtAddr == 0x08, (adpcmControl1 & 0x60) == 0x20 {
             return readADPCMRAMByte()
         }
