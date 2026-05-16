@@ -337,7 +337,8 @@ public final class YM2608 {
     public var debugOutputMask: DebugOutputMask = .all
 
     /// Per-channel mute mask (debug only). Applied to individual FM/SSG/Rhythm/ADPCM
-    /// channels. Not persisted; resets to `.all` on `reset()`.
+    /// channels. Survives `reset()` so the user's mute selection is not lost when
+    /// the machine is reset from the debug window.
     public var debugChannelMask: DebugChannelMask = .all {
         didSet {
             fmSynth.channelMask = debugChannelMask.fm
@@ -464,8 +465,11 @@ public final class YM2608 {
         adpcmSpatialBuffer = []
         rhythmSpatialBuffer = []
         fmKeyOnMask = 0
-        debugChannelMask = .all
         fmSynth.reset()
+        // Re-apply the user's debug mute mask: fmSynth.reset() does not touch
+        // channelMask/rhythmMask, but be explicit so future changes don't regress.
+        fmSynth.channelMask = debugChannelMask.fm
+        fmSynth.rhythmMask  = debugChannelMask.rhythm
         chorusFM.reset()
         chorusSSG.reset()
         fmPanDetected = false
