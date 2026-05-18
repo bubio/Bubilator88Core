@@ -35,6 +35,13 @@ public final class SubSystem {
     /// Mounted disk images (2 drives).
     public var drives: [D88Disk?] = [nil, nil]
 
+    /// セクタ書込 / トラックフォーマット成功時に呼ばれる通知 (引数 = drive番号)。
+    /// ViewModel 層で書き戻しスケジューラに繋ぐために使用する。
+    /// D88Disk が struct のため、struct 内に closure を置くと値型コピーや
+    /// クロージャ呼出のコード生成が原因で BootTester で挙動差が出るため、
+    /// 通知点は class 側 (SubSystem) に置く。
+    public var onDiskWritten: ((Int) -> Void)?
+
     // MARK: - Access Indicators
 
     /// Disk access indicator per drive.
@@ -111,11 +118,15 @@ public final class SubSystem {
         }
         fdc.writeSector = { [weak self] drive, track, c, h, r, data in
             guard let self = self, drive < self.drives.count else { return false }
-            return self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+            let ok = self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+            if ok { self.onDiskWritten?(drive) }
+            return ok
         }
         fdc.formatTrack = { [weak self] drive, track, sectorIDs, fillByte in
             guard let self = self, drive < self.drives.count else { return false }
-            return self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+            let ok = self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+            if ok { self.onDiskWritten?(drive) }
+            return ok
         }
         fdc.onDiskAccess = { [weak self] drive in
             guard let self = self, drive < 2 else { return }
@@ -155,11 +166,15 @@ public final class SubSystem {
         }
         fdc.writeSector = { [weak self] drive, track, c, h, r, data in
             guard let self = self, drive < self.drives.count else { return false }
-            return self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+            let ok = self.drives[drive]?.writeSector(track: track, c: c, h: h, r: r, data: data) ?? false
+            if ok { self.onDiskWritten?(drive) }
+            return ok
         }
         fdc.formatTrack = { [weak self] drive, track, sectorIDs, fillByte in
             guard let self = self, drive < self.drives.count else { return false }
-            return self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+            let ok = self.drives[drive]?.formatTrack(track: track, sectorIDs: sectorIDs, fillByte: fillByte) ?? false
+            if ok { self.onDiskWritten?(drive) }
+            return ok
         }
 
         // Legacy reset
