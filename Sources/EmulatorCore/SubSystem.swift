@@ -35,6 +35,16 @@ public final class SubSystem {
     /// Mounted disk images (2 drives).
     public var drives: [D88Disk?] = [nil, nil]
 
+    /// 入れ替え遅延: ディスクが既に入っているドライブに `mountDisk` した場合、
+    /// QUASI88 (`quasi88_disk_image_eject_before_insert` + 100ms timer) と同等に
+    /// 「ドアが開いてディスクが無い時間」を再現するため新ディスクをここに退避し、
+    /// `drives[i]` を一旦 nil にする。`subCpuTStates` が deadline に達したら
+    /// 実マウントする。これで `SenseDriveStatus` が窓の間「ディスク無し」を返し、
+    /// D.C.コネクションのようなディスク交換検出ゲームが遷移を観測できる。
+    /// 同時に one-shot で TS だけ落とす旧 `diskExchanged` の副作用 (クリムゾン
+    /// の「ディスクが違う」誤検出) も避けられる。
+    private var pendingMount: [(disk: D88Disk, deadlineTStates: UInt64)?] = [nil, nil]
+
     /// セクタ書込 / トラックフォーマット成功時に呼ばれる通知 (引数 = drive番号)。
     /// ViewModel 層で書き戻しスケジューラに繋ぐために使用する。
     /// D88Disk が struct のため、struct 内に closure を置くと値型コピーや
@@ -155,6 +165,13 @@ public final class SubSystem {
         pio.reset()
         fdc.reset()
         // Note: drives are intentionally NOT cleared — disks persist across reset.
+        // pendingMount は flush: リセット直後にディスク交換窓が残るとロード失敗の原因。
+        for i in 0..<2 {
+            if let p = pendingMount[i] {
+                drives[i] = p.disk
+                pendingMount[i] = nil
+            }
+        }
         diskAccess = [false, false]
         subCpuTStates = 0
 
@@ -266,6 +283,8 @@ public final class SubSystem {
     private func runSubCPUInternal(maxTStates: Int, stopOnPortCPoll: Bool) -> Int {
         guard !useLegacyMode else { return 0 }
 
+        commitPendingMounts()
+
         // Temporarily set a flag that tracks when sub-CPU reads Port C
         var subReadPortC = false
         let originalCallback = pio.onCPUSwitch
@@ -347,18 +366,35 @@ public final class SubSystem {
     /// Mount a D88 disk image in the specified drive.
     public func mountDisk(drive: Int, disk: D88Disk) {
         guard drive >= 0 && drive < 2 else { return }
-        // If a disk was already mounted, signal disk exchange to the FDC
-        // so Sense Drive Status can report the change (QUASI88: disk_ex_drv).
         if drives[drive] != nil {
-            fdc.diskExchanged[drive] = true
+            // 既存ディスクからの入れ替え: ドアが開いている時間 (~100ms @ 4MHz =
+            // 400_000 T-states) だけ「無し」状態にしてから新ディスクを実装する。
+            drives[drive] = nil
+            pendingMount[drive] = (disk, subCpuTStates &+ Self.diskSwapDelayTStates)
+        } else {
+            drives[drive] = disk
+            pendingMount[drive] = nil
         }
-        drives[drive] = disk
     }
 
     /// Eject disk from the specified drive.
     public func ejectDisk(drive: Int) {
         guard drive >= 0 && drive < 2 else { return }
         drives[drive] = nil
+        pendingMount[drive] = nil
+    }
+
+    /// QUASI88 の toolbar.c が使う 100ms timer に合わせた値。Sub-CPU は 4MHz 固定。
+    private static let diskSwapDelayTStates: UInt64 = 400_000
+
+    /// `runSubCPUInternal` の先頭から呼んで、deadline に達した pending mount を反映する。
+    private func commitPendingMounts() {
+        for i in 0..<2 {
+            if let p = pendingMount[i], subCpuTStates >= p.deadlineTStates {
+                drives[i] = p.disk
+                pendingMount[i] = nil
+            }
+        }
     }
 
     /// Toggle or set the write-protect flag on the currently mounted disk.
