@@ -67,7 +67,16 @@ public struct D88Disk {
     /// - 2D:  40 cylinders × 2 sides, 16 sectors/track, 256 bytes/sector
     /// - 2DD: 80 cylinders × 2 sides, 16 sectors/track, 256 bytes/sector
     /// - 2HD: 77 cylinders × 2 sides, 26 sectors/track, 256 bytes/sector
-    public static func createFormatted(type: DiskType, name: String = "BLANK") -> D88Disk {
+    ///
+    /// - Parameter initBasicFAT: when true, fill bytes are 0xFF and three
+    ///   N88-BASIC FAT copies are written at C=18 H=1 R=14/15/16, matching
+    ///   what `INIT "NAME",0,0` produces. When false (default), sectors are
+    ///   filled with 0xE5 (FDC-erased state) and no FAT is laid down.
+    public static func createFormatted(
+        type: DiskType,
+        name: String = "BLANK",
+        initBasicFAT: Bool = false
+    ) -> D88Disk {
         var disk = D88Disk()
         disk.name = name
         disk.diskType = type
@@ -87,6 +96,8 @@ public struct D88Disk {
             cylinders = 77; sectorsPerTrack = 26; sizeCode = 1; bytesPerSector = 256
         }
 
+        let fillByte: UInt8 = initBasicFAT ? 0xFF : 0xE5
+
         for cyl in 0..<cylinders {
             for head in 0...1 {
                 let trackIndex = cyl * 2 + head
@@ -101,15 +112,49 @@ public struct D88Disk {
                     sector.density = 0x00
                     sector.deleted = false
                     sector.status = 0
-                    sector.data = Array(repeating: 0xE5, count: bytesPerSector)
+                    sector.data = Array(repeating: fillByte, count: bytesPerSector)
                     sectors.append(sector)
                 }
                 disk.tracks[trackIndex] = sectors
             }
         }
 
+        if initBasicFAT {
+            // N88-BASIC `INIT` lays down four special sectors on the
+            // directory track (C=18 H=1), all 256 bytes:
+            //   R=13 — directory entries (16 × 16B), zero-filled = empty
+            //   R=14/15/16 — three identical FAT copies
+            // The patterns are independent of disk type (2D/2DD/2HD share
+            // them). Captured from a real `INIT "X",0,0` run.
+            let fat = n88BasicFATSector
+            let emptyDir = [UInt8](repeating: 0x00, count: bytesPerSector)
+            let dirTrackIndex = 18 * 2 + 1
+            if let idx = disk.tracks[dirTrackIndex].firstIndex(where: { $0.r == 13 }) {
+                disk.tracks[dirTrackIndex][idx].data = emptyDir
+            }
+            for r in 14...16 {
+                if let idx = disk.tracks[dirTrackIndex].firstIndex(where: { $0.r == UInt8(r) }) {
+                    disk.tracks[dirTrackIndex][idx].data = fat
+                }
+            }
+        }
+
         return disk
     }
+
+    /// 256-byte FAT/cluster table N88-BASIC `INIT` lays down (×3 copies on
+    /// the directory track). Bytes 0x4A/0x4B = 0xFE mark the directory
+    /// cluster itself; 0xA0–0xFF = 0x00 is the unused tail beyond the
+    /// largest supported FAT entry count.
+    public static let n88BasicFATSector: [UInt8] = {
+        var bytes = [UInt8](repeating: 0xFF, count: 256)
+        bytes[0x4A] = 0xFE
+        bytes[0x4B] = 0xFE
+        for i in 0xA0..<256 {
+            bytes[i] = 0x00
+        }
+        return bytes
+    }()
 
     // MARK: - Parsing
 
