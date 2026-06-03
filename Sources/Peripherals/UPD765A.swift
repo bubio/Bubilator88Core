@@ -143,6 +143,15 @@ public final class UPD765A {
     package var physicalCylinder: [UInt8] = [0, 0, 0, 0]
     package var doubleStep: [Bool] = [false, false, false, false]
 
+    /// Number of physically connected drives. The PC-8801 (FR/FA) has two
+    /// internal drives; units 2-3 do not exist. QUASI88 calls this NR_DRIVE
+    /// (==2) — Seek/Recalibrate to a non-existent unit must report
+    /// Abnormal Termination + Not Ready (fdc_check_unit), NOT normal seek end.
+    /// Some sub-CPU ROMs (notably PC-8801mkIIFR's 2KB DISK.ROM) probe drives
+    /// 0-3 to count attached drives; returning "normal" for 2-3 corrupts the
+    /// count and trips a "2 ドライブ ヒツヨウ デス" guard.
+    package static let connectedDrives = 2
+
     /// Seek state per drive
     package enum SeekState {
         case stopped
@@ -153,6 +162,10 @@ public final class UPD765A {
     package var seekState: [SeekState] = [.stopped, .stopped, .stopped, .stopped]
     /// Fast boolean flag for tick() hot path — mirrors seekState == .moving
     package var seekMoving: [Bool] = [false, false, false, false]
+    /// When a Seek/Recalibrate targets a non-existent unit (us >= connectedDrives),
+    /// the resulting interrupt must report Abnormal Termination + Not Ready on the
+    /// next SenseInterruptStatus. Tracked per drive, cleared once reported.
+    package var seekAbnormal: [Bool] = [false, false, false, false]
 
     /// True if any drive has an active seek in progress (needs tick() advancement).
     public var isSeeking: Bool {
@@ -325,6 +338,7 @@ public final class UPD765A {
         doubleStep = [false, false, false, false]
         seekState = [.stopped, .stopped, .stopped, .stopped]
         seekMoving = [false, false, false, false]
+        seekAbnormal = [false, false, false, false]
         seekTarget = [0, 0, 0, 0]
         seekWait = [0, 0, 0, 0]
         tc = false
@@ -1505,6 +1519,11 @@ public final class UPD765A {
     private func executeSeek() {
         logCommand("Seek", dataSize: 0)
         fdcLog.debug("FDC Seek: drive=\(us) pcn=\(pcn[us])→\(seekTarget[us])")
+        if us >= Self.connectedDrives {
+            // Non-existent unit — abnormal termination + not ready (QUASI88 fdc_check_unit).
+            seekAbnormalTermination()
+            return
+        }
         if seekTarget[us] == pcn[us] {
             // Already at target
             seekState[us] = .interrupt
@@ -1521,6 +1540,11 @@ public final class UPD765A {
     private func executeRecalibrate() {
         logCommand("Recalibrate", dataSize: 0)
         fdcLog.debug("FDC Recalibrate: drive=\(us) pcn=\(pcn[us])")
+        if us >= Self.connectedDrives {
+            // Non-existent unit — abnormal termination + not ready (QUASI88 fdc_check_unit).
+            seekAbnormalTermination()
+            return
+        }
         seekTarget[us] = 0
         if pcn[us] == 0 {
             seekState[us] = .interrupt
@@ -1531,6 +1555,17 @@ public final class UPD765A {
             seekMoving[us] = true
             seekWait[us] = srtClocks
         }
+        phase = .idle
+    }
+
+    /// Raise an immediate seek-completion interrupt for a non-existent unit.
+    /// The deferred SenseInterruptStatus reports Abnormal Termination + Not Ready.
+    private func seekAbnormalTermination() {
+        seekAbnormal[us] = true
+        seekState[us] = .interrupt
+        seekMoving[us] = false
+        interruptPending = true
+        onInterrupt?()
         phase = .idle
     }
 
@@ -1546,8 +1581,17 @@ public final class UPD765A {
 
         if let drv = foundDrive {
             seekState[drv] = .stopped
-            // ST0: Seek End + unit
-            st0 = UInt8(drv) | Self.ST0_SE
+            if seekAbnormal[drv] {
+                // Non-existent unit: Abnormal Termination + Seek End + Not Ready.
+                // QUASI88 r_phase/SENSE_INT_STATUS keeps ST0_SE set even in the
+                // abnormal case (ST0_IC_AT | ST0_SE | ST0_NR | us); dropping SE
+                // makes the FR DISK.ROM treat it as a non-seek interrupt and hang.
+                seekAbnormal[drv] = false
+                st0 = UInt8(drv) | Self.ST0_IC_AT | Self.ST0_SE | Self.ST0_NR
+            } else {
+                // ST0: Seek End + unit
+                st0 = UInt8(drv) | Self.ST0_SE
+            }
             resultBytes = [st0, pcn[drv]]
             // Only clear interruptPending if no other drives have pending interrupts
             var morePending = false
