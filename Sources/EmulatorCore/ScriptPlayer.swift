@@ -24,6 +24,29 @@ public final class ScriptPlayer {
     /// ドライブごとにマウント済みファイルの全イメージを保持 (disk select 用)。
     private var loadedImages: [[D88Disk]] = [[], []]
 
+    /// ドライブごとに、現在マウント中のディスクパスと選択イメージ番号を保持。
+    /// App 層が再生後に `MountedDiskInfo` を再構築し、手動マウントと同じ
+    /// イメージ選択 UI を提供するために `driveMount(_:)` 経由で公開する。
+    private var mountedPaths: [String?] = [nil, nil]
+    private var mountedIndexes: [Int] = [0, 0]
+
+    /// 1 ドライブにマウント済みの素性スナップショット。
+    /// `path` はスクリプトが指定したディスクパス (未解決), `images` はその
+    /// D88 の全イメージ (disk select 候補), `imageIndex` は現在の選択番号。
+    public struct DriveMount {
+        public let path: String
+        public let images: [D88Disk]
+        public let imageIndex: Int
+    }
+
+    /// 指定ドライブの現在のマウント素性。未マウント/eject 済みは nil。
+    public func driveMount(_ drive: Int) -> DriveMount? {
+        guard drive >= 0, drive < mountedPaths.count,
+              let path = mountedPaths[drive], !loadedImages[drive].isEmpty else { return nil }
+        return DriveMount(path: path, images: loadedImages[drive],
+                          imageIndex: mountedIndexes[drive])
+    }
+
     /// tap の自動リリース予約。残りフレーム数。
     private var pendingReleases: [Keyboard.Key: Int] = [:]
 
@@ -179,6 +202,8 @@ public final class ScriptPlayer {
         case .diskEject(let drive):
             machine.ejectDisk(drive: drive)
             loadedImages[drive] = []
+            mountedPaths[drive] = nil
+            mountedIndexes[drive] = 0
 
         case .reset(let preserveRAM):
             machine.reset(preserveRAM: preserveRAM)
@@ -265,6 +290,8 @@ public final class ScriptPlayer {
             throw RuntimeError("イメージ番号 \(image) が範囲外 (\(path) は \(disks.count) 面)")
         }
         loadedImages[drive] = disks
+        mountedPaths[drive] = path
+        mountedIndexes[drive] = image
         if immediate { machine.ejectDisk(drive: drive) }
         machine.mountDisk(drive: drive, disk: disks[image])
     }
@@ -278,6 +305,7 @@ public final class ScriptPlayer {
             throw RuntimeError("イメージ番号 \(image) が範囲外 (ドライブ \(drive) は \(disks.count) 面)")
         }
         machine.mountDisk(drive: drive, disk: disks[image])
+        mountedIndexes[drive] = image
     }
 
     // MARK: - Finish

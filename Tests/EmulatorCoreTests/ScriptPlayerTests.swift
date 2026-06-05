@@ -194,6 +194,40 @@ struct ScriptPlayerTests {
         #expect(m.subSystem.drives[1] == nil)
     }
 
+    // MARK: - driveMount snapshot (App 層の MountedDiskInfo 再構築用)
+
+    @Test func driveMountExposesPathImagesAndIndex() throws {
+        // multi-image D88 をマウントすると、パス・全イメージ・選択番号を公開する。
+        let d88 = makeD88(names: ["IMG0", "IMG1", "IMG2"])
+        let (p, _) = makePlayer(["Ys.d88": d88])
+        try p.run([.diskMount(drive: 0, path: "Ys.d88", image: 2)])
+        let mount = try #require(p.driveMount(0))
+        #expect(mount.path == "Ys.d88")
+        #expect(mount.images.count == 3)
+        #expect(mount.imageIndex == 2)
+        #expect(p.driveMount(1) == nil)   // 触れていないドライブ
+    }
+
+    @Test func driveMountTracksSelect() throws {
+        // disk select でイメージ番号が更新される (全イメージは保持)。
+        let d88 = makeD88(names: ["IMG0", "IMG1"])
+        let (p, _) = makePlayer(["Ys.d88": d88])
+        try p.run([.diskMount(drive: 0, path: "Ys.d88", image: 0),
+                   .diskSelect(drive: 0, image: 1)])
+        let mount = try #require(p.driveMount(0))
+        #expect(mount.imageIndex == 1)
+        #expect(mount.images.count == 2)
+    }
+
+    @Test func driveMountClearedOnEject() throws {
+        let d88 = makeD88(names: ["IMG0"])
+        let (p, _) = makePlayer(["A.d88": d88])
+        try p.run([.diskMount(drive: 1, path: "A.d88", image: 0)])
+        #expect(p.driveMount(1) != nil)
+        try p.run([.diskEject(drive: 1)])
+        #expect(p.driveMount(1) == nil)
+    }
+
     @Test func diskSwapMountsFile() throws {
         // 空ドライブへの swap は即時マウント (占有ドライブの差し替え遅延は SubSystem 側の責務)。
         let b = makeD88(names: ["BBBB"])
