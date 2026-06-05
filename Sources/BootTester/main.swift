@@ -10,13 +10,29 @@ let appSupport = FileManager.default.urls(
 ).first!.appendingPathComponent("Bubilator88")
 
 let bootArgs = Array(CommandLine.arguments.dropFirst())
+
+/// `--script <file.txt>` でタイムラインスクリプトを再生するモード。
+let scriptPath: String? = {
+    guard let i = bootArgs.firstIndex(of: "--script"), i + 1 < bootArgs.count else { return nil }
+    return bootArgs[i + 1]
+}()
+
 let requestedDiskPath: String? = {
-    guard !bootArgs.isEmpty else { return nil }
-    if bootArgs[0] == "--help" || bootArgs[0] == "-h" {
+    guard let first = bootArgs.first else { return nil }
+    if first == "--help" || first == "-h" {
         print("Usage: swift run BootTester [disk.d88]")
+        print("       swift run BootTester --script <file.txt>   # タイムラインスクリプト再生")
         exit(0)
     }
-    return bootArgs[0]
+    if first.hasPrefix("--") {
+        // フラグはディスクパスではない。--script 以外の未知フラグは黙殺せず警告。
+        if first != "--script" {
+            FileHandle.standardError.write(
+                Data("warning: 未知のオプション \(first) を無視します\n".utf8))
+        }
+        return nil
+    }
+    return first
 }()
 
 let diskBootFrames: Int = {
@@ -179,116 +195,13 @@ struct BootTestKeyFrameEvent {
     let keyName: String
 }
 
-let bootTestKeyMap: [String: Keyboard.Key] = [
-    "return": Keyboard.kpReturn,
-    "enter": Keyboard.kpReturn,
-    "space": Keyboard.space,
-    "esc": Keyboard.esc,
-    "escape": Keyboard.esc,
-    "up": Keyboard.up,
-    "down": Keyboard.down,
-    "left": Keyboard.left,
-    "right": Keyboard.right,
-    "stop": Keyboard.stop,
-    "tab": Keyboard.tab,
-    "help": Keyboard.help,
-    "copy": Keyboard.copy,
-    "shift": Keyboard.shift,
-    "ctrl": Keyboard.ctrl,
-    "grph": Keyboard.grph,
-    "kana": Keyboard.kana,
-    "0": Keyboard.key0,
-    "1": Keyboard.key1,
-    "2": Keyboard.key2,
-    "3": Keyboard.key3,
-    "4": Keyboard.key4,
-    "5": Keyboard.key5,
-    "6": Keyboard.key6,
-    "7": Keyboard.key7,
-    "8": Keyboard.key8,
-    "9": Keyboard.key9,
-    "f1": Keyboard.f1,
-    "f2": Keyboard.f2,
-    "f3": Keyboard.f3,
-    "f4": Keyboard.f4,
-    "f5": Keyboard.f5,
-    "f6": Keyboard.f6,
-    "f7": Keyboard.f7,
-    "f8": Keyboard.f8,
-    "f9": Keyboard.f9,
-    "f10": Keyboard.f10,
-    // A-Z — letters must be lowercased by parseBootTestKey before lookup
-    "a": Keyboard.a, "b": Keyboard.b, "c": Keyboard.c, "d": Keyboard.d,
-    "e": Keyboard.e, "f": Keyboard.f, "g": Keyboard.g, "h": Keyboard.h,
-    "i": Keyboard.i, "j": Keyboard.j, "k": Keyboard.k, "l": Keyboard.l,
-    "m": Keyboard.m, "n": Keyboard.n, "o": Keyboard.o, "p": Keyboard.p,
-    "q": Keyboard.q, "r": Keyboard.r, "s": Keyboard.s, "t": Keyboard.t,
-    "u": Keyboard.u, "v": Keyboard.v, "w": Keyboard.w, "x": Keyboard.x,
-    "y": Keyboard.y, "z": Keyboard.z,
-    // Symbols (ASCII names)
-    "at": Keyboard.at,
-    "leftbracket": Keyboard.leftBracket,
-    "rightbracket": Keyboard.rightBracket,
-    "yen": Keyboard.yen,
-    "caret": Keyboard.caret,
-    "minus": Keyboard.minus,
-    "colon": Keyboard.colon,
-    "semicolon": Keyboard.semicolon,
-    "comma": Keyboard.comma,
-    "period": Keyboard.period,
-    "slash": Keyboard.slash,
-    "underscore": Keyboard.underscore,
-    // Numpad (kp* = keypad)
-    "kp0": Keyboard.kp0, "kp1": Keyboard.kp1, "kp2": Keyboard.kp2,
-    "kp3": Keyboard.kp3, "kp4": Keyboard.kp4, "kp5": Keyboard.kp5,
-    "kp6": Keyboard.kp6, "kp7": Keyboard.kp7, "kp8": Keyboard.kp8,
-    "kp9": Keyboard.kp9,
-    "kpreturn": Keyboard.kpReturn,
-    "kpenter":  Keyboard.kpReturn,
-    "kpplus":   Keyboard.kpPlus,
-    "kpminus":  Keyboard.kpMinus,
-    "kpmultiply": Keyboard.kpMultiply,
-    "kpdivide":   Keyboard.kpDivide,
-    "kpequal":    Keyboard.kpEqual,
-    "kpcomma":    Keyboard.kpComma,
-    "kpperiod":   Keyboard.kpPeriod,
-    // Other
-    "clr":  Keyboard.clr,
-    "del":  Keyboard.del,
-    "bs":   Keyboard.bs,
-    "ins":  Keyboard.ins,
-    "del2": Keyboard.del2,
-    "capslock": Keyboard.capsLock,
-    "rollup":   Keyboard.rollUp,
-    "rolldown": Keyboard.rollDown,
-    "henkan":   Keyboard.henkan,
-    "kettei":   Keyboard.kettei,
-    "pc":       Keyboard.pc,
-    "zenkaku":  Keyboard.zenkaku,
-]
+// キー名テーブルは ScriptParser に一本化した (BOOTTEST_KEY_EVENTS と
+// タイムラインスクリプトで共通)。parseBootTestKey は下で委譲する。
 
+/// キー名 / row-bit 表記を Keyboard.Key へ解決する。
+/// タイムラインスクリプトと同じ共有テーブル (ScriptParser) に委譲する。
 func parseBootTestKey(_ token: String) -> Keyboard.Key? {
-    if let mapped = bootTestKeyMap[token.lowercased()] {
-        return mapped
-    }
-
-    let parts = token.split(separator: "-", maxSplits: 1).map(String.init)
-    guard parts.count == 2 else { return nil }
-
-    func parseInt(_ raw: String) -> Int? {
-        if raw.lowercased().hasPrefix("0x") {
-            return Int(raw.dropFirst(2), radix: 16)
-        }
-        return Int(raw)
-    }
-
-    guard let row = parseInt(parts[0]),
-          let bit = parseInt(parts[1]),
-          row >= 0, row < 15,
-          bit >= 0, bit < 8 else {
-        return nil
-    }
-    return Keyboard.Key(row, bit)
+    ScriptParser.key(named: token)
 }
 
 func parseBootTestKeyEvents(from envName: String) -> [BootTestKeyFrameEvent] {
@@ -538,8 +451,12 @@ guard let romData = try? Data(contentsOf: appSupport.appendingPathComponent("N88
 /// host 時刻を参照する既定の RTC は相対的に止まって見える。RTC 経過を
 /// 当てにして画面遷移するゲーム (例: SB2 Music Disk v4) は、これで
 /// ゲーム視点の「秒」が正しく進むようになる。
-func maybeInstallVirtualRTC(machine: Machine) {
-    guard ProcessInfo.processInfo.environment["BOOTTEST_VIRTUAL_RTC"] == "1" else { return }
+func maybeInstallVirtualRTC(machine: Machine, forceDefault: Bool = false) {
+    // 通常経路は BOOTTEST_VIRTUAL_RTC=1 でのみ有効。script モードは
+    // forceDefault=true で既定 ON (BOOTTEST_VIRTUAL_RTC=0 で明示無効化のみ可)。
+    let env = ProcessInfo.processInfo.environment["BOOTTEST_VIRTUAL_RTC"]
+    let enabled = forceDefault ? (env != "0") : (env == "1")
+    guard enabled else { return }
     // 固定の仮想開始日時: 2025-01-01 00:00:00 (水曜)
     let baseYear = 125   // 1900 起算
     let baseMon  = 1     // 1-12 で返す
@@ -632,6 +549,82 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
     }
     maybeInstallVirtualRTC(machine: machine)
     return machine
+}
+
+// ============================================================
+// Script mode: --script <file.txt> でタイムラインを再生して終了
+// ============================================================
+func runScriptMode(scriptPath: String) -> Never {
+    let scriptURL = URL(fileURLWithPath: scriptPath)
+    guard let text = try? String(contentsOf: scriptURL, encoding: .utf8) else {
+        print("script 読み込み失敗: \(scriptPath)")
+        exit(1)
+    }
+    let steps: [ScriptStep]
+    do {
+        steps = try ScriptParser.parse(text)
+    } catch let e as ScriptError {
+        print("script parse error (line \(e.line)): \(e.message)")
+        exit(1)
+    } catch {
+        print("script parse error: \(error)")
+        exit(1)
+    }
+
+    let machine = setupMachine()
+    // 決定性 (検証/リプレイ) のため、script モードでは virtual RTC を既定 ON。
+    maybeInstallVirtualRTC(machine: machine, forceDefault: true)
+    machine.bus.directBasicBoot = ProcessInfo.processInfo.environment["BOOTTEST_DIRECT_BASIC"] == "1"
+
+    // 相対パスはスクリプトのあるフォルダ基準、絶対パスはそのまま。
+    let baseDir = scriptURL.deletingLastPathComponent()
+    let loader: ScriptPlayer.FileLoader = { path in
+        let url = (path as NSString).isAbsolutePath
+            ? URL(fileURLWithPath: path)
+            : baseDir.appendingPathComponent(path)
+        guard let data = try? Data(contentsOf: url) else {
+            throw ScriptPlayer.RuntimeError("ディスク読み込み失敗: \(url.path)")
+        }
+        return [UInt8](data)
+    }
+
+    // BOOTTEST_SCRIPT_LIVE=1 で live ドライバ (ホストが runFrame を所有) を使う。
+    // 既定は drive モード (Player が時計を所有)。app の live 再生経路の検証用。
+    let useLive = (ProcessInfo.processInfo.environment["BOOTTEST_SCRIPT_LIVE"] == "1")
+    print("=== Script mode: \(scriptURL.lastPathComponent) (\(steps.count) steps)"
+          + (useLive ? " [live]" : "") + " ===")
+    let player = ScriptPlayer(machine: machine, loader: loader)
+    do {
+        if useLive {
+            try player.beginLive(steps)
+            while try player.liveTick() {
+                machine.runFrame()
+            }
+        } else {
+            try player.run(steps)
+        }
+    } catch {
+        print("script runtime error: \(error)")
+        exit(1)
+    }
+
+    print(String(format: "  Final PC=%04X SP=%04X totalTStates=%llu",
+                 machine.cpu.pc, machine.cpu.sp, machine.totalTStates))
+    print(String(format: "  DIPSW1=%02X DIPSW2=%02X clock=%dMHz drive0=%@ drive1=%@",
+                 machine.bus.dipSw1, machine.bus.dipSw2, machine.clock8MHz ? 8 : 4,
+                 machine.subSystem.drives[0] != nil ? "yes" : "no",
+                 machine.subSystem.drives[1] != nil ? "yes" : "no"))
+
+    if let shot = ProcessInfo.processInfo.environment["BOOTTEST_SCREENSHOT_PATH"], !shot.isEmpty {
+        let pixels = renderCurrentFrame(machine: machine)
+        try? writePPMScreenshot(path: shot, pixels: pixels)
+        print("  Screenshot: \(shot)")
+    }
+    exit(0)
+}
+
+if let sp = scriptPath {
+    runScriptMode(scriptPath: sp)
 }
 
 // ============================================================
@@ -900,7 +893,8 @@ if let loadStatePath {
     if resetAfterLoadState {
         let use8MHz = sm.clock8MHz
         let sw1 = sm.bus.dipSw1
-        let sw2 = sm.subSystem.drives[0] == nil ? (sm.bus.dipSw2 | 0x08) : (sm.bus.dipSw2 & ~UInt8(0x08))
+        let sw2 = Machine.resolvedBootStrap(base: sm.bus.dipSw2,
+                                            hasDiskInDrive0: sm.subSystem.drives[0] != nil)
         let adpcmNonZeroBeforeReset = sm.sound.adpcmRAM.contains { $0 != 0 }
         sm.bus.dipSw1 = sw1
         sm.bus.dipSw2 = sw2
