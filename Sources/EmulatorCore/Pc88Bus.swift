@@ -107,6 +107,12 @@ public final class Pc88Bus: Bus {
     /// Port 0x52: background/border color (bit 5=R, bit 4=G, bit 3=B)
     public var borderColor: UInt8 = 0
 
+    /// Analog background color register (analog counterpart of QUASI88 vram_bg_palette).
+    /// Updated by writing port 0x54 with bit 7 set while in analog mode.
+    /// Physically the border color (outside the visible 640x400 area); independent
+    /// of the graphics palette[0].
+    public var analogBgPalette: (b: UInt8, r: UInt8, g: UInt8) = (0, 0, 0)
+
     /// Port 0x53: layer display control (QUASI88: grph_pile)
     /// All bits are SUPPRESS flags (1 = hide layer)
     /// bit 0: text layer suppress (GRPH_PILE_TEXT)
@@ -379,6 +385,7 @@ public final class Pc88Bus: Bus {
         kanjiAddr2 = 0
         port30w = 0
         borderColor = 0
+        analogBgPalette = (0, 0, 0)
         layerControl = 0
         colorMode = true
         columns80 = true
@@ -1012,7 +1019,21 @@ public final class Pc88Bus: Bus {
                 // QUASI88 (pc88main.c:1238-1248)
                 // bit 6=0: bits 0-2 = Blue (3-bit), bits 3-5 = Red (3-bit)
                 // bit 6=1: bits 0-2 = Green (3-bit)
-                if (value & 0x40) == 0 {
+                //
+                // Port 0x54 is special: an analog write with bit 7 set updates the
+                // background color register (QUASI88 vram_bg_palette, the analog
+                // counterpart of port 0x52), NOT graphics palette[0]. Routing such
+                // bit-7 writes into palette[0] lets a game's intended border-color
+                // value clobber the background plane color (Archon: navy background
+                // turned white). Ports 0x55-0x5B ignore bit 7.
+                if port8 == 0x54 && (value & 0x80) != 0 {
+                    if (value & 0x40) == 0 {
+                        analogBgPalette.b = value & 0x07
+                        analogBgPalette.r = (value >> 3) & 0x07
+                    } else {
+                        analogBgPalette.g = value & 0x07
+                    }
+                } else if (value & 0x40) == 0 {
                     palette[index].b = value & 0x07
                     palette[index].r = (value >> 3) & 0x07
                 } else {

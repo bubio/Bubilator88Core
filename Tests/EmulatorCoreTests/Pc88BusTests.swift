@@ -611,6 +611,45 @@ struct Pc88BusTests {
         #expect(bus.palette[0].g == 5)
     }
 
+    @Test("Analog port 0x54 with bit 7 set targets the background register, not palette[0]")
+    func analogBackgroundColorWrite() {
+        let bus = Pc88Bus()
+        bus.ioWrite(0x32, value: 0x20)  // enable analog palette mode
+        #expect(bus.analogPalette == true)
+
+        // Same sequence as the game (Archon): first set graphics palette[0] to
+        // navy (Blue=1, Red=0) with bit7=0 writes.
+        bus.ioWrite(0x54, value: 0x01)  // bit7=0, bit6=0: Blue=1, Red=0
+        bus.ioWrite(0x54, value: 0x40)  // bit7=0, bit6=1: Green=0
+        #expect(bus.palette[0].b == 1)
+        #expect(bus.palette[0].r == 0)
+        #expect(bus.palette[0].g == 0)
+
+        // Then bit7=1 writes (intended for the border background register).
+        // These must NOT clobber palette[0].
+        bus.ioWrite(0x54, value: 0xBF)  // bit7=1, bit6=0: bg Blue=7, Red=7
+        bus.ioWrite(0x54, value: 0xCF)  // bit7=1, bit6=1: bg Green=7
+
+        // palette[0] stays navy (regression: previously turned white 7,7,7).
+        #expect(bus.palette[0].b == 1)
+        #expect(bus.palette[0].r == 0)
+        #expect(bus.palette[0].g == 0)
+        // The background register received the values instead.
+        #expect(bus.analogBgPalette.b == 7)
+        #expect(bus.analogBgPalette.r == 7)
+        #expect(bus.analogBgPalette.g == 7)
+    }
+
+    @Test("Analog port 0x55-0x5B ignore bit 7 (write palette entry as usual)")
+    func analogPaletteEntryIgnoresBit7() {
+        let bus = Pc88Bus()
+        bus.ioWrite(0x32, value: 0x20)  // analog mode
+        // 0x55 = palette[1]. A normal entry write even with bit7 set.
+        bus.ioWrite(0x55, value: 0x83)  // bit7=1, bit6=0: Blue=3, Red=0
+        #expect(bus.palette[1].b == 3)
+        #expect(bus.palette[1].r == 0)
+    }
+
     @Test("Digital palette mode: 1 bit per color (bit0=B, bit1=R, bit2=G)")
     func digitalPaletteWrite() {
         let bus = Pc88Bus()
