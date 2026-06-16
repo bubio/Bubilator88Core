@@ -310,6 +310,15 @@ public final class Pc88Bus: Bus {
     /// port 0x30 has CMT selected.
     public var cassette: CassetteDeck?
 
+    /// PC-8801 bus mouse (PC-8872). When `enabled`, intercepts OPN port A/B
+    /// reads (port 0x45 with reg 0x0E/0x0F selected) and is strobed via
+    /// port 0x40 bit 6.
+    public var mouse: Mouse?
+
+    /// Current T-state, updated by Machine before each CPU step. Used by the
+    /// mouse strobe to measure inter-strobe timing.
+    public var currentTState: UInt64 = 0
+
     // MARK: - Trace
 
     /// Optional callback invoked on every I/O read/write for trace logging.
@@ -786,6 +795,12 @@ public final class Pc88Bus: Bus {
             return sound?.readStatus() ?? 0x00
 
         case 0x45:
+            // Bus mouse intercept: when mouse mode is active, the OPN port A/B
+            // (SSG reg 0x0E/0x0F) reads return mouse movement/buttons instead.
+            if let m = mouse, m.enabled, let s = sound {
+                if s.selectedAddr == 0x0E { return m.readData() }
+                if s.selectedAddr == 0x0F { return m.readButtons() }
+            }
             return sound?.readData() ?? 0x00
 
         case 0x46:
@@ -986,6 +1001,11 @@ public final class Pc88Bus: Bus {
 
         // Port 0x40: Beep, joystick, calendar, CRT sync
         case 0x40:
+            // Bus mouse strobe: bit 6 (JOP1) transition advances the read phase.
+            // Detect the change against the previous port40w before updating it.
+            if let m = mouse, m.enabled, ((value ^ port40w) & 0x40) != 0 {
+                m.strobe(now: currentTState, clock8MHz: cpuClock8MHz)
+            }
             port40w = value
             calendar?.writeControl(value)
             sound?.beepOn = (value & 0x20) != 0

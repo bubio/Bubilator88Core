@@ -943,9 +943,50 @@ if let loadStatePath {
     // Key events
     let loadStateKeyEvents = scriptedKeyEventsByFrame
 
+    // --- Mouse diagnostics (load-state mode) ---
+    // BOOTTEST_MOUSE_MOVE="dx:dy" injects relative movement every frame.
+    // BOOTTEST_MOUSE_BUTTON="L"/"R"/"LR" holds buttons. Enables the bus mouse.
+    let mouseMove: (Int, Int)? = {
+        guard let raw = ProcessInfo.processInfo.environment["BOOTTEST_MOUSE_MOVE"] else { return nil }
+        let parts = raw.split(separator: ":")
+        guard parts.count == 2, let dx = Int(parts[0]), let dy = Int(parts[1]) else { return nil }
+        return (dx, dy)
+    }()
+    if mouseMove != nil || ProcessInfo.processInfo.environment["BOOTTEST_MOUSE_BUTTON"] != nil {
+        sm.mouse.enabled = true
+        // BOOTTEST_MOUSE_JOY=1 → joy mode (mouse-as-joystick), else bus mouse.
+        sm.mouse.joyMode = ProcessInfo.processInfo.environment["BOOTTEST_MOUSE_JOY"] == "1"
+        let btn = ProcessInfo.processInfo.environment["BOOTTEST_MOUSE_BUTTON"] ?? ""
+        sm.mouse.setButtons(left: btn.contains("L"), right: btn.contains("R"))
+        print("  Mouse ENABLED mode=\(sm.mouse.joyMode ? "JOY" : "BUS") (move=\(mouseMove.map { "\($0.0):\($0.1)" } ?? "none") button=\(btn.isEmpty ? "none" : btn))")
+    }
+
+    // Port trace (load-state): logs reads AND writes to the configured ports.
+    // BOOTTEST_PORT_TRACE_PORTS accepts "40,44,45" or "0x40,0x44".
+    var lsPortTraceLines: [String] = []
+    let lsPortTracePath = ProcessInfo.processInfo.environment["BOOTTEST_PORT_TRACE_PATH"]
+    if let lsPortTracePath {
+        let raw = ProcessInfo.processInfo.environment["BOOTTEST_PORT_TRACE_PORTS"] ?? "40,44,45"
+        var portSet = Set<UInt8>()
+        for token in raw.split(separator: ",") {
+            let t = token.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "0x", with: "")
+                .replacingOccurrences(of: "0X", with: "")
+            if let v = UInt8(t, radix: 16) { portSet.insert(v) }
+        }
+        sm.bus.onIOAccess = { port, value, isWrite in
+            let p8 = UInt8(port & 0xFF)
+            guard portSet.contains(p8) else { return }
+            lsPortTraceLines.append(String(format: "port=%02X %@ val=%02X",
+                p8, isWrite ? "W" : "R", value))
+        }
+        print("  Port trace enabled → \(lsPortTracePath) (ports=\(portSet.sorted().map { String(format: "%02X", $0) }.joined(separator: ",")))")
+    }
+
     // Run frames
     let stateBootStart = CFAbsoluteTimeGetCurrent()
     for frame in 0..<diskBootFrames {
+        if let (dx, dy) = mouseMove { sm.mouse.injectMovement(dx: dx, dy: dy) }
         let frameEvents = loadStateKeyEvents[frame] ?? []
         var tappedKeys: [Keyboard.Key] = []
         for event in frameEvents {
@@ -1029,6 +1070,17 @@ if let loadStatePath {
             print("  ADPCM trace (\(adpcmTraceLines.count) entries) written to \(adpcmTracePath)")
         } catch {
             print("  Failed to write ADPCM trace: \(error)")
+        }
+    }
+
+    // Write port trace (load-state mode)
+    if let lsPortTracePath {
+        do {
+            try lsPortTraceLines.joined(separator: "\n").write(
+                toFile: lsPortTracePath, atomically: true, encoding: .utf8)
+            print("  Port trace (\(lsPortTraceLines.count) entries) written to \(lsPortTracePath)")
+        } catch {
+            print("  Failed to write port trace: \(error)")
         }
     }
 

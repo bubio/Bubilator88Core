@@ -45,6 +45,7 @@ public final class Machine: @unchecked Sendable {
     public let calendar: UPD1990A
     public let usart: I8251
     public let cassette: CassetteDeck
+    public let mouse: Mouse
 
     /// Total T-states elapsed since reset
     public var totalTStates: UInt64 = 0
@@ -238,6 +239,7 @@ public final class Machine: @unchecked Sendable {
         self.calendar = UPD1990A()
         self.usart = I8251()
         self.cassette = CassetteDeck(usart: usart)
+        self.mouse = Mouse()
 
         // Wire up: Bus holds weak refs to components
         bus.keyboard = keyboard
@@ -249,12 +251,14 @@ public final class Machine: @unchecked Sendable {
         bus.calendar = calendar
         bus.usart = usart
         bus.cassette = cassette
+        bus.mouse = mouse
 
         // Wire CRTC VSYNC → interrupt controller + bus VRTC flag
         crtc.onVSYNC = { [weak self] in
             self?.interruptBox.controller.request(level: .vrtc)
             self?.bus.vrtcFlag = true
             self?.bus.performTextDMATransfer()
+            self?.mouse.vsync()
         }
 
         // Wire YM2608 timer IRQ → interrupt controller
@@ -300,6 +304,7 @@ public final class Machine: @unchecked Sendable {
         subSystem.reset()
         calendar.reset()
         usart.reset()
+        mouse.reset()
         totalTStates = 0
         rtcCounter = 0
         subAccumClocks = 0
@@ -321,6 +326,7 @@ public final class Machine: @unchecked Sendable {
             self?.interruptBox.controller.request(level: .vrtc)
             self?.bus.vrtcFlag = true
             self?.bus.performTextDMATransfer()
+            self?.mouse.vsync()
         }
         sound.onTimerIRQ = { [weak self] in
             self?.interruptBox.controller.request(level: .sound)
@@ -403,6 +409,7 @@ public final class Machine: @unchecked Sendable {
     public func tick() -> Int {
         let cycles: Int
         bus.debugMainPC = cpu.pc
+        bus.currentTState = totalTStates
         // Debugger trace ring buffer (captured BEFORE stepping so the
         // register snapshot reflects the state leading INTO the
         // instruction). Also triggered on direct tick() calls so
@@ -504,6 +511,7 @@ public final class Machine: @unchecked Sendable {
         var soundAccum = 0
 
         while cpuExecuted < cpuTarget {
+            bus.currentTState = totalTStates
             let cycles = cpu.step(bus: bus)
 
             let waitCycles = bus.pendingWaitStates
