@@ -6,6 +6,10 @@ import Foundation
 import Darwin.C
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(ucrt)
+import ucrt
 #endif
 
 /// uPD1990A Real-Time Calendar behavioral model.
