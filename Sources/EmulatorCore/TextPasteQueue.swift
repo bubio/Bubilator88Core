@@ -143,6 +143,47 @@ public final class TextPasteQueue {
         return (b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC)
     }
 
+    // MARK: - Kana legend (inverse of `table`, for the on-screen keyboard)
+
+    /// Half-width katakana produced by a matrix key under the KANA modifier.
+    /// `base` = KANA alone; `shifted` = KANA+SHIFT (small kana ｧ–ｮ, ｦ, etc.),
+    /// nil when the key produces no shifted kana.
+    public struct KanaLegend: Sendable {
+        public let base: String
+        public let shifted: String?
+    }
+
+    /// Maps each keyboard matrix key to the kana it engraves. Derived by
+    /// inverting `table`'s kana range (SJIS 0xA1–0xDF → U+FF61–FF9F) so the
+    /// legend printed on the software keyboard is guaranteed to match what the
+    /// emulator actually types when that key is pressed with KANA held.
+    public static let kanaLegend: [Keyboard.Key: KanaLegend] = {
+        var base: [Keyboard.Key: String] = [:]
+        var shifted: [Keyboard.Key: String] = [:]
+        // Kana bytes 0xA1–0xDF live at table[byte - 0x40]; 0xA0 slot is blank.
+        for byte in 0xA1...0xDF {
+            let code = table[byte - 0x40]
+            guard code & 0x1000 != 0 else { continue }  // KANA-modified only
+            let key = Keyboard.Key((Int(code) >> 4) & 0x0F, Int(code) & 0x07)
+            let scalar = Unicode.Scalar(0xFF61 + (byte - 0xA1))!
+            let ch = String(Character(scalar))
+            if code & 0x0100 != 0 {
+                shifted[key] = ch
+            } else {
+                base[key] = ch
+            }
+        }
+        var result: [Keyboard.Key: KanaLegend] = [:]
+        let keys = Set(base.keys).union(shifted.keys)
+        for key in keys {
+            // A key with only a shifted kana still shows it as its base legend.
+            let b = base[key] ?? shifted[key] ?? ""
+            let s = base[key] != nil ? shifted[key] : nil
+            result[key] = KanaLegend(base: b, shifted: s)
+        }
+        return result
+    }()
+
     // MARK: - IME key table (ported verbatim from X88000M's m_awIMECharTable)
 
     static let table: [UInt16] = [
