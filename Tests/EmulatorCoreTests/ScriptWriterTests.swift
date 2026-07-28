@@ -14,16 +14,16 @@ struct ScriptWriterTests {
     #expect(ScriptWriter.keyName(for: Keyboard.f1) == "f1")
     #expect(ScriptWriter.keyName(for: Keyboard.up) == "up")
     #expect(ScriptWriter.keyName(for: Keyboard.shift) == "shift")
-    // 衝突キーは正準名を選ぶ
+    // Colliding keys resolve to the canonical name
     #expect(ScriptWriter.keyName(for: Keyboard.esc) == "esc")
     #expect(ScriptWriter.keyName(for: Keyboard.kpReturn) == "return")
   }
 
   @Test func keyNameRowBitFallback() {
-    // テーブルに無いキー (例: row 14 bit 7) は row-bit 表記
+    // Keys absent from the table, e.g. row 14 bit 7, use row-bit notation
     let key = Keyboard.Key(14, 7)
     #expect(ScriptWriter.keyName(for: key) == "14-7")
-    // そして row-bit はパーサが読み戻せる
+    // And the parser reads that row-bit notation back
     #expect(ScriptParser.key(named: "14-7") == key)
   }
 
@@ -36,12 +36,12 @@ struct ScriptWriterTests {
     #expect(ScriptWriter.write([.clock(mhz: 8)]) == "clock 8\n")
     #expect(ScriptWriter.write([.dipsw1(0xC3)]) == "dipsw1 0xC3\n")
     #expect(ScriptWriter.write([.dipsw2(0x71)]) == "dipsw2 0x71\n")
-    #expect(ScriptWriter.write([.dipsw2(0x08)]) == "dipsw2 0x08\n")  // 2桁ゼロ埋め
+    #expect(ScriptWriter.write([.dipsw2(0x08)]) == "dipsw2 0x08\n")  // zero-padded to two digits
     #expect(ScriptWriter.write([.wait(frames: 90)]) == "wait 90\n")
     #expect(ScriptWriter.write([.wait(frames: 0)]) == "wait 0\n")
     #expect(ScriptWriter.write([.key(Keyboard.space, .down)]) == "key space down\n")
     #expect(ScriptWriter.write([.key(Keyboard.space, .up)]) == "key space up\n")
-    #expect(ScriptWriter.write([.key(Keyboard.z, .tap(hold: 2))]) == "key z tap\n")  // 既定 hold 省略
+    #expect(ScriptWriter.write([.key(Keyboard.z, .tap(hold: 2))]) == "key z tap\n")  // the default hold is omitted
     #expect(ScriptWriter.write([.key(Keyboard.z, .tap(hold: 12))]) == "key z tap 12\n")
     #expect(ScriptWriter.write([.diskMount(drive: 0, path: "/a b.d88", image: 0)]) == "disk 0 \"/a b.d88\"\n")
     #expect(ScriptWriter.write([.diskMount(drive: 1, path: "/x.d88", image: 3)]) == "disk 1 \"/x.d88\" image 3\n")
@@ -67,7 +67,7 @@ struct ScriptWriterTests {
     #expect(text == "boot n88-v2\nclock 4\nwait 60\nkey space tap\n")
   }
 
-  // MARK: - Round-trip (本命: parse(write(steps)) == steps)
+  // MARK: - Round-trip (the real point: parse(write(steps)) == steps)
 
   private func roundTrip(_ steps: [ScriptStep], sourceLocation: SourceLocation = #_sourceLocation) throws {
     let text = ScriptWriter.write(steps)
@@ -116,12 +116,12 @@ struct ScriptWriterTests {
   }
 
   @Test func roundTripRowBitKey() throws {
-    // テーブル外キーも round-trip する
+    // Keys outside the table round-trip too
     try roundTrip([.key(Keyboard.Key(14, 7), .down)])
   }
 
   @Test func roundTripPathWithQuotesAndBackslashes() throws {
-    // パス中の " と \ がエスケープされ round-trip する
+    // `"` and `\` in a path are escaped and round-trip
     try roundTrip([
       .diskMount(drive: 0, path: #"/weird/disk"v2.d88"#, image: 0),
       .diskSwap(drive: 1, path: #"/a\b/disk "x".d88"#, image: 1),
@@ -129,13 +129,14 @@ struct ScriptWriterTests {
   }
 
   @Test func quotedPathEscapesQuote() {
-    // 直列化形を直接確認 (" → \" 、\ → \\)
+    // Check the serialized form directly (`"` → `\"`, `\` → `\\`)
     #expect(ScriptWriter.write([.diskMount(drive: 0, path: #"/x"y.d88"#, image: 0)])
       == "disk 0 \"/x\\\"y.d88\"\n")
   }
 
   @Test func roundTripAllNamedKeys() throws {
-    // keyNameTable の全キーを tap して round-trip (重複キーは集合で潰れる)
+    // Tap every key in keyNameTable and round-trip it; duplicates collapse in
+    // the set
     let keys = Set(ScriptParser.keyNameTable.values)
     let steps = keys.map { ScriptStep.key($0, .tap(hold: 2)) }
     try roundTrip(steps)

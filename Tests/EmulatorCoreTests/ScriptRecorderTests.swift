@@ -8,7 +8,7 @@ struct ScriptRecorderTests {
   private let a = Keyboard.a
   private let b = Keyboard.b
 
-  /// frameIndex を進めながらイベントを投入するヘルパ。
+  /// Helper that feeds events while advancing frameIndex.
   private func rec(setup: [ScriptStep] = []) -> ScriptRecorder { ScriptRecorder(setup: setup) }
 
   @Test func shortPressFoldsToTap() {
@@ -23,7 +23,7 @@ struct ScriptRecorderTests {
     let r = rec()
     r.frameIndex = 5; r.keyDown(z); r.keyUp(z)
     r.frameIndex = 5
-    // 先頭に wait 5 が入り、tap hold は 1 に丸め
+    // A leading wait 5 is emitted, and the tap hold rounds up to 1
     #expect(r.finish() == [.wait(frames: 5), .key(z, .tap(hold: 1))])
   }
 
@@ -38,17 +38,17 @@ struct ScriptRecorderTests {
   @Test func autoRepeatDownIsIgnored() {
     let r = rec()
     r.frameIndex = 0; r.keyDown(z)
-    r.frameIndex = 1; r.keyDown(z)   // OS オートリピート → 無視
-    r.frameIndex = 2; r.keyDown(z)   // 同上
+    r.frameIndex = 1; r.keyDown(z)   // OS auto-repeat: ignored
+    r.frameIndex = 2; r.keyDown(z)   // likewise
     r.frameIndex = 4; r.keyUp(z)
     r.frameIndex = 4
-    // 区間は 0→4 の 1 本だけ (tap 4)
+    // A single span, 0→4 (tap 4)
     #expect(r.finish() == [.key(z, .tap(hold: 4))])
   }
 
   @Test func strayKeyUpIsIgnored() {
     let r = rec()
-    r.frameIndex = 0; r.keyUp(z)      // 押していないキーの up → 無視
+    r.frameIndex = 0; r.keyUp(z)      // up for a key that is not held: ignored
     r.frameIndex = 5; r.keyDown(z); r.keyUp(z)
     r.frameIndex = 5
     #expect(r.finish() == [.wait(frames: 5), .key(z, .tap(hold: 1))])
@@ -57,7 +57,7 @@ struct ScriptRecorderTests {
   @Test func heldKeyAtFinishIsClosed() {
     let r = rec()
     r.frameIndex = 0; r.keyDown(z)
-    r.frameIndex = 30                 // up せずに finish
+    r.frameIndex = 30                 // finish without an up
     #expect(r.finish() == [.key(z, .down), .wait(frames: 30), .key(z, .up)])
   }
 
@@ -68,7 +68,7 @@ struct ScriptRecorderTests {
     r.frameIndex = 4; r.keyDown(z)
     r.frameIndex = 6; r.keyUp(z)
     r.frameIndex = 6
-    // 2 連 tap。実際の gap(4)をそのまま保持 (人工 floor は入れない)
+    // Two taps in a row. The real gap (4) is preserved; no artificial floor.
     #expect(r.finish() == [.key(z, .tap(hold: 2)), .wait(frames: 4), .key(z, .tap(hold: 2))])
   }
 
@@ -76,8 +76,8 @@ struct ScriptRecorderTests {
     let r = rec()
     r.frameIndex = 0; r.keyDown(a)
     r.frameIndex = 2; r.keyDown(b)
-    r.frameIndex = 3; r.keyUp(a)      // A 区間 0..3 (tap 3)
-    r.frameIndex = 5; r.keyUp(b)      // B 区間 2..5 (tap 3)
+    r.frameIndex = 3; r.keyUp(a)      // A spans 0..3 (tap 3)
+    r.frameIndex = 5; r.keyUp(b)      // B spans 2..5 (tap 3)
     r.frameIndex = 5
     #expect(r.finish() == [
       .key(a, .tap(hold: 3)),
@@ -115,13 +115,14 @@ struct ScriptRecorderTests {
     ])
   }
 
-  /// 記録 → ScriptWriter → ScriptParser の通し (記録↔再生の対称性)。
+  /// End to end: record → ScriptWriter → ScriptParser, checking that recording
+  /// and playback stay symmetric.
   @Test func recordThenWriteThenParseRoundTrips() throws {
     let setup: [ScriptStep] = [.boot(.n88v2), .clock(mhz: 4),
                                .diskMount(drive: 0, path: "/sorpack.d88", image: 0)]
     let r = rec(setup: setup)
     r.frameIndex = 120; r.keyDown(Keyboard.space); r.frameIndex = 122; r.keyUp(Keyboard.space)
-    r.frameIndex = 200; r.keyDown(z); r.frameIndex = 260; r.keyUp(z)   // 長押し
+    r.frameIndex = 200; r.keyDown(z); r.frameIndex = 260; r.keyUp(z)   // long hold
     r.frameIndex = 260
     let steps = r.finish()
     let text = ScriptWriter.write(steps)

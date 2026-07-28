@@ -33,7 +33,7 @@ struct RomajiKanaConverterTests {
     #expect(convert("chi") == "ﾁ")
   }
 
-  // MARK: - Youon (拗音)
+  // MARK: - Youon (拗音, contracted sounds)
 
   @Test func youon() {
     #expect(convert("kya") == "ｷｬ")
@@ -61,7 +61,7 @@ struct RomajiKanaConverterTests {
     #expect(convert("pa").unicodeScalars.contains("\u{FF9F}"))
   }
 
-  // MARK: - Sokuon (促音 / small ﾂ)
+  // MARK: - Sokuon (促音, the small ﾂ)
 
   @Test func sokuon() {
     #expect(convert("tta") == "ｯﾀ")
@@ -70,14 +70,14 @@ struct RomajiKanaConverterTests {
     #expect(convert("cchi") == "ｯﾁ")
   }
 
-  // MARK: - ん handling
+  // MARK: - Syllabic ん handling
 
   @Test func nBeforeConsonantKeepsIt() {
-    // ん + に : the second n starts "ni", so ｺﾝﾆﾁﾊ (not ｺﾝｲﾁﾊ).
+    // ん followed by に: the second n starts "ni", so ｺﾝﾆﾁﾊ, not ｺﾝｲﾁﾊ.
     #expect(convert("konnichiha") == "ｺﾝﾆﾁﾊ")
-    // ん + な : "onna" → ｵﾝﾅ.
+    // ん followed by な: "onna" → ｵﾝﾅ.
     #expect(convert("onna") == "ｵﾝﾅ")
-    // ん + consonant (non-n): promote and keep the consonant.
+    // ん followed by a consonant other than n: promote and keep the consonant.
     #expect(convert("hon") == "ﾎﾝ")
     #expect(convert("genki") == "ｹﾞﾝｷ")
   }

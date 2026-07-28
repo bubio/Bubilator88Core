@@ -375,12 +375,14 @@ struct UPD765ATests {
     #expect(secondResults[5] == 16)
   }
 
-  // アークスロード Track 20 保護セクタ: ID R=0 N=5 の単一 4096B セクタを、
-  // loader は ReadData R=1 で要求する。実機は回転しながら読めた ID を渡
-  // すのでここが通るが、D88 ベースの本実装では明示的に「単一 R=0 セクタ
-  // トラックを論理スロット 1 として受理」する必要がある。
-  // EOT=2 で要求しても実際には 1 セクタしか存在しないため、転送完了後は
-  // ST0 AT (0x40) + ST1 EN (0x80) で Abnormal Termination となる (実機互換)。
+  // アークスロード Track 20 protected sector: the track holds a single 4096-byte
+  // sector with ID R=0 N=5, but the loader asks for it with ReadData R=1. Real
+  // hardware passes whichever ID it manages to read as the disk rotates, so this
+  // works there; a D88-based implementation has to explicitly accept a track of
+  // one R=0 sector as logical slot 1.
+  // The request says EOT=2 while only one sector exists, so once the transfer
+  // completes the result is an Abnormal Termination with ST0 AT (0x40) and
+  // ST1 EN (0x80) — matching real hardware.
   @Test func readDataTreatsSingleR0SectorAsLogicalSlotOne() {
     var disk = D88Disk()
     var sector = D88Disk.Sector()
@@ -399,12 +401,12 @@ struct UPD765ATests {
 
     #expect(fdc.phase == .execution)
     let data = readExecutionBytes(fdc, count: 4096)
-    #expect(data[0] == 0x91)                // 先頭バイトがそのまま返る
-    #expect(data[0x0F80] == 0x00)           // 末尾付近も保護セクタ実体のまま
+    #expect(data[0] == 0x91)                // first byte comes back unchanged
+    #expect(data[0x0F80] == 0x00)           // near the end it is still the protected sector's own data
 
     #expect(fdc.phase == .result)
     let results = readResults(fdc)
-    #expect(results[0] & 0xC0 == 0x40)      // ST0: AT (EOT 不達)
+    #expect(results[0] & 0xC0 == 0x40)      // ST0: AT (EOT never reached)
     #expect(results[1] & 0x80 != 0)         // ST1: EN (End of Cylinder)
   }
 
@@ -1058,7 +1060,7 @@ struct UPD765ATests {
   // MARK: - Terminal Count
 
   @Test func readDataWithTCReturnsNormalTermination() {
-    // TC発行でリード完了 → NT (正常終了) を確認
+    // Issuing TC completes the read; check for NT (normal termination)
     let disk = makeDisk(sectors: [
       (r: 1, data: Array(repeating: 0x11, count: 256)),
       (r: 2, data: Array(repeating: 0x22, count: 256))

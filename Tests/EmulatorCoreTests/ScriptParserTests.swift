@@ -4,7 +4,7 @@ import Testing
 @Suite("Script Parser Tests")
 struct ScriptParserTests {
 
-  // MARK: - 基本
+  // MARK: - Basics
 
   @Test func emptyAndComments() throws {
     let steps = try ScriptParser.parse("""
@@ -94,7 +94,7 @@ struct ScriptParserTests {
     #expect(throws: ScriptError.self) { try ScriptParser.parse("key NOPE tap") }
     #expect(throws: ScriptError.self) { try ScriptParser.parse("key RETURN sideways") }
     #expect(throws: ScriptError.self) { try ScriptParser.parse("key RETURN tap five") }
-    #expect(throws: ScriptError.self) { try ScriptParser.parse("key RETURN tap 0") }   // §6: hold は 1 以上
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("key RETURN tap 0") }   // §6: hold must be at least 1
   }
 
   // MARK: - disk
@@ -127,10 +127,10 @@ struct ScriptParserTests {
 
   @Test func diskBadThrows() {
     #expect(throws: ScriptError.self) { try ScriptParser.parse("disk") }
-    #expect(throws: ScriptError.self) { try ScriptParser.parse("disk 2 x.d88") }       // 不正ドライブ
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("disk 2 x.d88") }       // invalid drive
     #expect(throws: ScriptError.self) { try ScriptParser.parse("disk 0 x.d88 imag 1") } // typo
     #expect(throws: ScriptError.self) { try ScriptParser.parse("disk select 0") }
-    #expect(throws: ScriptError.self) { try ScriptParser.parse(#"disk 0 """#) }         // 空パス
+    #expect(throws: ScriptError.self) { try ScriptParser.parse(#"disk 0 """#) }         // empty path
   }
 
   // MARK: - reset
@@ -185,7 +185,7 @@ struct ScriptParserTests {
     #expect(throws: ScriptError.self) { try ScriptParser.parse("dipsw1") }
   }
 
-  // MARK: - 統合
+  // MARK: - Integration
 
   @Test func fullScript() throws {
     let steps = try ScriptParser.parse("""

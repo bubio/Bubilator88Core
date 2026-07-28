@@ -841,15 +841,15 @@ struct Pc88BusTests {
     let bus = Pc88Bus()
     bus.textWindowOffset = 0
 
-    // CPU ウィンドウ経由で書き込み → mainRAM[0x0000], mainRAM[0x03FF]
+    // Write through the CPU window → mainRAM[0x0000], mainRAM[0x03FF]
     bus.memWrite(0x8000, value: 0xAA)
     bus.memWrite(0x83FF, value: 0xBB)
 
-    // 同じウィンドウ経由で読み戻し
+    // Read back through the same window
     #expect(bus.memRead(0x8000) == 0xAA)
     #expect(bus.memRead(0x83FF) == 0xBB)
 
-    // mainRAM のマッピング先に値が書かれている
+    // The values landed at the mapped mainRAM addresses
     #expect(bus.mainRAM[0x0000] == 0xAA)
     #expect(bus.mainRAM[0x03FF] == 0xBB)
   }
@@ -858,14 +858,14 @@ struct Pc88BusTests {
     let bus = Pc88Bus()
     bus.textWindowOffset = 1
 
-    // ウィンドウ経由の書き込み → mainRAM[(1<<8) + 0] = mainRAM[0x0100]
+    // Write through the window → mainRAM[(1<<8) + 0] = mainRAM[0x0100]
     bus.memWrite(0x8000, value: 0xCC)
     #expect(bus.mainRAM[0x0100] == 0xCC)
 
-    // オフセット 0 は変更されていない
+    // Offset 0 is untouched
     #expect(bus.mainRAM[0x0000] != 0xCC)
 
-    // ウィンドウ経由の読み戻し
+    // Read back through the window
     #expect(bus.memRead(0x8000) == 0xCC)
   }
 
@@ -916,14 +916,14 @@ struct Pc88BusTests {
     bus.dma = dma
     bus.crtc = crtc
 
-    // 初期状態: DMAカウント=0 → disabled
+    // Initial state: DMA count 0, so disabled
     #expect(bus.textDisplayEnabled == false)
 
-    // DMA ch2 カウント設定 → enabled (現行 BubiC 互換: カウント>0のみ)
+    // Setting the DMA ch2 count enables it. BubiC-compatible: count > 0 only.
     configureTextDMARead(dma, crtc: crtc)
     #expect(bus.textDisplayEnabled == true)
 
-    // DMA ch2 カウント=0 → disabled
+    // DMA ch2 count back to 0: disabled
     dma.channels[2].count = 0
     #expect(bus.textDisplayEnabled == false)
   }

@@ -100,8 +100,8 @@ struct MachineTests {
     machine.cpu.i = 0x80
     machine.cpu.sp = 0xFF00
 
-    // INT3 ベクタ (level=3, vectorOffset=0x06) → アドレス 0x8006
-    // ramMode=true → text window disabled, mainRAM にベクタ設置
+    // INT3 vector (level=3, vectorOffset=0x06) → address 0x8006
+    // ramMode=true disables the text window, so the vector goes in mainRAM
     machine.bus.mainRAM[0x8006] = 0x00  // ISR low
     machine.bus.mainRAM[0x8007] = 0x40  // ISR high = 0x4000
     machine.bus.mainRAM[0x4000] = 0xED   // RETI
@@ -109,13 +109,13 @@ struct MachineTests {
     machine.bus.mainRAM[0x0000] = 0x00   // NOP
     machine.cpu.pc = 0x0000
 
-    // サブCPU Initialize (0x00) コマンド送信 → onInterrupt が即座に発火するはず
+    // Sending the sub-CPU Initialize (0x00) command should fire onInterrupt at once
     // ATN rising edge (mainPortCH bit 3 set) → command mode
     machine.subSystem.pioWrite(port: 0xFF, value: 0x0F)  // set bit 3 (ATN)
     // Write command byte to Port B
     machine.subSystem.pioWrite(port: 0xFD, value: 0x00)  // Initialize (no params)
 
-    // INT3 が pending になっているはず
+    // INT3 should now be pending
     #expect(machine.interruptBox.controller.pendingLevels & (1 << 3) != 0)
   }
 
