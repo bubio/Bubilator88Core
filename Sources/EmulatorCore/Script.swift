@@ -4,6 +4,8 @@
 // It only converts text into [ScriptStep] and has no dependency on Machine;
 // replaying the steps is ScriptPlayer's job.
 
+import Foundation
+
 // MARK: - Model
 
 /// The action taken by the `key` verb.
@@ -59,12 +61,30 @@ public enum ScriptStep: Equatable, Sendable {
 }
 
 /// A parse error. `line` is 1-based.
+///
+/// The message is split into an English format string and its arguments rather
+/// than being pre-interpolated, so the app layer can localize it: `format` is
+/// also the String Catalog key. EmulatorCore itself has no localization — it is
+/// a platform-agnostic package, and BootTester wants the English text anyway.
 public struct ScriptError: Error, Equatable, Sendable {
   public let line: Int
-  public let message: String
-  public init(line: Int, message: String) {
+
+  /// English format string, using positional `%1$@`-style placeholders when
+  /// there is more than one argument. Doubles as the String Catalog key.
+  public let format: String
+
+  /// Values substituted into `format`, already rendered as strings.
+  public let arguments: [String]
+
+  /// The English message, with `arguments` substituted in.
+  public var message: String {
+    arguments.isEmpty ? format : String(format: format, arguments: arguments)
+  }
+
+  public init(line: Int, format: String, arguments: [String] = []) {
     self.line = line
-    self.message = message
+    self.format = format
+    self.arguments = arguments
   }
 }
 
@@ -126,7 +146,7 @@ public enum ScriptParser {
       }
     }
     if inQuotes {
-      throw ScriptError(line: lineNo, message: "クォートが閉じていません")
+      throw ScriptError(line: lineNo, format: "Unclosed quote.")
     }
     if hasCurrent { tokens.append(current) }
     return tokens
@@ -147,29 +167,29 @@ public enum ScriptParser {
     case "dipsw1":            return .dipsw1(try parseByte(args, verb: verb, line: line))
     case "dipsw2":            return .dipsw2(try parseByte(args, verb: verb, line: line))
     default:
-      throw ScriptError(line: line, message: "未知の動詞: \(tokens[0])")
+      throw ScriptError(line: line, format: "Unknown verb: %@", arguments: [tokens[0]])
     }
   }
 
   private static func parseWait(_ args: [String], line: Int) throws -> ScriptStep {
     guard args.count == 1 else {
-      throw ScriptError(line: line, message: "wait は引数 1 個 (例: wait 90 / wait 1.5s)")
+      throw ScriptError(line: line, format: "wait takes exactly one argument (e.g. wait 90, wait 1.5s).")
     }
     return .wait(frames: try parseDuration(args[0], line: line))
   }
 
   private static func parseKey(_ args: [String], line: Int) throws -> ScriptStep {
     guard args.count >= 2 else {
-      throw ScriptError(line: line, message: "key <name> <down|up|tap [hold]>")
+      throw ScriptError(line: line, format: "key <name> <down|up|tap [hold]>")
     }
     let key = try resolveKey(args[0], line: line)
     let action = args[1].lowercased()
     switch action {
     case "down":
-      guard args.count == 2 else { throw ScriptError(line: line, message: "key down に余分な引数") }
+      guard args.count == 2 else { throw ScriptError(line: line, format: "key down takes no extra arguments.") }
       return .key(key, .down)
     case "up":
-      guard args.count == 2 else { throw ScriptError(line: line, message: "key up に余分な引数") }
+      guard args.count == 2 else { throw ScriptError(line: line, format: "key up takes no extra arguments.") }
       return .key(key, .up)
     case "tap":
       let hold: Int
@@ -177,21 +197,21 @@ public enum ScriptParser {
         hold = 2
       } else if args.count == 3 {
         guard let h = Int(args[2]), h >= 1 else {
-          throw ScriptError(line: line, message: "tap の hold は 1 以上: \(args[2])")
+          throw ScriptError(line: line, format: "tap hold must be at least 1: %@", arguments: [args[2]])
         }
         hold = h
       } else {
-        throw ScriptError(line: line, message: "key tap [hold]")
+        throw ScriptError(line: line, format: "key tap [hold]")
       }
       return .key(key, .tap(hold: hold))
     default:
-      throw ScriptError(line: line, message: "不明な key アクション: \(args[1])")
+      throw ScriptError(line: line, format: "Unknown key action: %@", arguments: [args[1]])
     }
   }
 
   private static func parseDisk(_ args: [String], line: Int) throws -> ScriptStep {
     guard let first = args.first else {
-      throw ScriptError(line: line, message: "disk の引数が不足")
+      throw ScriptError(line: line, format: "disk is missing arguments.")
     }
     switch first.lowercased() {
     case "swap":
@@ -200,14 +220,14 @@ public enum ScriptParser {
     case "select":
       let rest = Array(args.dropFirst())
       guard rest.count == 2 else {
-        throw ScriptError(line: line, message: "disk select <drive> <index>")
+        throw ScriptError(line: line, format: "disk select <drive> <index>")
       }
       return .diskSelect(drive: try parseDrive(rest[0], line: line),
                          image: try parseIndex(rest[1], line: line))
     case "eject":
       let rest = Array(args.dropFirst())
       guard rest.count == 1 else {
-        throw ScriptError(line: line, message: "disk eject <drive>")
+        throw ScriptError(line: line, format: "disk eject <drive>")
       }
       return .diskEject(drive: try parseDrive(rest[0], line: line))
     default:
@@ -220,17 +240,17 @@ public enum ScriptParser {
   /// Parses `<drive> <path> [image <index>]`, shared by mount and swap.
   private static func parseDrivePathImage(_ args: [String], line: Int) throws -> (Int, String, Int) {
     guard args.count == 2 || args.count == 4 else {
-      throw ScriptError(line: line, message: "<drive> <path> [image <index>]")
+      throw ScriptError(line: line, format: "<drive> <path> [image <index>]")
     }
     let drive = try parseDrive(args[0], line: line)
     let path = args[1]
     guard !path.isEmpty else {
-      throw ScriptError(line: line, message: "ディスクパスが空です")
+      throw ScriptError(line: line, format: "The disk path is empty.")
     }
     var image = 0
     if args.count == 4 {
       guard args[2].lowercased() == "image" else {
-        throw ScriptError(line: line, message: "image キーワードが必要: \(args[2])")
+        throw ScriptError(line: line, format: "Expected the image keyword: %@", arguments: [args[2]])
       }
       image = try parseIndex(args[3], line: line)
     }
@@ -240,28 +260,28 @@ public enum ScriptParser {
   private static func parseReset(_ args: [String], line: Int) throws -> ScriptStep {
     if args.isEmpty { return .reset(preserveRAM: false) }
     guard args.count == 1 else {
-      throw ScriptError(line: line, message: "reset [cold|warm]")
+      throw ScriptError(line: line, format: "reset [cold|warm]")
     }
     switch args[0].lowercased() {
     case "cold": return .reset(preserveRAM: false)
     case "warm": return .reset(preserveRAM: true)
-    default:     throw ScriptError(line: line, message: "reset は cold か warm: \(args[0])")
+    default:     throw ScriptError(line: line, format: "reset must be cold or warm: %@", arguments: [args[0]])
     }
   }
 
   private static func parseBoot(_ args: [String], line: Int) throws -> ScriptStep {
     guard args.count == 1 else {
-      throw ScriptError(line: line, message: "boot <mode> (N88-V2 / N88-V1H / N88-V1S / N-BASIC)")
+      throw ScriptError(line: line, format: "boot <mode> (N88-V2 / N88-V1H / N88-V1S / N-BASIC)")
     }
     guard let mode = BootMode(rawValue: args[0].lowercased()) else {
-      throw ScriptError(line: line, message: "未知のブートモード: \(args[0])")
+      throw ScriptError(line: line, format: "Unknown boot mode: %@", arguments: [args[0]])
     }
     return .boot(mode)
   }
 
   private static func parseClock(_ args: [String], line: Int) throws -> ScriptStep {
     guard args.count == 1, let mhz = Int(args[0]), mhz == 4 || mhz == 8 else {
-      throw ScriptError(line: line, message: "clock は 4 か 8")
+      throw ScriptError(line: line, format: "clock must be 4 or 8.")
     }
     return .clock(mhz: mhz)
   }
@@ -274,34 +294,34 @@ public enum ScriptParser {
     if t.hasSuffix("s") {
       let body = String(t.dropLast())
       guard let sec = Double(body), sec >= 0 else {
-        throw ScriptError(line: line, message: "不正な秒指定: \(token)")
+        throw ScriptError(line: line, format: "Invalid duration in seconds: %@", arguments: [token])
       }
       return Int((sec * 60).rounded())
     }
     let body = t.hasSuffix("f") ? String(t.dropLast()) : t
     guard let frames = Int(body), frames >= 0 else {
-      throw ScriptError(line: line, message: "不正なフレーム指定: \(token)")
+      throw ScriptError(line: line, format: "Invalid frame count: %@", arguments: [token])
     }
     return frames
   }
 
   private static func parseDrive(_ token: String, line: Int) throws -> Int {
     guard let d = Int(token), d == 0 || d == 1 else {
-      throw ScriptError(line: line, message: "ドライブは 0 か 1: \(token)")
+      throw ScriptError(line: line, format: "Drive must be 0 or 1: %@", arguments: [token])
     }
     return d
   }
 
   private static func parseIndex(_ token: String, line: Int) throws -> Int {
     guard let i = Int(token), i >= 0 else {
-      throw ScriptError(line: line, message: "イメージ番号が不正: \(token)")
+      throw ScriptError(line: line, format: "Invalid image index: %@", arguments: [token])
     }
     return i
   }
 
   private static func parseByte(_ args: [String], verb: String, line: Int) throws -> UInt8 {
     guard args.count == 1 else {
-      throw ScriptError(line: line, message: "\(verb) <byte>")
+      throw ScriptError(line: line, format: "%@ <byte>", arguments: [verb])
     }
     let t = args[0].lowercased()
     let value: Int?
@@ -311,7 +331,7 @@ public enum ScriptParser {
       value = Int(t)
     }
     guard let v = value, v >= 0, v <= 0xFF else {
-      throw ScriptError(line: line, message: "\(verb) の値が不正 (0x00-0xFF): \(args[0])")
+      throw ScriptError(line: line, format: "Invalid value for %1$@ (0x00-0xFF): %2$@", arguments: [verb, args[0]])
     }
     return UInt8(v)
   }
@@ -330,7 +350,7 @@ public enum ScriptParser {
   /// Parser-internal: turns a failed lookup into an error carrying the line number.
   static func resolveKey(_ token: String, line: Int) throws -> Keyboard.Key {
     if let key = key(named: token) { return key }
-    throw ScriptError(line: line, message: "未知のキー名: \(token)")
+    throw ScriptError(line: line, format: "Unknown key name: %@", arguments: [token])
   }
 
   private static func parseRowBit(_ token: String) -> Keyboard.Key? {

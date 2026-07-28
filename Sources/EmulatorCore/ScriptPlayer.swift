@@ -13,9 +13,28 @@ public final class ScriptPlayer {
   public typealias FileLoader = (_ path: String) throws -> [UInt8]
 
   /// A playback error, such as a failed disk load or an out-of-range image.
-  public struct RuntimeError: Error, CustomStringConvertible {
-    public let message: String
-    public init(_ message: String) { self.message = message }
+  ///
+  /// Like ``ScriptError``, the message is kept as an English format string plus
+  /// its arguments so the app layer can localize it; `format` doubles as the
+  /// String Catalog key.
+  public struct RuntimeError: Error, Equatable, Sendable, CustomStringConvertible {
+    /// English format string, using positional `%1$@`-style placeholders when
+    /// there is more than one argument. Doubles as the String Catalog key.
+    public let format: String
+
+    /// Values substituted into `format`, already rendered as strings.
+    public let arguments: [String]
+
+    /// The English message, with `arguments` substituted in.
+    public var message: String {
+      arguments.isEmpty ? format : String(format: format, arguments: arguments)
+    }
+
+    public init(_ format: String, arguments: [String] = []) {
+      self.format = format
+      self.arguments = arguments
+    }
+
     public var description: String { message }
   }
 
@@ -297,10 +316,12 @@ public final class ScriptPlayer {
     let data = try loader(path)
     let disks = D88Disk.parseAll(data: data)
     guard !disks.isEmpty else {
-      throw RuntimeError("D88 として解釈できません: \(path)")
+      throw RuntimeError("Not a valid D88 image: %@", arguments: [path])
     }
     guard image >= 0 && image < disks.count else {
-      throw RuntimeError("イメージ番号 \(image) が範囲外 (\(path) は \(disks.count) 面)")
+      throw RuntimeError(
+        "Image index %1$@ is out of range (%2$@ has %3$@ image(s)).",
+        arguments: ["\(image)", path, "\(disks.count)"])
     }
     loadedImages[drive] = disks
     mountedPaths[drive] = path
@@ -312,10 +333,13 @@ public final class ScriptPlayer {
   private func selectImage(drive: Int, image: Int) throws {
     let disks = loadedImages[drive]
     guard !disks.isEmpty else {
-      throw RuntimeError("ドライブ \(drive) にマウント済みファイルがありません (disk select)")
+      throw RuntimeError(
+        "No file is mounted in drive %@ (disk select).", arguments: ["\(drive)"])
     }
     guard image >= 0 && image < disks.count else {
-      throw RuntimeError("イメージ番号 \(image) が範囲外 (ドライブ \(drive) は \(disks.count) 面)")
+      throw RuntimeError(
+        "Image index %1$@ is out of range (drive %2$@ has %3$@ image(s)).",
+        arguments: ["\(image)", "\(drive)", "\(disks.count)"])
     }
     machine.mountDisk(drive: drive, disk: disks[image])
     mountedIndexes[drive] = image

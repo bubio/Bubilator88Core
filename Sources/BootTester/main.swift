@@ -591,7 +591,7 @@ func runScriptMode(scriptPath: String) -> Never {
       ? URL(fileURLWithPath: path)
       : baseDir.appendingPathComponent(path)
     guard let data = try? Data(contentsOf: url) else {
-      throw ScriptPlayer.RuntimeError("ディスク読み込み失敗: \(url.path)")
+      throw ScriptPlayer.RuntimeError("Failed to read disk: %@", arguments: [url.path])
     }
     return [UInt8](data)
   }

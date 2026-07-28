@@ -17,7 +17,7 @@ struct ScriptParserTests {
   }
 
   @Test func unknownVerbThrows() {
-    #expect(throws: ScriptError(line: 1, message: "未知の動詞: frobnicate")) {
+    #expect(throws: ScriptError(line: 1, format: "Unknown verb: %@", arguments: ["frobnicate"])) {
       try ScriptParser.parse("frobnicate 3")
     }
   }
