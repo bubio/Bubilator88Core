@@ -1,17 +1,18 @@
-// ScriptPlayer.swift — [ScriptStep] を Machine 上で再生する。
+// ScriptPlayer.swift — replays a [ScriptStep] timeline on a Machine.
 //
-// docs/SCRIPTING.md の drive モード (スクリプトが時計を所有) に相当。
-// ファイルシステムには触れず、ディスクパス → バイト列の解決は呼び出し側が
-// 渡す `FileLoader` クロージャに委ねる (純粋・テスト容易・サンドボックス対応)。
+// This is the drive mode of docs/SCRIPTING.md, where the script owns the clock.
+// It never touches the file system: resolving a disk path to bytes is delegated
+// to the `FileLoader` closure supplied by the caller, which keeps this type
+// pure, easy to test, and sandbox-friendly.
 
 import Foundation
 
 public final class ScriptPlayer {
 
-  /// ディスクパス文字列を D88 のバイト列へ解決するクロージャ。
+  /// Resolves a disk path string to the bytes of a D88 image.
   public typealias FileLoader = (_ path: String) throws -> [UInt8]
 
-  /// 再生時エラー (ディスク読み込み失敗・範囲外イメージ等)。
+  /// A playback error, such as a failed disk load or an out-of-range image.
   public struct RuntimeError: Error, CustomStringConvertible {
     public let message: String
     public init(_ message: String) { self.message = message }
@@ -21,25 +22,27 @@ public final class ScriptPlayer {
   private let machine: Machine
   private let loader: FileLoader
 
-  /// ドライブごとにマウント済みファイルの全イメージを保持 (disk select 用)。
+  /// All images of the file mounted in each drive, kept for `disk select`.
   private var loadedImages: [[D88Disk]] = [[], []]
 
-  /// ドライブごとに、現在マウント中のディスクパスと選択イメージ番号を保持。
-  /// App 層が再生後に `MountedDiskInfo` を再構築し、手動マウントと同じ
-  /// イメージ選択 UI を提供するために `driveMount(_:)` 経由で公開する。
+  /// The disk path and selected image index currently mounted in each drive.
+  /// Exposed through `driveMount(_:)` so that after playback the app layer can
+  /// rebuild a `MountedDiskInfo` and offer the same image-selection UI as a
+  /// manual mount.
   private var mountedPaths: [String?] = [nil, nil]
   private var mountedIndexes: [Int] = [0, 0]
 
-  /// 1 ドライブにマウント済みの素性スナップショット。
-  /// `path` はスクリプトが指定したディスクパス (未解決), `images` はその
-  /// D88 の全イメージ (disk select 候補), `imageIndex` は現在の選択番号。
+  /// Snapshot of what is mounted in one drive.
+  /// `path` is the disk path as written in the script (unresolved), `images`
+  /// holds every image in that D88 (the `disk select` candidates), and
+  /// `imageIndex` is the currently selected one.
   public struct DriveMount {
     public let path: String
     public let images: [D88Disk]
     public let imageIndex: Int
   }
 
-  /// 指定ドライブの現在のマウント素性。未マウント/eject 済みは nil。
+  /// What is mounted in the given drive, or nil if nothing is (or it was ejected).
   public func driveMount(_ drive: Int) -> DriveMount? {
     guard drive >= 0, drive < mountedPaths.count,
           let path = mountedPaths[drive], !loadedImages[drive].isEmpty else { return nil }
@@ -47,22 +50,23 @@ public final class ScriptPlayer {
                       imageIndex: mountedIndexes[drive])
   }
 
-  /// tap の自動リリース予約。残りフレーム数。
+  /// Scheduled automatic releases for `tap`, holding the remaining frame count.
   private var pendingReleases: [Keyboard.Key: Int] = [:]
 
-  /// 明示 `down` で押したまま (自動リリース対象外) のキー。
-  /// live 再生の中断時にマトリクスへ取り残さないため追跡する。
+  /// Keys held down by an explicit `down`, which are not auto-released.
+  /// Tracked so that cancelling live playback does not strand them in the matrix.
   private var heldDownKeys: Set<Keyboard.Key> = []
 
-  /// setup → timeline 遷移時の確定処理を済ませたか (reset で再武装)。
+  /// Whether the setup → timeline transition has been finalized. Re-armed by reset.
   private var setupFinalized = false
 
-  /// `boot` で設定したときのみ ROM/ディスク起動 (DIPSW2 bit3) を自動解決する。
-  /// `dipsw2` を生値で指定したらユーザに従い自動解決しない。
+  /// ROM/disk boot (DIPSW2 bit 3) is resolved automatically only when `boot` set
+  /// it. A raw `dipsw2` value is taken as the user's intent and left alone.
   private var resolveDiskBoot = true
 
-  /// `clock` で明示されたクロック。`Machine.reset()` は clock8MHz を true に
-  /// 戻すため、reset 後に再適用してスクリプトの意図を保つ (nil = 未指定)。
+  /// The clock a `clock` step asked for. `Machine.reset()` forces clock8MHz back
+  /// to true, so this is reapplied after a reset to preserve the script's intent.
+  /// nil means the script never specified one.
   private var desiredClock8MHz: Bool?
 
   public init(machine: Machine, loader: @escaping FileLoader) {
@@ -70,7 +74,7 @@ public final class ScriptPlayer {
     self.loader = loader
   }
 
-  /// スクリプト全体を再生する (drive モード: Player が時計を所有)。
+  /// Replays a whole script in drive mode, where the player owns the clock.
   public func run(_ steps: [ScriptStep]) throws {
     for step in steps {
       try execute(step)
@@ -78,22 +82,23 @@ public final class ScriptPlayer {
     finish()
   }
 
-  // MARK: - Live driver (ホストが runFrame を所有)
+  // MARK: - Live driver (the host owns runFrame)
 
-  /// docs/SCRIPTING.md の live モード。アプリの自走 60Hz ループに乗せる用途。
-  /// `run()` と異なり Player は `runFrame` を呼ばない — ホストが毎フレーム
-  /// `machine.runFrame()` を回し、その直前に `liveTick()` を 1 回呼ぶ。
+  /// The live mode of docs/SCRIPTING.md, for riding the app's own 60Hz loop.
+  /// Unlike `run()`, the player never calls `runFrame` — the host drives
+  /// `machine.runFrame()` each frame and calls `liveTick()` once just before it.
   private var liveSteps: [ScriptStep] = []
   private var liveCursor = 0
   private var liveWaitRemaining = 0
   private var liveActive = false
 
-  /// live 再生中か。
+  /// Whether live playback is in progress.
   public var isLivePlaying: Bool { liveActive }
 
-  /// live 再生を開始する。セットアップ (boot/clock/dipsw/disk) を適用し、
-  /// 最初の `wait` (>0) までカーソルを進める。呼び出し側は事前に
-  /// `machine.reset()` 済みであることを想定 (drive モードの BootTester と同じ)。
+  /// Starts live playback: applies the setup steps (boot/clock/dipsw/disk) and
+  /// advances the cursor to the first `wait` greater than zero. The caller is
+  /// expected to have called `machine.reset()` already, as BootTester does in
+  /// drive mode.
   public func beginLive(_ steps: [ScriptStep]) throws {
     liveSteps = steps
     liveCursor = 0
@@ -105,11 +110,13 @@ public final class ScriptPlayer {
     try liveAdvanceCursor()
   }
 
-  /// 毎フレーム、ホストの `machine.runFrame()` の **直前** に 1 回呼ぶ
-  /// (App の `tickPasteQueue()` と同じ位置)。
-  /// due な tap リリースを発火し、現在の `wait` を 1 フレーム消費し、
-  /// `wait` が尽きたら次の即時ステップ群 (key/disk 等) を適用する。
-  /// スクリプトを完全に消費し未解放キーも無くなったら `false` を返す。
+  /// Call once per frame, **immediately before** the host's
+  /// `machine.runFrame()` — the same position as the app's `tickPasteQueue()`.
+  /// Fires any due `tap` releases, consumes one frame of the current `wait`, and
+  /// once that wait is exhausted applies the next run of immediate steps
+  /// (key, disk, and so on).
+  ///
+  /// - Returns: `false` once the script is fully consumed and no keys remain held.
   @discardableResult
   public func liveTick() throws -> Bool {
     guard liveActive else { return false }
@@ -125,11 +132,12 @@ public final class ScriptPlayer {
     return true
   }
 
-  /// live 再生を中断し、押下中の全キー (tap 予約 + 明示 down) を解放する。
+  /// Cancels live playback, releasing every held key — both pending `tap`
+  /// releases and explicit `down` presses.
   public func cancelLive() {
     guard liveActive else { return }
-    finish()                                  // tap 予約を解放
-    for key in heldDownKeys {                 // 明示 down も取りこぼさない
+    finish()  // release pending tap holds
+    for key in heldDownKeys {  // and don't strand explicit downs either
       machine.keyboard.releaseKey(row: key.row, bit: key.bit)
     }
     heldDownKeys.removeAll()
@@ -139,24 +147,25 @@ public final class ScriptPlayer {
     liveWaitRemaining = 0
   }
 
-  /// カーソルを次の `wait` (>0) または終端まで進め、その間の即時ステップを適用する。
-  /// 最初の時間進行の直前に bit3 を確定する (drive モードの `advance` と同義)。
+  /// Advances the cursor to the next `wait` greater than zero (or to the end),
+  /// applying the immediate steps along the way. Finalizes bit 3 just before the
+  /// first advance of time, the same as `advance` does in drive mode.
   private func liveAdvanceCursor() throws {
     while liveCursor < liveSteps.count {
       let step = liveSteps[liveCursor]
       if case .wait(let frames) = step {
         liveCursor += 1
         if frames > 0 {
-          finalizeSetupIfNeeded()      // 起動確定はディスク mount 後・最初の時間進行で
+          finalizeSetupIfNeeded()  // finalize the strap after mounts, at the first time advance
           liveWaitRemaining = frames
           return
         }
-        continue                          // wait 0 は時間を進めない
+        continue  // `wait 0` does not advance time
       }
       try execute(step)
       liveCursor += 1
     }
-    finalizeSetupIfNeeded()                   // 末尾 wait 無しでも起動確定はしておく
+    finalizeSetupIfNeeded()  // finalize even when the script ends without a wait
   }
 
   // MARK: - Step execution
@@ -181,10 +190,11 @@ public final class ScriptPlayer {
       resolveDiskBoot = false
 
     case .diskMount(let drive, let path, let image):
-      // 初期セットアップ (コールドマウント): 交換ディレイを使わず即時マウントする。
-      // Machine を再利用する live 再生では reset 後もドライブにディスクが残るため
-      // (subSystem.reset は drives を保持)、eject せず mountDisk すると交換ディレイ
-      // 経路に入り drive0 が一時 nil → applyBootStrap が ROM 起動へ誤判定する。
+      // Initial setup (cold mount): mount immediately, bypassing the swap delay.
+      // Live playback reuses the Machine, and a reset leaves disks in the drives
+      // (subSystem.reset preserves them). Calling mountDisk without ejecting
+      // first would take the swap-delay path, briefly making drive 0 nil, and
+      // applyBootStrap would then wrongly decide on a ROM boot.
       try mountFile(drive: drive, path: path, image: image, immediate: true)
 
     case .wait(let frames):
@@ -207,20 +217,20 @@ public final class ScriptPlayer {
 
     case .reset(let preserveRAM):
       machine.reset(preserveRAM: preserveRAM)
-      // reset は clock8MHz を true に戻し、キーマトリクスを全解放する。
-      // スクリプトで明示したクロックは再適用して意図を保つ
-      // (dipSw1/2 は reset で保持される)。
+      // reset forces clock8MHz back to true and releases the whole key matrix.
+      // Reapply the clock the script asked for so its intent survives.
+      // (dipSw1/2 are preserved across a reset.)
       if let c = desiredClock8MHz { machine.clock8MHz = c }
       pendingReleases.removeAll()
-      heldDownKeys.removeAll()        // reset でマトリクスは全解放される
-      setupFinalized = false          // 次の advance 前に bit3 を再確定
+      heldDownKeys.removeAll()  // the reset already released the matrix
+      setupFinalized = false  // re-finalize bit 3 before the next advance
     }
   }
 
   // MARK: - Time advancement
 
-  func advance(_ frames: Int) {           // internal: タイミングのユニットテスト用
-    guard frames > 0 else { return }    // wait 0 は時間も起動確定も進めない
+  func advance(_ frames: Int) {  // internal so timing can be unit tested
+    guard frames > 0 else { return }  // `wait 0` advances neither time nor the strap
     finalizeSetupIfNeeded()
     for _ in 0..<frames {
       machine.runFrame()
@@ -228,10 +238,10 @@ public final class ScriptPlayer {
     }
   }
 
-  /// 各フレーム後に呼び、予約された tap リリースを発火する。
+  /// Called after each frame to fire any scheduled `tap` releases.
   private func tickPendingReleases() {
     guard !pendingReleases.isEmpty else { return }
-    // キーのスナップショットを反復し、辞書本体は中身だけ更新する。
+    // Iterate a snapshot of the keys so the dictionary itself can be mutated.
     for key in Array(pendingReleases.keys) {
       guard let remaining = pendingReleases[key] else { continue }
       let next = remaining - 1
@@ -244,19 +254,21 @@ public final class ScriptPlayer {
     }
   }
 
-  /// 最初の時間進行 (および reset 後) の一度だけ、ROM/ディスク起動を確定する。
+  /// Finalizes the ROM/disk boot strap exactly once, at the first advance of
+  /// time and again after a reset.
   private func finalizeSetupIfNeeded() {
     guard !setupFinalized else { return }
     setupFinalized = true
     if resolveDiskBoot {
-      // ドライブ 0 の占有状態から起動ストラップ (bit3) を確定 (Machine 共有ヘルパ)。
+      // Derive the boot strap (bit 3) from whether drive 0 is occupied, via the
+      // shared Machine helper.
       machine.applyBootStrap()
     }
   }
 
   // MARK: - Keyboard
 
-  func applyKey(_ key: Keyboard.Key, _ action: KeyAction) {   // internal: タイミングのユニットテスト用
+  func applyKey(_ key: Keyboard.Key, _ action: KeyAction) {  // internal so timing can be unit tested
     switch action {
     case .down:
       machine.keyboard.pressKey(row: key.row, bit: key.bit)
@@ -267,19 +279,20 @@ public final class ScriptPlayer {
       pendingReleases[key] = nil
       heldDownKeys.remove(key)
     case .tap(let hold):
-      // 保持中の同キーは先に解放してから押し直す (pressKey で上書き)。
-      // §6 の「必ず 1 フレーム以上保持」保証のため hold は 1 未満を 1 に丸める。
+      // A key already held is re-pressed; pressKey simply overwrites it.
+      // §6 guarantees a hold of at least one frame, so round anything below 1 up.
       machine.keyboard.pressKey(row: key.row, bit: key.bit)
       pendingReleases[key] = max(1, hold)
-      heldDownKeys.remove(key)          // 自動リリース管理に委ねる
+      heldDownKeys.remove(key)  // hand it over to automatic release
     }
   }
 
   // MARK: - Disk
 
-  /// - Parameter immediate: `true` ならマウント前に eject して交換ディレイ
-  ///   (ドアが開いている ~100ms 窓) を回避し、即座にディスクを実装する。
-  ///   コールドブートのセットアップ (`disk` コマンド) 用。`disk swap` は `false`。
+  /// - Parameter immediate: When `true`, eject before mounting so the disk is
+  ///   seated at once, bypassing the swap delay (the ~100ms window during which
+  ///   the door is open). Used for cold-boot setup (the `disk` command);
+  ///   `disk swap` passes `false`.
   private func mountFile(drive: Int, path: String, image: Int, immediate: Bool = false) throws {
     let data = try loader(path)
     let disks = D88Disk.parseAll(data: data)
@@ -310,7 +323,7 @@ public final class ScriptPlayer {
 
   // MARK: - Finish
 
-  /// 再生終了時、未リリースの tap 予約を解放する。
+  /// Releases any outstanding `tap` holds when playback ends.
   private func finish() {
     for key in pendingReleases.keys {
       machine.keyboard.releaseKey(row: key.row, bit: key.bit)

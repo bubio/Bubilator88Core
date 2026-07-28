@@ -418,11 +418,12 @@ public final class Pc88Bus: Bus {
 
   // MARK: - Power-on RAM Init
 
-  /// QUASI88 互換: 電源投入時の RAM パターン初期化
-  /// 実機では DRAM セルの電荷パターンにより 0x00/0xFF が交互に出現する。
-  /// N88-BASIC ROM の初期化コードはこのパターンに依存している。
+  /// QUASI88-compatible power-on RAM pattern.
+  ///
+  /// On real hardware the charge pattern of the DRAM cells makes 0x00 and 0xFF
+  /// alternate. The N88-BASIC ROM's initialization code depends on it.
   private func powerOnRAMInit() {
-    // QUASI88 互換: power_on_ram_init (pc88main.c:3274-3333)
+    // QUASI88-compatible: power_on_ram_init (pc88main.c:3274-3333)
     // DRAM power-on pattern — some commercial software depends on specific values.
     mainRAM = Array(repeating: 0x00, count: 65536)
 
@@ -504,7 +505,7 @@ public final class Pc88Bus: Bus {
          extRAMCard < ext.count, extRAMBank < ext[extRAMCard].count {
         return ext[extRAMCard][extRAMBank][Int(addr)]
       }
-      // MMODE=1 (64KB RAM mode): mainRAM を返す (QUASI88 confirmed)
+      // MMODE=1 (64KB RAM mode): return mainRAM (QUASI88 confirmed)
       if ramMode {
         return mainRAM[Int(addr)]
       }
@@ -512,7 +513,7 @@ public final class Pc88Bus: Bus {
       // QUASI88 pc88main.c:411-422: in N-BASIC mode, 0x6000-0x7FFF always
       // comes from main_rom_n[0x6000] regardless of port 0x71 state.
       if romModeN88 {
-        // 0x6000-0x7FFF: ROMバンク
+        // 0x6000-0x7FFF: ROM bank
         // When ext ROM is selected (port 0x71 bit 0 = 0):
         //   - If ext ROM data loaded → return ext ROM bank data
         //   - If ext ROM not loaded → return 0xFF (open bus, like empty socket)
@@ -538,11 +539,11 @@ public final class Pc88Bus: Bus {
     case 0x8000..<0x8400:
       if cpuClock8MHz { pendingWaitStates += 1 }
       if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
-      // テキストウィンドウ: MMODE=0 かつ RMODE=0 (N88-BASIC ROM) の場合
-      // mainRAM 上の textWindowOffset ベースのアドレスにマップ
+      // Text window: with MMODE=0 and RMODE=0 (N88-BASIC ROM), map to an
+      // address in mainRAM based on textWindowOffset.
       // Reference: QUASI88 pc88main.c:555, BubiC pc88.cpp:777.
-      // BubiC は F000h 台でも text window access を tvram に迂回させず、
-      // 常に RAM shadow を直接読み書きする。
+      // BubiC never diverts a text-window access to tvram, not even in the
+      // F000h range; it always reads and writes the RAM shadow directly.
       if !ramMode && romModeN88 {
         let ramAddr = (Int(textWindowOffset) << 8) + Int(addr & 0x03FF)
         return mainRAM[ramAddr & 0xFFFF]
@@ -616,7 +617,7 @@ public final class Pc88Bus: Bus {
         pendingWaitStates += 1
         if v1sMemWait { pendingWaitStates += 1 }  // V1S 8MHz write wait
       }
-      // テキストウィンドウ: MMODE=0 かつ RMODE=0 (N88-BASIC ROM) の場合
+      // Text window: with MMODE=0 and RMODE=0 (N88-BASIC ROM).
       if !ramMode && romModeN88 {
         let ramAddr = (Int(textWindowOffset) << 8) + Int(addr & 0x03FF)
         mainRAM[ramAddr & 0xFFFF] = value
@@ -1275,7 +1276,7 @@ public final class Pc88Bus: Bus {
 
   // MARK: - ROM Read
 
-  /// N-BASIC ROM 未ロード警告を一度だけ出すフラグ
+  /// Ensures the "N-BASIC ROM not loaded" warning is emitted only once.
   private var nBasicROMWarned: Bool = false
 
   private func readROM(_ addr: UInt16) -> UInt8 {
@@ -1285,7 +1286,7 @@ public final class Pc88Bus: Bus {
     } else {
       // RMODE=1: N-BASIC ROM
       if let rom = nBasicROM, Int(addr) < rom.count { return rom[Int(addr)] }
-      // N80.ROM 未ロード時は 0xFF を返す (実機同等)
+      // Return 0xFF when N80.ROM is not loaded, as real hardware does.
       if !nBasicROMWarned {
         busLog.warning("N-BASIC ROM (N80.ROM) not loaded — reads return 0xFF. Boot may fail.")
         nBasicROMWarned = true

@@ -455,7 +455,7 @@ public struct ScreenRenderer {
 
     // QUASI88: font height derived from line count, NOT from CRTC charLinesPerRow
     // ≤20 lines → 10px cell (20×10=200), >20 lines → 8px cell (25×8=200)
-    // XM8: skip_line doubles char_height (1行飛ばし表示)
+    // XM8: skip_line doubles char_height (every other line is displayed)
     let fontHeight = Self.charHeight  // 8 pixels of font glyph data
     let baseCellHeight = textRows <= 20 ? 10 : 8
     let cellHeight = (hireso ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)

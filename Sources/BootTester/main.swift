@@ -11,7 +11,7 @@ let appSupport = FileManager.default.urls(
 
 let bootArgs = Array(CommandLine.arguments.dropFirst())
 
-/// `--script <file.txt>` でタイムラインスクリプトを再生するモード。
+/// Mode that replays a timeline script, selected with `--script <file.txt>`.
 let scriptPath: String? = {
   guard let i = bootArgs.firstIndex(of: "--script"), i + 1 < bootArgs.count else { return nil }
   return bootArgs[i + 1]
@@ -25,7 +25,8 @@ let requestedDiskPath: String? = {
     exit(0)
   }
   if first.hasPrefix("--") {
-    // フラグはディスクパスではない。--script 以外の未知フラグは黙殺せず警告。
+    // Flags are not disk paths. Unknown flags other than --script are warned
+    // about rather than silently ignored.
     if first != "--script" {
       FileHandle.standardError.write(
         Data("warning: 未知のオプション \(first) を無視します\n".utf8))
@@ -195,11 +196,11 @@ struct BootTestKeyFrameEvent {
   let keyName: String
 }
 
-// キー名テーブルは ScriptParser に一本化した (BOOTTEST_KEY_EVENTS と
-// タイムラインスクリプトで共通)。parseBootTestKey は下で委譲する。
+// The key-name table lives in ScriptParser only, shared by BOOTTEST_KEY_EVENTS
+// and timeline scripts. parseBootTestKey below just delegates to it.
 
-/// キー名 / row-bit 表記を Keyboard.Key へ解決する。
-/// タイムラインスクリプトと同じ共有テーブル (ScriptParser) に委譲する。
+/// Resolves a key name or row-bit notation to a Keyboard.Key, delegating to the
+/// same shared table (ScriptParser) that timeline scripts use.
 func parseBootTestKey(_ token: String) -> Keyboard.Key? {
   ScriptParser.key(named: token)
 }
@@ -446,20 +447,24 @@ guard let romData = try? Data(contentsOf: appSupport.appendingPathComponent("N88
   print("N88.ROM not found"); exit(1)
 }
 
-/// BOOTTEST_VIRTUAL_RTC=1 のとき、RTC を「emulated 時間ベース」で進める。
-/// BootTester は wall-clock より速く (ターボ時は尚更) フレームを回すため、
-/// host 時刻を参照する既定の RTC は相対的に止まって見える。RTC 経過を
-/// 当てにして画面遷移するゲーム (例: SB2 Music Disk v4) は、これで
-/// ゲーム視点の「秒」が正しく進むようになる。
+/// With BOOTTEST_VIRTUAL_RTC=1, advances the RTC on emulated time instead of
+/// wall-clock time.
+///
+/// BootTester runs frames faster than wall-clock — far faster with turbo — so
+/// the default RTC, which reads the host clock, appears to stand still by
+/// comparison. Games that drive screen transitions off elapsed RTC time (SB2
+/// Music Disk v4, for one) then see seconds pass correctly from their own
+/// point of view.
 func maybeInstallVirtualRTC(machine: Machine, forceDefault: Bool = false) {
-  // 通常経路は BOOTTEST_VIRTUAL_RTC=1 でのみ有効。script モードは
-  // forceDefault=true で既定 ON (BOOTTEST_VIRTUAL_RTC=0 で明示無効化のみ可)。
+  // Normally this is enabled only by BOOTTEST_VIRTUAL_RTC=1. Script mode passes
+  // forceDefault=true to turn it on by default, leaving BOOTTEST_VIRTUAL_RTC=0
+  // as the only way to opt out.
   let env = ProcessInfo.processInfo.environment["BOOTTEST_VIRTUAL_RTC"]
   let enabled = forceDefault ? (env != "0") : (env == "1")
   guard enabled else { return }
-  // 固定の仮想開始日時: 2025-01-01 00:00:00 (水曜)
-  let baseYear = 125   // 1900 起算
-  let baseMon  = 1     // 1-12 で返す
+  // Fixed virtual start date: 2025-01-01 00:00:00 (a Wednesday)
+  let baseYear = 125   // years since 1900
+  let baseMon  = 1     // reported as 1-12
   let baseDay  = 1
   let baseWday = 3     // 0=Sunday; 2025-01-01 = Wed
   machine.calendar.timeProvider = { [unowned machine] in
@@ -471,7 +476,8 @@ func maybeInstallVirtualRTC(machine: Machine, forceDefault: Bool = false) {
     let hrT  = minT / 60
     let hour = hrT % 24
     let dayOffset = hrT / 24
-    // 分〜時間単位の検証しかしないので day/mon は粗く扱う。
+    // Only minute-to-hour resolution is ever checked, so day and month are
+    // handled coarsely.
     return (
       sec: sec,
       min: min,
@@ -552,7 +558,7 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
 }
 
 // ============================================================
-// Script mode: --script <file.txt> でタイムラインを再生して終了
+// Script mode: replay the timeline from --script <file.txt>, then exit
 // ============================================================
 func runScriptMode(scriptPath: String) -> Never {
   let scriptURL = URL(fileURLWithPath: scriptPath)
@@ -572,11 +578,13 @@ func runScriptMode(scriptPath: String) -> Never {
   }
 
   let machine = setupMachine()
-  // 決定性 (検証/リプレイ) のため、script モードでは virtual RTC を既定 ON。
+  // Script mode defaults the virtual RTC on, so verification and replay stay
+  // deterministic.
   maybeInstallVirtualRTC(machine: machine, forceDefault: true)
   machine.bus.directBasicBoot = ProcessInfo.processInfo.environment["BOOTTEST_DIRECT_BASIC"] == "1"
 
-  // 相対パスはスクリプトのあるフォルダ基準、絶対パスはそのまま。
+  // Relative paths resolve against the script's own directory; absolute paths
+  // are used as-is.
   let baseDir = scriptURL.deletingLastPathComponent()
   let loader: ScriptPlayer.FileLoader = { path in
     let url = (path as NSString).isAbsolutePath
@@ -588,8 +596,9 @@ func runScriptMode(scriptPath: String) -> Never {
     return [UInt8](data)
   }
 
-  // BOOTTEST_SCRIPT_LIVE=1 で live ドライバ (ホストが runFrame を所有) を使う。
-  // 既定は drive モード (Player が時計を所有)。app の live 再生経路の検証用。
+  // BOOTTEST_SCRIPT_LIVE=1 selects the live driver, where the host owns
+  // runFrame. The default is drive mode, where the player owns the clock. Live
+  // mode exists to exercise the app's own playback path.
   let useLive = (ProcessInfo.processInfo.environment["BOOTTEST_SCRIPT_LIVE"] == "1")
   print("=== Script mode: \(scriptURL.lastPathComponent) (\(steps.count) steps)"
     + (useLive ? " [live]" : "") + " ===")

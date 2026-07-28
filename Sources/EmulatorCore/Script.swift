@@ -1,21 +1,22 @@
-// Script.swift — タイムライン操作スクリプトのモデルとパーサ。
+// Script.swift — model and parser for timeline operation scripts.
 //
-// docs/SCRIPTING.md の DRAFT 仕様に対応する純 Swift 実装。
-// テキスト → [ScriptStep] へ変換するだけで、Machine には依存しない
-// (再生は ScriptPlayer が担当)。
+// A pure Swift implementation of the DRAFT specification in docs/SCRIPTING.md.
+// It only converts text into [ScriptStep] and has no dependency on Machine;
+// replaying the steps is ScriptPlayer's job.
 
 // MARK: - Model
 
-/// `key` 動詞のアクション。
+/// The action taken by the `key` verb.
 public enum KeyAction: Equatable, Sendable {
   case down
   case up
-  /// 押下し、`hold` フレーム後に自動リリースを予約する。既定 2。
+  /// Presses the key and schedules an automatic release `hold` frames later.
+  /// Defaults to 2.
   case tap(hold: Int)
 }
 
-/// ブートモード。DIPSW1 / DIPSW2 の組に展開される
-/// (値は docs/BOOTTESTER.md / docs/PERSISTENCE.md 準拠)。
+/// Boot mode, expanded into a DIPSW1 / DIPSW2 pair. The values follow
+/// docs/BOOTTESTER.md and docs/PERSISTENCE.md.
 public enum BootMode: String, Equatable, Sendable, CaseIterable {
   case n88v2   = "n88-v2"
   case n88v1h  = "n88-v1h"
@@ -39,25 +40,25 @@ public enum BootMode: String, Equatable, Sendable, CaseIterable {
   }
 }
 
-/// スクリプトの 1 ステップ。記述順に並ぶ。
+/// A single script step. Steps are held in the order they were written.
 public enum ScriptStep: Equatable, Sendable {
   // --- setup ---
   case boot(BootMode)
   case clock(mhz: Int)                                  // 4 or 8
   case dipsw1(UInt8)
   case dipsw2(UInt8)
-  case diskMount(drive: Int, path: String, image: Int)  // 初期マウント
+  case diskMount(drive: Int, path: String, image: Int)  // initial mount
 
   // --- timeline ---
   case wait(frames: Int)
   case key(Keyboard.Key, KeyAction)
-  case diskSwap(drive: Int, path: String, image: Int)   // 別ファイルへ入れ替え
-  case diskSelect(drive: Int, image: Int)               // 同一ファイルのイメージ切替
+  case diskSwap(drive: Int, path: String, image: Int)   // swap in a different file
+  case diskSelect(drive: Int, image: Int)               // switch image within the same file
   case diskEject(drive: Int)
   case reset(preserveRAM: Bool)
 }
 
-/// パースエラー。`line` は 1 始まり。
+/// A parse error. `line` is 1-based.
 public struct ScriptError: Error, Equatable, Sendable {
   public let line: Int
   public let message: String
@@ -71,14 +72,14 @@ public struct ScriptError: Error, Equatable, Sendable {
 
 public enum ScriptParser {
 
-  /// スクリプトテキストを [ScriptStep] にパースする。
+  /// Parses script text into a [ScriptStep] timeline.
   public static func parse(_ text: String) throws -> [ScriptStep] {
     var steps: [ScriptStep] = []
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
     for (idx, rawLine) in lines.enumerated() {
       let lineNo = idx + 1
       let tokens = try tokenize(String(rawLine), line: lineNo)
-      guard !tokens.isEmpty else { continue }   // 空行 / コメントのみ
+      guard !tokens.isEmpty else { continue }  // blank line, or comment only
       steps.append(try parseLine(tokens, line: lineNo))
     }
     return steps
@@ -86,18 +87,19 @@ public enum ScriptParser {
 
   // MARK: Tokenizer
 
-  /// 行を空白区切りでトークン化する。`"..."` はひとまとめ。`#` 以降はコメント。
+  /// Tokenizes a line on whitespace. `"..."` stays one token; everything from
+  /// `#` onwards is a comment.
   private static func tokenize(_ line: String, line lineNo: Int) throws -> [String] {
     var tokens: [String] = []
     var current = ""
     var inQuotes = false
     var hasCurrent = false
-    var escaped = false             // クォート内 `\` エスケープ
+    var escaped = false  // `\` escape inside quotes
 
     for ch in line {
       if inQuotes {
         if escaped {
-          current.append(ch)      // `\"` → `"`、`\\` → `\`、その他は文字そのまま
+          current.append(ch)  // `\"` → `"`, `\\` → `\`, anything else stays literal
           escaped = false
         } else if ch == "\\" {
           escaped = true
@@ -111,9 +113,9 @@ public enum ScriptParser {
       switch ch {
       case "\"":
         inQuotes = true
-        hasCurrent = true            // "" は空文字列トークンとして成立
+        hasCurrent = true  // `""` is a valid empty-string token
       case "#":
-        // コメント開始。残りは無視。
+        // Start of a comment; ignore the rest of the line.
         if hasCurrent { tokens.append(current) }
         return tokens
       case " ", "\t", "\r":
@@ -209,13 +211,13 @@ public enum ScriptParser {
       }
       return .diskEject(drive: try parseDrive(rest[0], line: line))
     default:
-      // 初期マウント: disk <drive> <path> [image <index>]
+      // Initial mount: disk <drive> <path> [image <index>]
       let (drive, path, image) = try parseDrivePathImage(args, line: line)
       return .diskMount(drive: drive, path: path, image: image)
     }
   }
 
-  /// `<drive> <path> [image <index>]` を解析する (mount / swap 共通)。
+  /// Parses `<drive> <path> [image <index>]`, shared by mount and swap.
   private static func parseDrivePathImage(_ args: [String], line: Int) throws -> (Int, String, Int) {
     guard args.count == 2 || args.count == 4 else {
       throw ScriptError(line: line, message: "<drive> <path> [image <index>]")
@@ -266,7 +268,7 @@ public enum ScriptParser {
 
   // MARK: Scalar parsers
 
-  /// `90` / `90f` / `1.5s` をフレーム数に換算する。
+  /// Converts `90`, `90f` or `1.5s` into a frame count.
   private static func parseDuration(_ token: String, line: Int) throws -> Int {
     let t = token.lowercased()
     if t.hasSuffix("s") {
@@ -316,15 +318,16 @@ public enum ScriptParser {
 
   // MARK: Key name resolution
 
-  /// キー名 (大小無視) または `row-bit` 表記を Keyboard.Key へ解決する。
-  /// 解決できなければ nil。BootTester など外部からも使える共通エントリ。
+  /// Resolves a key name (case-insensitive) or `row-bit` notation to a
+  /// Keyboard.Key, or nil if it cannot be resolved. This is the shared entry
+  /// point, also used from outside by BootTester.
   public static func key(named token: String) -> Keyboard.Key? {
     let name = token.lowercased()
     if let key = keyNameTable[name] { return key }
-    return parseRowBit(name)            // row-bit 表記 (例: "2-1", "0x0a-3")
+    return parseRowBit(name)  // row-bit notation, e.g. "2-1" or "0x0a-3"
   }
 
-  /// パーサ内部用: 解決失敗を行番号つきエラーにする。
+  /// Parser-internal: turns a failed lookup into an error carrying the line number.
   static func resolveKey(_ token: String, line: Int) throws -> Keyboard.Key {
     if let key = key(named: token) { return key }
     throw ScriptError(line: line, message: "未知のキー名: \(token)")
@@ -347,30 +350,31 @@ public enum ScriptParser {
 // MARK: - Key name table
 
 extension ScriptParser {
-  /// 文字列 → Keyboard.Key。タイムラインスクリプトと BootTester の
-  /// BOOTTEST_KEY_EVENTS が共有する唯一のキー名テーブル (Keyboard 定数が原典)。
+  /// String to Keyboard.Key. The single key-name table shared by timeline
+  /// scripts and BootTester's BOOTTEST_KEY_EVENTS; the Keyboard constants are
+  /// the source of truth.
   static let keyNameTable: [String: Keyboard.Key] = [
-    // リターン / 制御
+    // Return / control
     "return": Keyboard.kpReturn, "enter": Keyboard.kpReturn,
     "space": Keyboard.space,
     "esc": Keyboard.esc, "escape": Keyboard.esc,
     "stop": Keyboard.stop, "tab": Keyboard.tab,
     "help": Keyboard.help, "copy": Keyboard.copy,
-    // 修飾
+    // Modifiers
     "shift": Keyboard.shift, "ctrl": Keyboard.ctrl,
     "grph": Keyboard.grph, "kana": Keyboard.kana,
-    // 矢印
+    // Arrows
     "up": Keyboard.up, "down": Keyboard.down,
     "left": Keyboard.left, "right": Keyboard.right,
-    // ファンクション
+    // Function keys
     "f1": Keyboard.f1, "f2": Keyboard.f2, "f3": Keyboard.f3, "f4": Keyboard.f4,
     "f5": Keyboard.f5, "f6": Keyboard.f6, "f7": Keyboard.f7, "f8": Keyboard.f8,
     "f9": Keyboard.f9, "f10": Keyboard.f10,
-    // 数字
+    // Digits
     "0": Keyboard.key0, "1": Keyboard.key1, "2": Keyboard.key2, "3": Keyboard.key3,
     "4": Keyboard.key4, "5": Keyboard.key5, "6": Keyboard.key6, "7": Keyboard.key7,
     "8": Keyboard.key8, "9": Keyboard.key9,
-    // 英字
+    // Letters
     "a": Keyboard.a, "b": Keyboard.b, "c": Keyboard.c, "d": Keyboard.d,
     "e": Keyboard.e, "f": Keyboard.f, "g": Keyboard.g, "h": Keyboard.h,
     "i": Keyboard.i, "j": Keyboard.j, "k": Keyboard.k, "l": Keyboard.l,
@@ -378,14 +382,14 @@ extension ScriptParser {
     "q": Keyboard.q, "r": Keyboard.r, "s": Keyboard.s, "t": Keyboard.t,
     "u": Keyboard.u, "v": Keyboard.v, "w": Keyboard.w, "x": Keyboard.x,
     "y": Keyboard.y, "z": Keyboard.z,
-    // 記号
+    // Symbols
     "at": Keyboard.at,
     "leftbracket": Keyboard.leftBracket, "rightbracket": Keyboard.rightBracket,
     "yen": Keyboard.yen, "caret": Keyboard.caret, "minus": Keyboard.minus,
     "colon": Keyboard.colon, "semicolon": Keyboard.semicolon,
     "comma": Keyboard.comma, "period": Keyboard.period,
     "slash": Keyboard.slash, "underscore": Keyboard.underscore,
-    // テンキー
+    // Numeric keypad
     "kp0": Keyboard.kp0, "kp1": Keyboard.kp1, "kp2": Keyboard.kp2, "kp3": Keyboard.kp3,
     "kp4": Keyboard.kp4, "kp5": Keyboard.kp5, "kp6": Keyboard.kp6, "kp7": Keyboard.kp7,
     "kp8": Keyboard.kp8, "kp9": Keyboard.kp9,
@@ -394,7 +398,7 @@ extension ScriptParser {
     "kpmultiply": Keyboard.kpMultiply, "kpdivide": Keyboard.kpDivide,
     "kpequal": Keyboard.kpEqual, "kpcomma": Keyboard.kpComma,
     "kpperiod": Keyboard.kpPeriod,
-    // 編集 / ページ / 変換
+    // Editing / paging / conversion
     "clr": Keyboard.clr, "del": Keyboard.del, "bs": Keyboard.bs,
     "ins": Keyboard.ins, "del2": Keyboard.del2, "capslock": Keyboard.capsLock,
     "rollup": Keyboard.rollUp, "rolldown": Keyboard.rollDown,

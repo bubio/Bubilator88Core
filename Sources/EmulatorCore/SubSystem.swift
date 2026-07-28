@@ -35,21 +35,26 @@ public final class SubSystem {
   /// Mounted disk images (2 drives).
   public var drives: [D88Disk?] = [nil, nil]
 
-  /// 入れ替え遅延: ディスクが既に入っているドライブに `mountDisk` した場合、
-  /// QUASI88 (`quasi88_disk_image_eject_before_insert` + 100ms timer) と同等に
-  /// 「ドアが開いてディスクが無い時間」を再現するため新ディスクをここに退避し、
-  /// `drives[i]` を一旦 nil にする。`subCpuTStates` が deadline に達したら
-  /// 実マウントする。これで `SenseDriveStatus` が窓の間「ディスク無し」を返し、
-  /// D.C.コネクションのようなディスク交換検出ゲームが遷移を観測できる。
-  /// 同時に one-shot で TS だけ落とす旧 `diskExchanged` の副作用 (クリムゾン
-  /// の「ディスクが違う」誤検出) も避けられる。
+  /// Swap delay. When `mountDisk` targets a drive that already holds a disk,
+  /// the new disk is parked here and `drives[i]` is set to nil for a while, to
+  /// reproduce the interval during which the door is open and no disk is
+  /// present — matching QUASI88's `quasi88_disk_image_eject_before_insert` plus
+  /// its 100ms timer. The real mount happens once `subCpuTStates` reaches the
+  /// deadline. `SenseDriveStatus` therefore reports "no disk" for the duration
+  /// of the window, letting games that detect disk changes — D.C.コネクション,
+  /// for one — observe the transition. It also avoids the side effect of the
+  /// old one-shot `diskExchanged`, which only dropped TS and made クリムゾン
+  /// wrongly report the wrong disk.
   private var pendingMount: [(disk: D88Disk, deadlineTStates: UInt64)?] = [nil, nil]
 
-  /// セクタ書込 / トラックフォーマット成功時に呼ばれる通知 (引数 = drive番号)。
-  /// ViewModel 層で書き戻しスケジューラに繋ぐために使用する。
-  /// D88Disk が struct のため、struct 内に closure を置くと値型コピーや
-  /// クロージャ呼出のコード生成が原因で BootTester で挙動差が出るため、
-  /// 通知点は class 側 (SubSystem) に置く。
+  /// Fired on a successful sector write or track format; the argument is the
+  /// drive number. The ViewModel layer hooks this up to the write-back
+  /// scheduler.
+  ///
+  /// The notification point lives on the class (SubSystem) rather than in
+  /// D88Disk because D88Disk is a struct: putting a closure inside it changed
+  /// BootTester's behaviour, through value-type copies and the code generated
+  /// for the closure call.
   public var onDiskWritten: ((Int) -> Void)?
 
   // MARK: - Access Indicators
@@ -66,7 +71,7 @@ public final class SubSystem {
 
   // MARK: - Interrupt Callback
 
-  /// メインCPUへINT3を通知するコールバック。
+  /// Callback that raises INT3 on the main CPU.
   public var onInterrupt: (() -> Void)?
 
   // MARK: - Debugger hooks
@@ -165,7 +170,8 @@ public final class SubSystem {
     pio.reset()
     fdc.reset()
     // Note: drives are intentionally NOT cleared — disks persist across reset.
-    // pendingMount は flush: リセット直後にディスク交換窓が残るとロード失敗の原因。
+    // Flush pendingMount: leaving a disk-swap window open across a reset causes
+    // load failures.
     for i in 0..<2 {
       if let p = pendingMount[i] {
         drives[i] = p.disk
@@ -367,8 +373,8 @@ public final class SubSystem {
   public func mountDisk(drive: Int, disk: D88Disk) {
     guard drive >= 0 && drive < 2 else { return }
     if drives[drive] != nil {
-      // 既存ディスクからの入れ替え: ドアが開いている時間 (~100ms @ 4MHz =
-      // 400_000 T-states) だけ「無し」状態にしてから新ディスクを実装する。
+      // Swapping over an existing disk: report "no disk" for as long as the
+      // door is open (~100ms at 4MHz = 400_000 T-states), then seat the new one.
       drives[drive] = nil
       pendingMount[drive] = (disk, subCpuTStates &+ Self.diskSwapDelayTStates)
     } else {
@@ -384,10 +390,11 @@ public final class SubSystem {
     pendingMount[drive] = nil
   }
 
-  /// QUASI88 の toolbar.c が使う 100ms timer に合わせた値。Sub-CPU は 4MHz 固定。
+  /// Matches the 100ms timer QUASI88's toolbar.c uses. The sub-CPU is fixed at 4MHz.
   private static let diskSwapDelayTStates: UInt64 = 400_000
 
-  /// `runSubCPUInternal` の先頭から呼んで、deadline に達した pending mount を反映する。
+  /// Called at the top of `runSubCPUInternal` to seat any pending mount whose
+  /// deadline has passed.
   private func commitPendingMounts() {
     for i in 0..<2 {
       if let p = pendingMount[i], subCpuTStates >= p.deadlineTStates {

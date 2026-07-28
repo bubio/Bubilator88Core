@@ -350,18 +350,20 @@ public final class Machine: @unchecked Sendable {
 
   // MARK: - Boot strap (DIPSW2 bit 3)
 
-  /// DIPSW2 bit 3 は起動ストラップ: ディスク起動 (bit3=0) か ROM 直起動 (bit3=1) かを選ぶ。
-  /// ドライブ0が空のときに ROM 起動へ倒すと ~30 秒の IPL タイムアウト待ちを回避できる。
+  /// DIPSW2 bit 3 is the boot strap: disk boot (bit3=0) or straight to ROM
+  /// (bit3=1). Falling back to a ROM boot when drive 0 is empty avoids the ~30
+  /// second IPL timeout.
   public static let bootStrapBit: UInt8 = 0x08
 
-  /// 起動ストラップ bit を `base` に適用した DIPSW2 値を返す純粋関数。
+  /// Pure function returning `base` with the boot strap bit applied.
   /// `hasDiskInDrive0 == true` → disk boot (bit3=0)、`false` → ROM boot (bit3=1)。
   public static func resolvedBootStrap(base: UInt8, hasDiskInDrive0: Bool) -> UInt8 {
     hasDiskInDrive0 ? (base & ~bootStrapBit) : (base | bootStrapBit)
   }
 
-  /// 現在のドライブ0占有状態から DIPSW2 bit 3 を確定し、`bus.dipSw2` に反映する。
-  /// `base` 省略時は現在の `bus.dipSw2` を起点にする (bit 3 のみ更新)。
+  /// Derives DIPSW2 bit 3 from whether drive 0 is currently occupied and writes
+  /// the result to `bus.dipSw2`. With `base` omitted the current `bus.dipSw2` is
+  /// the starting point, so only bit 3 changes.
   public func applyBootStrap(base: UInt8? = nil) {
     let start = base ?? bus.dipSw2
     bus.dipSw2 = Machine.resolvedBootStrap(base: start,

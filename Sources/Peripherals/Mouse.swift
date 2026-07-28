@@ -1,59 +1,67 @@
-/// PC-8801 のマウス入力 (OPN/OPNA 汎用 I/O ポート経由) の behavioral model。
+/// Behavioral model of PC-8801 mouse input, read through the OPN/OPNA
+/// general-purpose I/O ports.
 ///
-/// マウスは専用 I/O ポートを持たず、OPN (YM2608) の汎用 I/O ポート (reg 0x0E =
-/// port A / reg 0x0F = port B) 経由で読まれる。M88 (cisc) の `mouse.cpp` と同様、
-/// 本デバイスは **2 つの読み取りモード**を 1 つに内包する:
+/// The mouse has no dedicated I/O port; it is read through the OPN (YM2608)
+/// general-purpose I/O ports (reg 0x0E = port A, reg 0x0F = port B). As in M88
+/// (cisc) `mouse.cpp`, this one device contains **two read modes**:
 ///
-/// 1. バスマウスモード (`joyMode == false`): PC-8872 純正バスマウス。
-///    - ストローブ: port 0x40 write の bit 6 (JOP1) 反転でフェーズ進行
-///    - reg 0x0E (port A) → X/Y 相対移動量を 4 段ニブル読み出し
-///      (phase 0: X上位 / 1: X下位 / 2: Y上位 / 3: Y下位、下位4bit有効、上位 | 0xF0)
-///    - phase 0 突入時に累積移動量を符号反転 + ±127 クリップしてラッチ&クリア
-///    - ストローブ間隔が一定 T-state を超えるとシーケンス中断とみなし phase=0
-///    参照: BubiC `pc88.cpp` read_io8 case 0x45 / M88 `mouse.cpp` GetMove/Strobe
+/// 1. Bus mouse mode (`joyMode == false`): the genuine PC-8872 bus mouse.
+///    - Strobe: toggling bit 6 (JOP1) of a port 0x40 write advances the phase
+///    - reg 0x0E (port A) → X/Y relative movement, read as four nibbles
+///      (phase 0: X high / 1: X low / 2: Y high / 3: Y low; low 4 bits carry
+///      the value, high bits are `| 0xF0`)
+///    - On entering phase 0 the accumulated movement is sign-flipped, clipped
+///      to ±127, latched, and cleared
+///    - If the gap between strobes exceeds a fixed T-state limit the sequence
+///      is treated as abandoned and the phase resets to 0
+///    Reference: BubiC `pc88.cpp` read_io8 case 0x45 / M88 `mouse.cpp`
+///    GetMove/Strobe
 ///
-/// 2. ジョイモード (`joyMode == true`): マウスをアタリ仕様ジョイスティックとして
-///    扱い、OPN ポートをジョイスティックとして読むゲーム用。ストローブ不要。
-///    (現時点でこのモードを必要とする実タイトルは未発見。将来のための受け皿。
-///     あーくしゅはジョイモードではなく上記バスマウスモードで動く。)
-///    - reg 0x0E (port A) → 累積移動量を方向ビットに変換 (アクティブLow):
-///      bit0=上, bit1=下, bit2=左, bit3=右、上位 | 0xF0
-///    - VSync ごとにラッチを解除 (1 フレーム 1 サンプル)
-///    参照: M88 `mouse.cpp` GetMove joymode 分岐 / QUASI88 ジョイスティック bit 配置
+/// 2. Joystick mode (`joyMode == true`): treats the mouse as an Atari-style
+///    joystick, for games that read the OPN ports as a joystick. No strobe.
+///    (No real title is currently known to need this mode; it exists for
+///    future use. あーくしゅ works in bus mouse mode above, not this one.)
+///    - reg 0x0E (port A) → accumulated movement converted to direction bits
+///      (active low): bit0=up, bit1=down, bit2=left, bit3=right, high `| 0xF0`
+///    - The latch is released on every VSync (one sample per frame)
+///    Reference: M88 `mouse.cpp` GetMove joymode branch / QUASI88 joystick bit
+///    layout
 ///
-/// reg 0x0F (port B) のボタン (左=bit0 / 右=bit1、負論理、上位 0xFC) は両モード共通。
+/// The buttons on reg 0x0F (port B) — left=bit0, right=bit1, negative logic,
+/// high bits 0xFC — are common to both modes.
 public final class Mouse {
 
-  /// マウスモード有効時のみ port 横取りを行う。
+  /// Port reads are only intercepted while the mouse is enabled.
   public var enabled: Bool = false
 
-  /// true = ジョイモード (マウス→ジョイスティック方向ビット)、
-  /// false = バスマウスモード (ストローブ式 4 段ニブル)。
+  /// true = joystick mode (mouse mapped to joystick direction bits),
+  /// false = bus mouse mode (strobed four-nibble read).
   public var joyMode: Bool = false
 
-  /// ジョイモードの方向判定しきい値 (デッドゾーン)。これを超える累積移動で
-  /// 方向ビットが立つ。M88 の sensibility 相当。
+  /// Dead zone for joystick mode: accumulated movement beyond this threshold
+  /// sets a direction bit. Equivalent to M88's `sensibility`.
   public var joyThreshold: Int = 3
 
-  /// ホスト相対移動の累積 (ラッチで消費)。
+  /// Accumulated relative movement from the host, consumed on latch.
   private var dx: Int = 0
   private var dy: Int = 0
 
-  /// phase 0 でラッチされた移動量 (符号反転 + クリップ済み)。
+  /// Movement latched at phase 0, already sign-flipped and clipped.
   private var latchedX: Int = 0
   private var latchedY: Int = 0
 
-  /// 現在の読み出しフェーズ (0-3)。-1 = 未ラッチ。
+  /// Current read phase (0-3). -1 means nothing has been latched yet.
   private var phase: Int = -1
 
-  /// 前回ストローブ時の T-state。
+  /// T-state of the previous strobe.
   private var lastStrobeTState: UInt64 = 0
 
-  /// ボタン状態 (true = 押下)。
+  /// Button state (true = pressed).
   private var leftButton: Bool = false
   private var rightButton: Bool = false
 
-  /// ジョイモードでラッチした方向バイト。-1 = 未ラッチ (次の read で再計算)。
+  /// Direction byte latched in joystick mode. -1 means unlatched, so the next
+  /// read recomputes it.
   private var joyLatch: Int = -1
 
   public init() {}
@@ -73,21 +81,21 @@ public final class Mouse {
     joyLatch = -1
   }
 
-  /// 垂直帰線 (VSync) ごとに Machine から呼ばれ、ジョイモードのラッチを解除する
-  /// (1 フレーム 1 サンプル)。M88 `Mouse::VSync` 相当。
+  /// Called by Machine on every vertical blank to release the joystick-mode
+  /// latch, giving one sample per frame. Equivalent to M88 `Mouse::VSync`.
   public func vsync() {
     joyLatch = -1
   }
 
   // MARK: - Host input
 
-  /// ホストの相対マウス移動を累積する (App 層から呼ばれる)。
+  /// Accumulates relative mouse movement from the host. Called by the app layer.
   public func injectMovement(dx: Int, dy: Int) {
     self.dx += dx
     self.dy += dy
   }
 
-  /// 左右ボタンの状態を設定する。
+  /// Sets the left and right button state.
   public func setButtons(left: Bool, right: Bool) {
     leftButton = left
     rightButton = right
@@ -95,17 +103,17 @@ public final class Mouse {
 
   // MARK: - Bus access
 
-  /// port 0x40 bit 6 (JOP1) の反転で呼ばれる。フェーズを進め、phase 0 で
-  /// 累積移動量をラッチする。
+  /// Called when bit 6 (JOP1) of port 0x40 toggles. Advances the phase, and
+  /// latches the accumulated movement on reaching phase 0.
   ///
   /// - Parameters:
-  ///   - now: 現在の T-state
-  ///   - clock8MHz: CPU クロック (タイムアウト幅の決定に使う)
+  ///   - now: The current T-state.
+  ///   - clock8MHz: CPU clock, which selects the strobe timeout width.
   public func strobe(now: UInt64, clock8MHz: Bool) {
-    // ジョイモードではストローブを使わない (フェーズ進行は無意味)。
+    // Joystick mode does not use the strobe; advancing the phase is meaningless.
     guard !joyMode else { return }
-    // ストローブ・タイムアウト = (8MHz ? 1440 : 720) * 1.25 CPU クロック。
-    // Z80 では 1 CPU クロック ≒ 1 T-state。
+    // Strobe timeout = (8MHz ? 1440 : 720) * 1.25 CPU clocks. On the Z80 one
+    // CPU clock is essentially one T-state.
     let limit: UInt64 = clock8MHz ? 1800 : 900
     let elapsed = now &- lastStrobeTState
 
@@ -125,41 +133,43 @@ public final class Mouse {
     lastStrobeTState = now
   }
 
-  /// reg 0x0E (port A) 読み出し。モードで挙動が変わる。
+  /// Reads reg 0x0E (port A). Behaviour depends on the mode.
   public func readData() -> UInt8 {
     if joyMode {
       return readJoyDirection()
     }
-    // バスマウスモード: phase 別の X/Y ニブル。
+    // Bus mouse mode: one X/Y nibble per phase.
     let value: Int
     switch phase {
-    case 0: value = (latchedX >> 4) & 0x0F  // X 上位ニブル
-    case 1: value = latchedX & 0x0F          // X 下位ニブル
-    case 2: value = (latchedY >> 4) & 0x0F  // Y 上位ニブル
-    case 3: value = latchedY & 0x0F          // Y 下位ニブル
+    case 0: value = (latchedX >> 4) & 0x0F  // X high nibble
+    case 1: value = latchedX & 0x0F          // X low nibble
+    case 2: value = (latchedY >> 4) & 0x0F  // Y high nibble
+    case 3: value = latchedY & 0x0F          // Y low nibble
     default: value = 0x0F
     }
     return UInt8(value) | 0xF0
   }
 
-  /// ジョイモードの reg 0x0E 読み出し: 累積移動量を方向ビット (アクティブLow) に
-  /// 変換。bit0=上, bit1=下, bit2=左, bit3=右、上位 | 0xF0。VSync までラッチ。
-  /// M88 `Mouse::GetMove` の joymode 分岐相当 (二値、1 フレーム 1 サンプル)。
+  /// Joystick-mode read of reg 0x0E: converts accumulated movement into
+  /// active-low direction bits — bit0=up, bit1=down, bit2=left, bit3=right,
+  /// high bits `| 0xF0`. Latched until the next VSync. Equivalent to the
+  /// joymode branch of M88 `Mouse::GetMove` (binary, one sample per frame).
   private func readJoyDirection() -> UInt8 {
     if joyLatch == -1 {
       var d = 0xFF
-      if dy <= -joyThreshold { d &= ~0x01 }  // 上
-      if dy >=  joyThreshold { d &= ~0x02 }  // 下
-      if dx <= -joyThreshold { d &= ~0x04 }  // 左
-      if dx >=  joyThreshold { d &= ~0x08 }  // 右
+      if dy <= -joyThreshold { d &= ~0x01 }  // up
+      if dy >=  joyThreshold { d &= ~0x02 }  // down
+      if dx <= -joyThreshold { d &= ~0x04 }  // left
+      if dx >=  joyThreshold { d &= ~0x08 }  // right
       joyLatch = d
-      dx = 0  // このフレーム分の移動を消費
+      dx = 0  // consume this frame's movement
       dy = 0
     }
     return UInt8(joyLatch)
   }
 
-  /// reg 0x0F (port B) 読み出し: 左=bit0 / 右=bit1、負論理、上位 0xFC 固定。
+  /// Reads reg 0x0F (port B): left=bit0, right=bit1, negative logic, high bits
+  /// fixed at 0xFC.
   public func readButtons() -> UInt8 {
     var buttons: UInt8 = 0
     if leftButton { buttons |= 0x01 }
@@ -169,7 +179,7 @@ public final class Mouse {
 
   // MARK: - Helpers
 
-  /// ±127 にクリップする。
+  /// Clips to ±127.
   private static func clip127(_ v: Int) -> Int {
     return max(-127, min(127, v))
   }

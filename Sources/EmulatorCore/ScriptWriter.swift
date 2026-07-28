@@ -1,21 +1,23 @@
-// ScriptWriter.swift — [ScriptStep] を正準スクリプトテキストへ直列化する。
+// ScriptWriter.swift — serializes [ScriptStep] into canonical script text.
 //
-// `ScriptParser` の逆操作。記録機能 (ScriptRecorder) が組み立てた [ScriptStep] を
-// `.b88script` テキストに書き出す。`ScriptParser.parse(write(steps)) == steps` を
-// 保証する (round-trip)。Machine には依存しない純粋関数。
+// The inverse of `ScriptParser`. Writes the [ScriptStep] timeline assembled by
+// the recorder (ScriptRecorder) out as `.b88script` text, guaranteeing the
+// round-trip `ScriptParser.parse(write(steps)) == steps`. A pure function with
+// no dependency on Machine.
 
 public enum ScriptWriter {
 
-  /// [ScriptStep] → 正準スクリプトテキスト (1 ステップ = 1 行、末尾改行つき)。
-  /// `ScriptParser.parse` が読み戻せる表記のみを出力する。
+  /// [ScriptStep] to canonical script text: one step per line, with a trailing
+  /// newline. Only emits notation that `ScriptParser.parse` can read back.
   public static func write(_ steps: [ScriptStep]) -> String {
     var out = steps.map(line(for:)).joined(separator: "\n")
     if !out.isEmpty { out += "\n" }
     return out
   }
 
-  /// `Keyboard.Key` の正準キー名 (`ScriptParser.key(named:)` の逆)。
-  /// 名前を持たないキーは row-bit 表記 (`"\(row)-\(bit)"`) にフォールバックする。
+  /// The canonical key name for a `Keyboard.Key`, the inverse of
+  /// `ScriptParser.key(named:)`. Keys without a name fall back to row-bit
+  /// notation, `"\(row)-\(bit)"`.
   public static func keyName(for key: Keyboard.Key) -> String {
     if let name = canonicalNames[key] { return name }
     return "\(key.row)-\(key.bit)"
@@ -39,14 +41,15 @@ public enum ScriptWriter {
     }
   }
 
-  /// `<prefix> "<path>" [image <i>]`。image == 0 は省略 (パーサの既定)。
+  /// `<prefix> "<path>" [image <i>]`. `image == 0` is omitted, since that is
+  /// the parser's default.
   private static func diskLine(_ prefix: String, path: String, image: Int) -> String {
     let base = "\(prefix) \"\(escapeQuoted(path))\""
     return image != 0 ? "\(base) image \(image)" : base
   }
 
-  /// クォート文字列内の `\` と `"` を `\` でエスケープする (Foundation 非依存)。
-  /// トークナイザが `\\` → `\`、`\"` → `"` として読み戻す。
+  /// Escapes `\` and `"` inside a quoted string with `\`, without depending on
+  /// Foundation. The tokenizer reads `\\` back as `\` and `\"` as `"`.
   private static func escapeQuoted(_ s: String) -> String {
     var out = ""
     for ch in s {
@@ -65,7 +68,7 @@ public enum ScriptWriter {
     }
   }
 
-  /// 2 桁大文字 16 進 (Foundation 非依存)。
+  /// Two-digit uppercase hex, without depending on Foundation.
   private static func hex2(_ v: UInt8) -> String {
     let s = String(v, radix: 16, uppercase: true)
     return s.count == 1 ? "0\(s)" : s
@@ -73,11 +76,12 @@ public enum ScriptWriter {
 
   // MARK: - Canonical reverse key-name table
 
-  /// `Keyboard.Key` → 正準名。`ScriptParser.keyNameTable` は非単射
-  /// (esc/escape、return/enter/kpreturn/kpenter が同一キー) なので、
-  /// 衝突キーは明示的に正準名を先置きし、残りは 1:1 で逆引きする。
-  /// どの別名も同じキーへ戻るため round-trip はどの選択でも成立するが、
-  /// 読みやすさのため docs/BOOTTESTER.md と同じ名前を選ぶ。
+  /// `Keyboard.Key` to its canonical name. `ScriptParser.keyNameTable` is not
+  /// injective — esc/escape, and return/enter/kpreturn/kpenter, map to the same
+  /// key — so colliding keys get an explicit canonical name seeded up front and
+  /// the rest are reversed one-to-one. Every alias parses back to the same key,
+  /// so the round-trip holds whichever name is chosen; these match
+  /// docs/BOOTTESTER.md for readability.
   private static let canonicalNames: [Keyboard.Key: String] = {
     var rev: [Keyboard.Key: String] = [
       Keyboard.kpReturn: "return",

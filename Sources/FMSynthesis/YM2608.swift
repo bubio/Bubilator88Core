@@ -194,7 +194,7 @@ public final class YM2608 {
   public package(set) var ssgEnvShape: UInt8 = 0
 
   /// SSG envelope position (0-63, 32 steps per half-cycle for 32-level volume)
-  public var ssgEnvPosition: Int = 0  // テストから書き込みあり
+  public var ssgEnvPosition: Int = 0  // written from tests
 
   /// SSG envelope holding
   public package(set) var ssgEnvHolding: Bool = false

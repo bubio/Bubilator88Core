@@ -1,47 +1,53 @@
-// ScriptRecorder.swift — 実プレイ操作を [ScriptStep] タイムラインへ記録する。
+// ScriptRecorder.swift — records live play into a [ScriptStep] timeline.
 //
-// `ScriptPlayer` の逆。ホスト (App 層) が毎フレーム `frameIndex` を進め、実ユーザの
-// キー押下/解放・ディスク操作を 60fps 正準フレームで投入する。`finish()` が
-// セットアップ + 畳み込み済みタイムラインを返し、`ScriptWriter` がテキスト化する。
+// The inverse of `ScriptPlayer`. The host (app layer) advances `frameIndex` each
+// frame and feeds in the real user's key presses/releases and disk operations on
+// canonical 60fps frames. `finish()` returns the setup plus the folded timeline,
+// which `ScriptWriter` turns into text.
 //
-// 純粋ロジック (Machine 非依存): フレーム時刻はホストが `frameIndex` で与える。
+// Pure logic with no dependency on Machine: frame times come from the host via
+// `frameIndex`.
 //
-// tap 畳み込み: down→up を `key X tap hold` に畳む。ScriptPlayer の tap 自動リリースは
-// 後続 `wait` 中に `Fd+hold` フレームで発火し、明示 `up@Fu` と同一フレームになるため、
-// tap は down/up と**厳密に等価**。閾値以下の短押しのみ tap にし、長押しは明示 down/up。
+// Tap folding: a down→up pair is folded into `key X tap hold`. ScriptPlayer's
+// automatic tap release fires at frame `Fd+hold` during the following `wait`,
+// landing on the same frame as an explicit `up@Fu`, so a tap is **exactly**
+// equivalent to the down/up pair. Only presses at or below the threshold are
+// folded; longer holds stay as explicit down/up.
 
 public final class ScriptRecorder {
 
-  /// この値以下 (フレーム) の押下は `tap` に畳む。超える長押しは明示 down/up。
+  /// Presses lasting at most this many frames are folded into a `tap`; longer
+  /// holds stay as explicit down/up.
   public static let tapFoldThreshold = 8
 
-  /// ホストが毎フレーム +1 する記録クロック (記録開始 = 0)。
+  /// Recording clock, incremented by the host each frame. Starts at 0.
   public var frameIndex = 0
 
   private let setup: [ScriptStep]
   private var seqCounter = 0
   private var actions: [PointAction] = []
 
-  // 押下中キーの開始フレーム/順序 (down→up 区間のペアリング用)。
+  // Start frame and ordering of held keys, used to pair down with up.
   private var downKeys: Set<Keyboard.Key> = []
   private var downFrame: [Keyboard.Key: Int] = [:]
   private var downSeq: [Keyboard.Key: Int] = [:]
 
-  /// 1 時点アクション (フレーム + 安定ソート用 seq + ステップ)。
+  /// A point-in-time action: the frame, a sequence number for stable sorting,
+  /// and the step itself.
   private struct PointAction {
     let frame: Int
     let seq: Int
     let step: ScriptStep
   }
 
-  /// - Parameter setup: 記録開始時に確定した boot/clock/disk ヘッダ。
+  /// - Parameter setup: The boot/clock/disk header fixed when recording started.
   public init(setup: [ScriptStep]) {
     self.setup = setup
   }
 
   // MARK: - Event intake (called by host on the main thread)
 
-  /// 実ユーザのキー押下。OS のオートリピート (既に押下中の同キー) は無視する。
+  /// A real key press. OS auto-repeat — the same key already held — is ignored.
   public func keyDown(_ key: Keyboard.Key) {
     guard !downKeys.contains(key) else { return }
     downKeys.insert(key)
@@ -49,7 +55,7 @@ public final class ScriptRecorder {
     downSeq[key] = nextSeq()
   }
 
-  /// 実ユーザのキー解放。押下していないキーは無視する。
+  /// A real key release. Keys that are not held are ignored.
   public func keyUp(_ key: Keyboard.Key) {
     guard downKeys.contains(key) else { return }
     downKeys.remove(key)
@@ -72,7 +78,8 @@ public final class ScriptRecorder {
 
   // MARK: - Finalize
 
-  /// セットアップ + 畳み込み済みタイムラインを返す。押下中キーは現フレームで閉じる。
+  /// Returns the setup plus the folded timeline. Any keys still held are closed
+  /// out on the current frame.
   public func finish() -> [ScriptStep] {
     for key in downKeys {
       let fd = downFrame[key] ?? frameIndex
@@ -103,7 +110,8 @@ public final class ScriptRecorder {
   private func emitInterval(key: Keyboard.Key, fd: Int, fu: Int, sd: Int) {
     let span = fu - fd
     if span <= Self.tapFoldThreshold {
-      // 同フレーム解放 (span 0) も含め tap。hold は 1 以上に丸める (パーサ要件)。
+      // Fold to a tap even for a same-frame release (span 0). The parser
+      // requires hold >= 1, so round up.
       actions.append(PointAction(frame: fd, seq: sd, step: .key(key, .tap(hold: max(1, span)))))
     } else {
       actions.append(PointAction(frame: fd, seq: sd, step: .key(key, .down)))
