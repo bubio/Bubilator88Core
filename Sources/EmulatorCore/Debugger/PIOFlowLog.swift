@@ -17,28 +17,28 @@ import Foundation
 ///   works when the two emulators produce slightly different total
 ///   counts.
 public enum PIOFlowJSONL {
-    public static func render(_ entries: [PIOFlowEntry]) -> String {
-        var out = ""
-        out.reserveCapacity(entries.count * 80)
-        for (i, e) in entries.enumerated() {
-            out += line(seq: i, entry: e)
-            out += "\n"
-        }
-        return out
+  public static func render(_ entries: [PIOFlowEntry]) -> String {
+    var out = ""
+    out.reserveCapacity(entries.count * 80)
+    for (i, e) in entries.enumerated() {
+      out += line(seq: i, entry: e)
+      out += "\n"
     }
+    return out
+  }
 
-    public static func line(seq: Int, entry e: PIOFlowEntry) -> String {
-        String(
-            format: #"{"seq":%d,"mainPC":"%04X","subPC":"%04X","side":"%@","port":"%@","op":"%@","val":"%02X"}"#,
-            seq,
-            e.mainPC,
-            e.subPC,
-            e.side.rawValue,
-            e.port.rawValue,
-            e.isWrite ? "W" : "R",
-            e.value
-        )
-    }
+  public static func line(seq: Int, entry e: PIOFlowEntry) -> String {
+    String(
+      format: #"{"seq":%d,"mainPC":"%04X","subPC":"%04X","side":"%@","port":"%@","op":"%@","val":"%02X"}"#,
+      seq,
+      e.mainPC,
+      e.subPC,
+      e.side.rawValue,
+      e.port.rawValue,
+      e.isWrite ? "W" : "R",
+      e.value
+    )
+  }
 }
 
 /// A single PIO8255 access event recorded in chronological order
@@ -47,50 +47,50 @@ public enum PIOFlowJSONL {
 /// specific hand-shake orderings (RIGLAS, Wizardry, etc.).
 public struct PIOFlowEntry: Sendable, Hashable {
 
-    public enum Side: String, Sendable, Hashable {
-        case main
-        case sub
-    }
+  public enum Side: String, Sendable, Hashable {
+    case main
+    case sub
+  }
 
-    public enum Port: String, Sendable, Hashable {
-        case a = "A"
-        case b = "B"
-        case c = "C"
-        /// Control register (port 0xFF). Used for PIO mode set and
-        /// bit-set/reset (BSR) operations. These don't normally carry
-        /// "data" but they drive port C state changes, so we capture
-        /// them in the same stream for cross-emulator comparison.
-        case control = "FF"
-    }
+  public enum Port: String, Sendable, Hashable {
+    case a = "A"
+    case b = "B"
+    case c = "C"
+    /// Control register (port 0xFF). Used for PIO mode set and
+    /// bit-set/reset (BSR) operations. These don't normally carry
+    /// "data" but they drive port C state changes, so we capture
+    /// them in the same stream for cross-emulator comparison.
+    case control = "FF"
+  }
 
-    /// Main-CPU PC at the moment the access was serviced. For
-    /// main-CPU-originated accesses this is the reading/writing
-    /// instruction. For sub-CPU accesses it's whatever the main
-    /// CPU happened to be running at that moment (still useful
-    /// for correlating frames).
-    public let mainPC: UInt16
+  /// Main-CPU PC at the moment the access was serviced. For
+  /// main-CPU-originated accesses this is the reading/writing
+  /// instruction. For sub-CPU accesses it's whatever the main
+  /// CPU happened to be running at that moment (still useful
+  /// for correlating frames).
+  public let mainPC: UInt16
 
-    /// Sub-CPU PC, mirror-image of `mainPC`.
-    public let subPC: UInt16
+  /// Sub-CPU PC, mirror-image of `mainPC`.
+  public let subPC: UInt16
 
-    public let side: Side
-    public let port: Port
-    public let isWrite: Bool
-    public let value: UInt8
+  public let side: Side
+  public let port: Port
+  public let isWrite: Bool
+  public let value: UInt8
 
-    public init(
-        mainPC: UInt16,
-        subPC: UInt16,
-        side: Side,
-        port: Port,
-        isWrite: Bool,
-        value: UInt8
-    ) {
-        self.mainPC = mainPC
-        self.subPC = subPC
-        self.side = side
-        self.port = port
-        self.isWrite = isWrite
-        self.value = value
-    }
+  public init(
+    mainPC: UInt16,
+    subPC: UInt16,
+    side: Side,
+    port: Port,
+    isWrite: Bool,
+    value: UInt8
+  ) {
+    self.mainPC = mainPC
+    self.subPC = subPC
+    self.side = side
+    self.port = port
+    self.isWrite = isWrite
+    self.value = value
+  }
 }
