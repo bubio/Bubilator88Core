@@ -1,6 +1,8 @@
 @_exported import Z80
 import Foundation
-import Logging
+// Re-exported so the app layer can install a LogHandler (see OSLogHandler.swift)
+// without taking its own direct dependency on swift-log.
+@_exported import Logging
 
 private let machineLog = Logger(label: "EmulatorCore.Machine")
 
