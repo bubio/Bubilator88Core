@@ -31,6 +31,14 @@ private func portIDToFlow(_ raw: UInt8) -> PIOFlowEntry.Port {
 ///
 /// Owns all components. Drives time via tick().
 /// Devices cannot advance independently.
+///
+/// ### Why `@unchecked Sendable`?
+/// A `Machine` is confined to a single thread — the host's emulation queue —
+/// for its whole lifetime, and `tick()` is synchronous by construction: the
+/// Z80 loop cannot `await`, so an actor would be unusable here. The type is
+/// `Sendable` in the sense that the reference is handed to that one queue and
+/// never touched concurrently. **Callers must keep that contract: all access
+/// from one serial queue, no concurrent reads from the UI thread.**
 public final class Machine: @unchecked Sendable {
 
   // MARK: - Components
