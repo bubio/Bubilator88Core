@@ -333,6 +333,44 @@ public final class YM2608 {
   public var adpcmSpatialBuffer: [Float] = []
   public var rhythmSpatialBuffer: [Float] = []
 
+  // MARK: - CD Mix Post Processing
+
+  /// Output low-pass + stereo reverb, modelled on 1980s game-music CD mixes.
+  /// Off by default: this is taste, not hardware accuracy — see
+  /// `AudioPostProcessor` for how the parameters were derived and why.
+  ///
+  /// The delay lines are not part of the save state; toggling or loading a
+  /// state clears them.
+  public var cdMixEnabled: Bool = false {
+    didSet {
+      guard cdMixEnabled != oldValue else { return }
+      // This setter runs on the main actor (the settings UI), but the delay
+      // lines are owned by the sample loop on the Metal draw thread — zeroing
+      // them here would race it. Request the clear and let the loop perform
+      // it. A torn `Bool` is benign, the same way `pseudoStereoEnabled` is.
+      postProcessorResetRequested = true
+    }
+  }
+
+  /// Set from the UI thread, consumed by the sample loop. See `cdMixEnabled`.
+  private var postProcessorResetRequested = false
+
+  /// Post processor for the main stereo mix (low-pass + reverb).
+  private var postProcessor = AudioPostProcessor()
+
+  /// Per-source post processors for the immersive path. Reverb is suppressed
+  /// there (each source drives its own spatial node, so a shared reverb bus
+  /// has nowhere to sit) — these apply the low-pass only, so immersive output
+  /// keeps the same tonal balance as the standard mix.
+  private var spatialPostProcessors = [AudioPostProcessor](repeating: AudioPostProcessor(), count: 4)
+
+  /// Clear the low-pass and reverb delay lines. Internal so the save-state
+  /// deserializer can drop the tail from the pre-load scene.
+  func resetPostProcessors() {
+    postProcessor.reset()
+    for i in spatialPostProcessors.indices { spatialPostProcessors[i].reset() }
+  }
+
   /// Debug-only output mask. Mutes final mix sources without affecting chip state.
   public var debugOutputMask: DebugOutputMask = .all
 
@@ -464,6 +502,7 @@ public final class YM2608 {
     ssgSpatialBuffer = []
     adpcmSpatialBuffer = []
     rhythmSpatialBuffer = []
+    resetPostProcessors()
     fmKeyOnMask = 0
     fmSynth.reset()
     // Re-apply the user's debug mute mask: fmSynth.reset() does not touch
@@ -584,42 +623,63 @@ public final class YM2608 {
         beepSample: beepSample
       )
 
-      audioBuffer.append(Float(mixL) / FM.sampleScale)
-      audioBuffer.append(Float(mixR) / FM.sampleScale)
+      // Perform a requested delay-line clear here, on the thread that owns
+      // them, rather than in the `cdMixEnabled` setter.
+      if postProcessorResetRequested {
+        postProcessorResetRequested = false
+        resetPostProcessors()
+      }
+
+      var outL = Float(mixL) / FM.sampleScale
+      var outR = Float(mixR) / FM.sampleScale
+      if cdMixEnabled {
+        (outL, outR) = postProcessor.process(left: outL, right: outR)
+      }
+      audioBuffer.append(outL)
+      audioBuffer.append(outR)
 
       if immersiveOutputEnabled {
         let mask = debugOutputMask
         let scale = FM.sampleScale
 
+        // Low-pass only: reverb is suppressed on the immersive path.
+        let cdMix = cdMixEnabled
+        func shaped(_ index: Int, _ l: Float, _ r: Float) -> (Float, Float) {
+          guard cdMix else { return (l, r) }
+          return spatialPostProcessors[index].process(left: l, right: r, reverb: false)
+        }
+
         // FM: stereo with original hardware panning, includes BEEP
         let fmL = mask.contains(.fm) ? Self.saturate16(fmOutputL) : 0
         let fmR = mask.contains(.fm) ? Self.saturate16(fmOutputR) : 0
-        fmSpatialBuffer.append(Float(fmL + beepSample) / scale)
-        fmSpatialBuffer.append(Float(fmR + beepSample) / scale)
+        let (fmOutL, fmOutR) = shaped(0, Float(fmL + beepSample) / scale,
+                                         Float(fmR + beepSample) / scale)
+        fmSpatialBuffer.append(fmOutL)
+        fmSpatialBuffer.append(fmOutR)
 
         // SSG: mono → stereo (same value both channels)
-        let ssgVal: Float = mask.contains(.ssg)
+        let ssgRaw: Float = mask.contains(.ssg)
           ? Float(Int((ssg * 16384.0).rounded())) / scale
           : 0
-        ssgSpatialBuffer.append(ssgVal)
-        ssgSpatialBuffer.append(ssgVal)
+        let (ssgOutL, ssgOutR) = shaped(1, ssgRaw, ssgRaw)
+        ssgSpatialBuffer.append(ssgOutL)
+        ssgSpatialBuffer.append(ssgOutR)
 
         // ADPCM: stereo with original L/R pan from adpcmControl2
-        if mask.contains(.adpcm) {
-          let adL = Float((adpcmControl2 & 0x80) != 0 ? Int(adpcmOutputSample) : 0) / scale
-          let adR = Float((adpcmControl2 & 0x40) != 0 ? Int(adpcmOutputSample) : 0) / scale
-          adpcmSpatialBuffer.append(adL)
-          adpcmSpatialBuffer.append(adR)
-        } else {
-          adpcmSpatialBuffer.append(0)
-          adpcmSpatialBuffer.append(0)
-        }
+        let adRawL = mask.contains(.adpcm) && (adpcmControl2 & 0x80) != 0
+          ? Float(Int(adpcmOutputSample)) / scale : 0
+        let adRawR = mask.contains(.adpcm) && (adpcmControl2 & 0x40) != 0
+          ? Float(Int(adpcmOutputSample)) / scale : 0
+        let (adOutL, adOutR) = shaped(2, adRawL, adRawR)
+        adpcmSpatialBuffer.append(adOutL)
+        adpcmSpatialBuffer.append(adOutR)
 
         // Rhythm: stereo with original per-instrument panning
         let rhL = mask.contains(.rhythm) ? Self.saturate16(rhythmOutputL) : 0
         let rhR = mask.contains(.rhythm) ? Self.saturate16(rhythmOutputR) : 0
-        rhythmSpatialBuffer.append(Float(rhL) / scale)
-        rhythmSpatialBuffer.append(Float(rhR) / scale)
+        let (rhOutL, rhOutR) = shaped(3, Float(rhL) / scale, Float(rhR) / scale)
+        rhythmSpatialBuffer.append(rhOutL)
+        rhythmSpatialBuffer.append(rhOutR)
       }
     }
   }
