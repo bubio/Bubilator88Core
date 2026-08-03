@@ -525,6 +525,31 @@ public struct ScreenRenderer {
             ? palette[0]
             : (colorMode ? palette[min(colorIdx, palette.count - 1)] : monoFg)
 
+          // The attribute-graph mask draws set bits like a normal cell, so
+          // both collapse to one flag: does a clear bit paint foreground?
+          let inverted = usesAttributeGraphMask ? false : reverse
+
+          // Fetch the glyph once per cell rather than once per scanline —
+          // in hireso every font row is drawn twice — and pack the 8 rows
+          // into a word so the blank test below is a single comparison.
+          var glyph: UInt64 = 0
+          for fontRow in 0..<fontHeight {
+            let bits = isGraph
+              ? fontROM.sgGlyphRow(code: charCode, row: fontRow)
+              : fontROM.glyphRow(code: charCode, row: fontRow)
+            glyph |= UInt64(bits) << (UInt64(fontRow) * 8)
+          }
+
+          // A blank glyph paints nothing unless something else fills a row:
+          // `inverted` makes every clear bit foreground, and the line/cursor
+          // decorations force a row to 0xFF. Skipping here is what keeps a
+          // screen full of spaces cheap.
+          if glyph == 0 && !inverted && !underline && !upperline && !isCursorPos {
+            continue
+          }
+
+          let repeatCount = columns80 ? 1 : 2
+
           for cellRow in 0..<cellHeight {
             let screenY = row * cellHeight + cellRow
             guard screenY < screenHeight else { break }
@@ -532,14 +557,9 @@ public struct ScreenRenderer {
             // In hireso mode, each font row is drawn twice
             let fontRow = hireso ? cellRow / 2 : cellRow
 
-            var rowBits: UInt8
-            if fontRow < fontHeight {
-              rowBits = isGraph
-                ? fontROM.sgGlyphRow(code: charCode, row: fontRow)
-                : fontROM.glyphRow(code: charCode, row: fontRow)
-            } else {
-              rowBits = 0x00
-            }
+            var rowBits: UInt8 = fontRow < fontHeight
+              ? UInt8(truncatingIfNeeded: glyph >> (UInt64(fontRow) * 8))
+              : 0x00
 
             // vraminfo #50: `rowBits = 0xFF` combined with reverse (which
             // flips foreground to `bit == 0`) draws no pixels on the line
@@ -555,25 +575,25 @@ public struct ScreenRenderer {
               rowBits = 0xFF
             }
 
-            let repeatCount = columns80 ? 1 : 2
+            // Foreground pixels as an 8-bit mask, MSB = leftmost pixel.
+            let foreground = inverted ? ~rowBits : rowBits
+            if foreground == 0 { continue }
+
             let rowBase = screenY * Self.width
 
             for glyphCol in 0..<Self.charWidth {
-              let bit = (rowBits >> (7 - glyphCol)) & 1
-              let isForeground = usesAttributeGraphMask ? (bit != 0) : (reverse ? (bit == 0) : (bit != 0))
-
               // QUASI88: style bit ON → DST_T (text color), OFF → DST_V (GVRAM).
               // Only write foreground pixels. Background is transparent (GVRAM).
-              if isForeground {
-                let color = fg
-                for px in 0..<repeatCount {
-                  let screenX = col * pixelWidth + glyphCol * repeatCount + px
-                  guard screenX < Self.width else { continue }
-                  let pixelOffset = (rowBase + screenX) * Self.bytesPerPixel
-                  dst[pixelOffset]     = color.r
-                  dst[pixelOffset + 1] = color.g
-                  dst[pixelOffset + 2] = color.b
-                }
+              guard (foreground & (0x80 >> UInt8(glyphCol))) != 0 else { continue }
+
+              for px in 0..<repeatCount {
+                // screenX cannot reach `width`: 80-col tops out at
+                // 79*8+7 and 40-col at 39*16+7*2+1, both 639.
+                let screenX = col * pixelWidth + glyphCol * repeatCount + px
+                let pixelOffset = (rowBase + screenX) * Self.bytesPerPixel
+                dst[pixelOffset]     = fg.r
+                dst[pixelOffset + 1] = fg.g
+                dst[pixelOffset + 2] = fg.b
               }
             }
           }
