@@ -34,6 +34,11 @@ public struct ScreenRenderer {
     (0xFF, 0xFF, 0xFF),  // 7: White
   ]
 
+  /// Alpha value stamped on text-layer pixels when `markTextPixels` is on.
+  /// Still effectively opaque, so nothing downstream renders differently —
+  /// it only exists for the display shader to test against.
+  public static let textPixelAlphaTag: UInt8 = 0xFE
+
   /// Bit-spread lookup table: byte *j* of `spreadLUT[x]` holds bit (7 - j) of `x`.
   /// One load turns a VRAM byte into eight 0/1 pixel selectors, replacing the
   /// per-bit mask-and-branch chain in the scanline loops.
@@ -449,6 +454,13 @@ public struct ScreenRenderer {
   /// When `hireso` is true, text is rendered into a 400-line buffer:
   /// cellHeight is doubled (16 for 25-line, 20 for 20-line), each font row
   /// is drawn twice. screenHeight = 400.
+  ///
+  /// `markTextPixels` tags every pixel this pass paints with alpha 0xFE so the
+  /// display shader can tell text apart from graphics (XM8's SDL port exempts
+  /// text from its scanline dimming this way). Alpha is opaque either way — the
+  /// graphics renderers rewrite the whole buffer with 0xFF every frame, so the
+  /// tag never survives into the next one. Off by default: only the on-screen
+  /// render path sets it, keeping snapshots and the AI upscaler input untouched.
   public func renderTextOverlay(
     textData: [UInt8],     // Character codes (cols×rows bytes)
     attrData: [UInt8],     // Attribute bytes (cols×rows bytes)
@@ -465,6 +477,7 @@ public struct ScreenRenderer {
     cursorBlock: Bool = false,
     hireso: Bool = false,
     skipLine: Bool = false,
+    markTextPixels: Bool = false,
     into buffer: inout [UInt8]
   ) {
     guard displayEnabled || skipLine else { return }
@@ -594,6 +607,9 @@ public struct ScreenRenderer {
                 dst[pixelOffset]     = fg.r
                 dst[pixelOffset + 1] = fg.g
                 dst[pixelOffset + 2] = fg.b
+                if markTextPixels {
+                  dst[pixelOffset + 3] = Self.textPixelAlphaTag
+                }
               }
             }
           }
