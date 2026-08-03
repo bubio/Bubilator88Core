@@ -34,6 +34,122 @@ public struct ScreenRenderer {
     (0xFF, 0xFF, 0xFF),  // 7: White
   ]
 
+  /// Bit-spread lookup table: byte *j* of `spreadLUT[x]` holds bit (7 - j) of `x`.
+  /// One load turns a VRAM byte into eight 0/1 pixel selectors, replacing the
+  /// per-bit mask-and-branch chain in the scanline loops.
+  static let spreadLUT: [UInt64] = (0..<256).map { byte in
+    var value: UInt64 = 0
+    for j in 0..<8 {
+      value |= UInt64((byte >> (7 - j)) & 1) << (UInt64(j) * 8)
+    }
+    return value
+  }
+
+  /// Pack a palette entry into one RGBA8888 word.
+  ///
+  /// The byte order below assumes a little-endian store so that r lands at
+  /// offset 0 — this must match the `premultipliedLast` layout the pixel
+  /// buffer is handed to CoreGraphics/Metal with.
+  @inline(__always)
+  static func packRGBA(_ color: (r: UInt8, g: UInt8, b: UInt8)) -> UInt32 {
+    UInt32(color.r)
+      | (UInt32(color.g) << 8)
+      | (UInt32(color.b) << 16)
+      | 0xFF00_0000
+  }
+
+  /// Pack up to 8 palette entries into RGBA words, padding with opaque black.
+  static func packedPalette(_ palette: [(r: UInt8, g: UInt8, b: UInt8)]) -> [UInt32] {
+    var packed = [UInt32](repeating: 0xFF00_0000, count: 8)
+    for i in 0..<min(palette.count, 8) {
+      packed[i] = packRGBA(palette[i])
+    }
+    return packed
+  }
+
+  /// Convert one 640-pixel color-graphics scanline (80 bytes × 3 planes) into
+  /// RGBA words. `dst` points at the first pixel of the destination row.
+  ///
+  /// The three plane bytes are spread to one byte per pixel and combined into
+  /// a single UInt64 holding eight 3-bit palette indices — the bit-plane
+  /// interleave the PC-8801 does in hardware, done 8 pixels at a time.
+  @inline(__always)
+  private static func renderColorScanline(
+    blue: UnsafePointer<UInt8>,
+    red: UnsafePointer<UInt8>,
+    green: UnsafePointer<UInt8>,
+    srcOffset: Int,
+    bytesPerLine: Int,
+    palette: UnsafePointer<UInt32>,
+    spread: UnsafePointer<UInt64>,
+    dst: UnsafeMutablePointer<UInt32>
+  ) {
+    var pixelOffset = 0
+    for byteIndex in 0..<bytesPerLine {
+      let offset = srcOffset + byteIndex
+      var indices = spread[Int(blue[offset])]
+        | (spread[Int(red[offset])] << 1)
+        | (spread[Int(green[offset])] << 2)
+      for pixel in 0..<8 {
+        dst[pixelOffset + pixel] = palette[Int(indices & 7)]
+        indices >>= 8
+      }
+      pixelOffset += 8
+    }
+  }
+
+  /// Write the 8 pixels of one attribute-graphics cell byte. Set plane bits
+  /// take the cell's attribute color, clear bits take the background.
+  /// `dst` points at the first of the 8 destination pixels.
+  @inline(__always)
+  private static func emitAttributeCell(
+    bits: UInt8,
+    color: UInt32,
+    background: UInt32,
+    spread: UnsafePointer<UInt64>,
+    dst: UnsafeMutablePointer<UInt32>
+  ) {
+    var selectors = spread[Int(bits)]
+    for pixel in 0..<8 {
+      // 0xFFFFFFFF when the plane bit is set, 0 otherwise — keeps the
+      // foreground/background choice branchless.
+      let mask = UInt32(0) &- UInt32(truncatingIfNeeded: selectors & 1)
+      dst[pixel] = (color & mask) | (background & ~mask)
+      selectors >>= 8
+    }
+  }
+
+  /// Resolve the per-cell color and reverse-XOR tables used by the
+  /// attribute-graphics modes.
+  ///
+  /// Attributes are constant down a whole attribute row, so both renderers
+  /// build these once instead of re-deriving them on every scanline.
+  /// `reverse` is folded into an XOR mask (0x00 / 0xFF) so the pixel loop
+  /// needs no branch.
+  private func fillAttributeCellTables(
+    attrData: [UInt8],
+    palette: [(r: UInt8, g: UInt8, b: UInt8)],
+    columns80: Bool,
+    attrRows: Int,
+    cellsPerRow: Int,
+    color: UnsafeMutablePointer<UInt32>,
+    xor: UnsafeMutablePointer<UInt8>
+  ) {
+    for row in 0..<attrRows {
+      for cell in 0..<cellsPerRow {
+        let attr = graphAttribute(
+          attrData: attrData,
+          attrRow: row,
+          cellCol: cell,
+          columns80: columns80
+        )
+        let index = row * cellsPerRow + cell
+        color[index] = Self.packRGBA(palette[min(Int((attr >> 5) & 0x07), palette.count - 1)])
+        xor[index] = (attr & 0x01) != 0 ? 0xFF : 0x00
+      }
+    }
+  }
+
   public init() {}
 
   /// Convert 3-bit bus palette entry to 8-bit RGB.
@@ -71,64 +187,28 @@ public struct ScreenRenderer {
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80  // 640 / 8
-
-    // Pre-expand palette to flat arrays for fast indexed access
-    var palR = (UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0))
-    var palG = palR
-    var palB = palR
-    withUnsafeMutablePointer(to: &palR) { pr in
-      withUnsafeMutablePointer(to: &palG) { pg in
-        withUnsafeMutablePointer(to: &palB) { pb in
-          let rp = UnsafeMutableRawPointer(pr).assumingMemoryBound(to: UInt8.self)
-          let gp = UnsafeMutableRawPointer(pg).assumingMemoryBound(to: UInt8.self)
-          let bp = UnsafeMutableRawPointer(pb).assumingMemoryBound(to: UInt8.self)
-          for i in 0..<min(palette.count, 8) {
-            rp[i] = palette[i].r
-            gp[i] = palette[i].g
-            bp[i] = palette[i].b
-          }
-        }
-      }
-    }
+    let packed = Self.packedPalette(palette)
 
     blueVRAM.withUnsafeBufferPointer { bluePtr in
       redVRAM.withUnsafeBufferPointer { redPtr in
         greenVRAM.withUnsafeBufferPointer { greenPtr in
-          buffer.withUnsafeMutableBufferPointer { bufPtr in
-            let dst = bufPtr.baseAddress!
-            let bSrc = bluePtr.baseAddress!
-            let rSrc = redPtr.baseAddress!
-            let gSrc = greenPtr.baseAddress!
+          packed.withUnsafeBufferPointer { palPtr in
+            Self.spreadLUT.withUnsafeBufferPointer { spreadPtr in
+              buffer.withUnsafeMutableBufferPointer { bufPtr in
+                let dst = UnsafeMutableRawPointer(bufPtr.baseAddress!)
+                  .assumingMemoryBound(to: UInt32.self)
 
-            withUnsafePointer(to: &palR) { prp in
-              withUnsafePointer(to: &palG) { pgp in
-                withUnsafePointer(to: &palB) { pbp in
-                  let pr = UnsafeRawPointer(prp).assumingMemoryBound(to: UInt8.self)
-                  let pg = UnsafeRawPointer(pgp).assumingMemoryBound(to: UInt8.self)
-                  let pb = UnsafeRawPointer(pbp).assumingMemoryBound(to: UInt8.self)
-
-                  var pixelOffset = 0
-                  for line in 0..<Self.height {
-                    let lineOffset = line * bytesPerLine
-                    for byteIndex in 0..<bytesPerLine {
-                      let offset = lineOffset + byteIndex
-                      let b = bSrc[offset]
-                      let r = rSrc[offset]
-                      let g = gSrc[offset]
-
-                      for bit in stride(from: 7, through: 0, by: -1) {
-                        let mask: UInt8 = 1 << bit
-                        let colorIndex = ((g & mask) != 0 ? 4 : 0)
-                          | ((r & mask) != 0 ? 2 : 0)
-                          | ((b & mask) != 0 ? 1 : 0)
-                        dst[pixelOffset]     = pr[colorIndex]
-                        dst[pixelOffset + 1] = pg[colorIndex]
-                        dst[pixelOffset + 2] = pb[colorIndex]
-                        dst[pixelOffset + 3] = 0xFF
-                        pixelOffset += 4
-                      }
-                    }
-                  }
+                for line in 0..<Self.height {
+                  Self.renderColorScanline(
+                    blue: bluePtr.baseAddress!,
+                    red: redPtr.baseAddress!,
+                    green: greenPtr.baseAddress!,
+                    srcOffset: line * bytesPerLine,
+                    bytesPerLine: bytesPerLine,
+                    palette: palPtr.baseAddress!,
+                    spread: spreadPtr.baseAddress!,
+                    dst: dst + line * Self.width
+                  )
                 }
               }
             }
@@ -148,129 +228,35 @@ public struct ScreenRenderer {
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80  // 640 / 8
-
-    var palR = (UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0))
-    var palG = palR
-    var palB = palR
-    withUnsafeMutablePointer(to: &palR) { pr in
-      withUnsafeMutablePointer(to: &palG) { pg in
-        withUnsafeMutablePointer(to: &palB) { pb in
-          let rp = UnsafeMutableRawPointer(pr).assumingMemoryBound(to: UInt8.self)
-          let gp = UnsafeMutableRawPointer(pg).assumingMemoryBound(to: UInt8.self)
-          let bp = UnsafeMutableRawPointer(pb).assumingMemoryBound(to: UInt8.self)
-          for i in 0..<min(palette.count, 8) {
-            rp[i] = palette[i].r
-            gp[i] = palette[i].g
-            bp[i] = palette[i].b
-          }
-        }
-      }
-    }
+    let rowBytes = Self.width * Self.bytesPerPixel
+    let packed = Self.packedPalette(palette)
 
     blueVRAM.withUnsafeBufferPointer { bluePtr in
       redVRAM.withUnsafeBufferPointer { redPtr in
         greenVRAM.withUnsafeBufferPointer { greenPtr in
-          buffer.withUnsafeMutableBufferPointer { bufPtr in
-            let dst = bufPtr.baseAddress!
-            let bSrc = bluePtr.baseAddress!
-            let rSrc = redPtr.baseAddress!
-            let gSrc = greenPtr.baseAddress!
-            let rowBytes = Self.width * Self.bytesPerPixel
+          packed.withUnsafeBufferPointer { palPtr in
+            Self.spreadLUT.withUnsafeBufferPointer { spreadPtr in
+              buffer.withUnsafeMutableBufferPointer { bufPtr in
+                let dst = UnsafeMutableRawPointer(bufPtr.baseAddress!)
+                  .assumingMemoryBound(to: UInt32.self)
 
-            withUnsafePointer(to: &palR) { prp in
-              withUnsafePointer(to: &palG) { pgp in
-                withUnsafePointer(to: &palB) { pbp in
-                  let pr = UnsafeRawPointer(prp).assumingMemoryBound(to: UInt8.self)
-                  let pg = UnsafeRawPointer(pgp).assumingMemoryBound(to: UInt8.self)
-                  let pb = UnsafeRawPointer(pbp).assumingMemoryBound(to: UInt8.self)
+                for line in 0..<Self.height {
+                  let dstRow = dst + line * 2 * Self.width
+                  Self.renderColorScanline(
+                    blue: bluePtr.baseAddress!,
+                    red: redPtr.baseAddress!,
+                    green: greenPtr.baseAddress!,
+                    srcOffset: line * bytesPerLine,
+                    bytesPerLine: bytesPerLine,
+                    palette: palPtr.baseAddress!,
+                    spread: spreadPtr.baseAddress!,
+                    dst: dstRow
+                  )
 
-                  for line in 0..<Self.height {
-                    let lineOffset = line * bytesPerLine
-                    let dstRow1 = line * 2 * rowBytes
-                    var pixelOffset = dstRow1
-
-                    for byteIndex in 0..<bytesPerLine {
-                      let offset = lineOffset + byteIndex
-                      let b = bSrc[offset]
-                      let r = rSrc[offset]
-                      let g = gSrc[offset]
-
-                      for bit in stride(from: 7, through: 0, by: -1) {
-                        let mask: UInt8 = 1 << bit
-                        let colorIndex = ((g & mask) != 0 ? 4 : 0)
-                          | ((r & mask) != 0 ? 2 : 0)
-                          | ((b & mask) != 0 ? 1 : 0)
-                        dst[pixelOffset]     = pr[colorIndex]
-                        dst[pixelOffset + 1] = pg[colorIndex]
-                        dst[pixelOffset + 2] = pb[colorIndex]
-                        dst[pixelOffset + 3] = 0xFF
-                        pixelOffset += 4
-                      }
-                    }
-
-                    // Copy row to the doubled line below
-                    let dstRow2 = dstRow1 + rowBytes
-                    dst.advanced(by: dstRow2).update(from: dst.advanced(by: dstRow1), count: rowBytes)
-                  }
+                  // Copy row to the doubled line below
+                  UnsafeMutableRawPointer(dstRow + Self.width)
+                    .copyMemory(from: UnsafeRawPointer(dstRow), byteCount: rowBytes)
                 }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  /// Render 400-line monochrome mode into a 400-line buffer.
-  /// Blue VRAM = upper 200 lines, Red VRAM = lower 200 lines.
-  /// Monochrome: bit=1 → white (palette[7]), bit=0 → black (palette[0]).
-  public func render400Line(
-    blueVRAM: [UInt8],
-    redVRAM: [UInt8],
-    palette: [(r: UInt8, g: UInt8, b: UInt8)],
-    into buffer: inout [UInt8]
-  ) {
-    let bytesPerLine = 80  // 640 / 8
-    let fg = palette[min(7, palette.count - 1)]
-    let bg = palette[0]
-
-    blueVRAM.withUnsafeBufferPointer { bluePtr in
-      redVRAM.withUnsafeBufferPointer { redPtr in
-        buffer.withUnsafeMutableBufferPointer { bufPtr in
-          let dst = bufPtr.baseAddress!
-          let bSrc = bluePtr.baseAddress!
-          let rSrc = redPtr.baseAddress!
-
-          var pixelOffset = 0
-
-          // Upper 200 lines from Blue plane
-          for line in 0..<Self.height {
-            let lineOffset = line * bytesPerLine
-            for byteIndex in 0..<bytesPerLine {
-              let byte = bSrc[lineOffset + byteIndex]
-              for bit in stride(from: 7, through: 0, by: -1) {
-                let on = (byte >> bit) & 1
-                dst[pixelOffset]     = on != 0 ? fg.r : bg.r
-                dst[pixelOffset + 1] = on != 0 ? fg.g : bg.g
-                dst[pixelOffset + 2] = on != 0 ? fg.b : bg.b
-                dst[pixelOffset + 3] = 0xFF
-                pixelOffset += 4
-              }
-            }
-          }
-
-          // Lower 200 lines from Red plane
-          for line in 0..<Self.height {
-            let lineOffset = line * bytesPerLine
-            for byteIndex in 0..<bytesPerLine {
-              let byte = rSrc[lineOffset + byteIndex]
-              for bit in stride(from: 7, through: 0, by: -1) {
-                let on = (byte >> bit) & 1
-                dst[pixelOffset]     = on != 0 ? fg.r : bg.r
-                dst[pixelOffset + 1] = on != 0 ? fg.g : bg.g
-                dst[pixelOffset + 2] = on != 0 ? fg.b : bg.b
-                dst[pixelOffset + 3] = 0xFF
-                pixelOffset += 4
               }
             }
           }
@@ -293,56 +279,77 @@ public struct ScreenRenderer {
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
-    let rowBytes = Self.width * Self.bytesPerPixel
+    let rowPixels = Self.width
+    let rowBytes = rowPixels * Self.bytesPerPixel
     let attrRows = max(textRows, 1)
     let cellHeight = attrRows <= 20 ? 10 : 8
-    let bg = palette[0]
+    let bg32 = Self.packRGBA(palette[0])
 
-    for line in 0..<Self.height {
-      let attrRow = min(line / cellHeight, attrRows - 1)
-      let srcOffset = line * bytesPerLine
-      let dstRow0 = line * 2 * rowBytes
-      let dstRow1 = dstRow0 + rowBytes
+    let cellCount = attrRows * bytesPerLine
+    let cellColor = UnsafeMutablePointer<UInt32>.allocate(capacity: cellCount)
+    let cellXor = UnsafeMutablePointer<UInt8>.allocate(capacity: cellCount)
+    defer {
+      cellColor.deallocate()
+      cellXor.deallocate()
+    }
+    fillAttributeCellTables(
+      attrData: attrData,
+      palette: palette,
+      columns80: columns80,
+      attrRows: attrRows,
+      cellsPerRow: bytesPerLine,
+      color: cellColor,
+      xor: cellXor
+    )
 
-      for byteIndex in 0..<bytesPerLine {
-        let attr = graphAttribute(
-          attrData: attrData,
-          attrRow: attrRow,
-          cellCol: byteIndex,
-          columns80: columns80
-        )
-        let color = palette[min(Int((attr >> 5) & 0x07), palette.count - 1)]
-        let reverse = (attr & 0x01) != 0
-        // When graphics display is disabled, the attribute-graph XOR
-        // semantics (reverse ⇒ invert plane bits) don't apply — the
-        // text overlay handles reverse itself. Leave the cell as all
-        // background so text glyph "transparent" pixels fall through
-        // to bg color, not to 0xFF-invert fill.
-        let bits: UInt8
-        if graphicsDisplayEnabled {
-          let brg = blueVRAM[srcOffset + byteIndex]
-            | redVRAM[srcOffset + byteIndex]
-            | greenVRAM[srcOffset + byteIndex]
-          bits = reverse ? (brg ^ 0xFF) : brg
-        } else {
-          bits = 0
-        }
+    blueVRAM.withUnsafeBufferPointer { bluePtr in
+      redVRAM.withUnsafeBufferPointer { redPtr in
+        greenVRAM.withUnsafeBufferPointer { greenPtr in
+          Self.spreadLUT.withUnsafeBufferPointer { spreadPtr in
+            buffer.withUnsafeMutableBufferPointer { bufPtr in
+              let dst = UnsafeMutableRawPointer(bufPtr.baseAddress!)
+                .assumingMemoryBound(to: UInt32.self)
+              let bSrc = bluePtr.baseAddress!
+              let rSrc = redPtr.baseAddress!
+              let gSrc = greenPtr.baseAddress!
+              let spread = spreadPtr.baseAddress!
 
-        for bit in stride(from: 7, through: 0, by: -1) {
-          let pixel = byteIndex * 8 + (7 - bit)
-          let srcColor = (bits & (1 << bit)) != 0 ? color : bg
-          let px0 = dstRow0 + pixel * Self.bytesPerPixel
-          let px1 = dstRow1 + pixel * Self.bytesPerPixel
+              for line in 0..<Self.height {
+                let attrBase = min(line / cellHeight, attrRows - 1) * bytesPerLine
+                let srcOffset = line * bytesPerLine
+                let dstRow0 = line * 2 * rowPixels
+                var pixelOffset = dstRow0
 
-          buffer[px0] = srcColor.r
-          buffer[px0 + 1] = srcColor.g
-          buffer[px0 + 2] = srcColor.b
-          buffer[px0 + 3] = 0xFF
+                for byteIndex in 0..<bytesPerLine {
+                  // When graphics display is disabled, the attribute-graph XOR
+                  // semantics (reverse ⇒ invert plane bits) don't apply — the
+                  // text overlay handles reverse itself. Leave the cell as all
+                  // background so text glyph "transparent" pixels fall through
+                  // to bg color, not to 0xFF-invert fill.
+                  var bits: UInt8 = 0
+                  if graphicsDisplayEnabled {
+                    let brg = bSrc[srcOffset + byteIndex]
+                      | rSrc[srcOffset + byteIndex]
+                      | gSrc[srcOffset + byteIndex]
+                    bits = brg ^ cellXor[attrBase + byteIndex]
+                  }
 
-          buffer[px1] = srcColor.r
-          buffer[px1 + 1] = srcColor.g
-          buffer[px1 + 2] = srcColor.b
-          buffer[px1 + 3] = 0xFF
+                  Self.emitAttributeCell(
+                    bits: bits,
+                    color: cellColor[attrBase + byteIndex],
+                    background: bg32,
+                    spread: spread,
+                    dst: dst + pixelOffset
+                  )
+                  pixelOffset += 8
+                }
+
+                // Copy the completed row to the doubled line below.
+                UnsafeMutableRawPointer(dst + dstRow0 + rowPixels)
+                  .copyMemory(from: UnsafeRawPointer(dst + dstRow0), byteCount: rowBytes)
+              }
+            }
+          }
         }
       }
     }
@@ -362,47 +369,64 @@ public struct ScreenRenderer {
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
-    let rowBytes = Self.width * Self.bytesPerPixel
     let attrRows = max(textRows, 1)
     let cellHeight = attrRows <= 20 ? 10 : 8
-    let bg = palette[0]
+    let bg32 = Self.packRGBA(palette[0])
 
-    for line in 0..<Self.height400 {
-      let attrRow = min((line / 2) / cellHeight, attrRows - 1)
-      let srcLine = line < Self.height ? line : (line - Self.height)
-      let srcOffset = srcLine * bytesPerLine
-      let plane = line < Self.height ? blueVRAM : redVRAM
-      let dstRow = line * rowBytes
+    let cellCount = attrRows * bytesPerLine
+    let cellColor = UnsafeMutablePointer<UInt32>.allocate(capacity: cellCount)
+    let cellXor = UnsafeMutablePointer<UInt8>.allocate(capacity: cellCount)
+    defer {
+      cellColor.deallocate()
+      cellXor.deallocate()
+    }
+    fillAttributeCellTables(
+      attrData: attrData,
+      palette: palette,
+      columns80: columns80,
+      attrRows: attrRows,
+      cellsPerRow: bytesPerLine,
+      color: cellColor,
+      xor: cellXor
+    )
 
-      for byteIndex in 0..<bytesPerLine {
-        let attr = graphAttribute(
-          attrData: attrData,
-          attrRow: attrRow,
-          cellCol: byteIndex,
-          columns80: columns80
-        )
-        let color = palette[min(Int((attr >> 5) & 0x07), palette.count - 1)]
-        let reverse = (attr & 0x01) != 0
-        // See renderAttributeGraph200 comment — when graphics display is
-        // off, skip the attribute-graph XOR so reverse text cells don't
-        // pre-fill to white and hide text-overlay glyphs.
-        let bits: UInt8
-        if graphicsDisplayEnabled {
-          let planeByte = plane[srcOffset + byteIndex]
-          bits = reverse ? (planeByte ^ 0xFF) : planeByte
-        } else {
-          bits = 0
-        }
+    blueVRAM.withUnsafeBufferPointer { bluePtr in
+      redVRAM.withUnsafeBufferPointer { redPtr in
+        Self.spreadLUT.withUnsafeBufferPointer { spreadPtr in
+          buffer.withUnsafeMutableBufferPointer { bufPtr in
+            let dst = UnsafeMutableRawPointer(bufPtr.baseAddress!)
+              .assumingMemoryBound(to: UInt32.self)
+            let bSrc = bluePtr.baseAddress!
+            let rSrc = redPtr.baseAddress!
+            let spread = spreadPtr.baseAddress!
 
-        for bit in stride(from: 7, through: 0, by: -1) {
-          let pixel = byteIndex * 8 + (7 - bit)
-          let srcColor = (bits & (1 << bit)) != 0 ? color : bg
-          let px = dstRow + pixel * Self.bytesPerPixel
+            for line in 0..<Self.height400 {
+              let attrBase = min((line / 2) / cellHeight, attrRows - 1) * bytesPerLine
+              let srcLine = line < Self.height ? line : (line - Self.height)
+              let srcOffset = srcLine * bytesPerLine
+              let plane = line < Self.height ? bSrc : rSrc
+              var pixelOffset = line * Self.width
 
-          buffer[px] = srcColor.r
-          buffer[px + 1] = srcColor.g
-          buffer[px + 2] = srcColor.b
-          buffer[px + 3] = 0xFF
+              for byteIndex in 0..<bytesPerLine {
+                // See renderAttributeGraph200 comment — when graphics display is
+                // off, skip the attribute-graph XOR so reverse text cells don't
+                // pre-fill to white and hide text-overlay glyphs.
+                var bits: UInt8 = 0
+                if graphicsDisplayEnabled {
+                  bits = plane[srcOffset + byteIndex] ^ cellXor[attrBase + byteIndex]
+                }
+
+                Self.emitAttributeCell(
+                  bits: bits,
+                  color: cellColor[attrBase + byteIndex],
+                  background: bg32,
+                  spread: spread,
+                  dst: dst + pixelOffset
+                )
+                pixelOffset += 8
+              }
+            }
+          }
         }
       }
     }

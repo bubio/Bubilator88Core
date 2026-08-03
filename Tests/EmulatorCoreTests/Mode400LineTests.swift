@@ -166,15 +166,25 @@ struct Mode400LineTests {
 
   // MARK: - ScreenRenderer: 400-line render
 
+  // 400-line mode is rendered by `renderAttributeGraph400` (see the dispatch
+  // in EmulatorViewModel.renderCurrentFrame and BootTester). The plain
+  // monochrome renderer it replaced produced identical output for the default
+  // attribute 0xE0 — white foreground, no reverse — which is what these tests
+  // pin down, along with the blue=upper / red=lower plane split.
+  private static let monochromeAttributes = Array(
+    repeating: UInt8(0xE0), count: ScreenRenderer.textCols80 * 25
+  )
+
   @Test func render400LineBlackScreen() {
     let renderer = ScreenRenderer()
     let blue = Array(repeating: UInt8(0x00), count: 0x4000)
     let red = Array(repeating: UInt8(0x00), count: 0x4000)
     var buffer = Array(repeating: UInt8(0xAA), count: ScreenRenderer.bufferSize400)
 
-    renderer.render400Line(
+    renderer.renderAttributeGraph400(
       blueVRAM: blue,
       redVRAM: red,
+      attrData: Self.monochromeAttributes,
       palette: ScreenRenderer.defaultPalette,
       into: &buffer
     )
@@ -200,9 +210,10 @@ struct Mode400LineTests {
     blue[0] = 0x80
 
     var buffer = Array(repeating: UInt8(0), count: ScreenRenderer.bufferSize400)
-    renderer.render400Line(
+    renderer.renderAttributeGraph400(
       blueVRAM: blue,
       redVRAM: red,
+      attrData: Self.monochromeAttributes,
       palette: ScreenRenderer.defaultPalette,
       into: &buffer
     )
@@ -225,9 +236,10 @@ struct Mode400LineTests {
     red[0] = 0x80
 
     var buffer = Array(repeating: UInt8(0), count: ScreenRenderer.bufferSize400)
-    renderer.render400Line(
+    renderer.renderAttributeGraph400(
       blueVRAM: blue,
       redVRAM: red,
+      attrData: Self.monochromeAttributes,
       palette: ScreenRenderer.defaultPalette,
       into: &buffer
     )
