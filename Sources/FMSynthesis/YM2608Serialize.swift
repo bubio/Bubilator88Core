@@ -227,8 +227,11 @@ extension YM2608 {
     let fmData = Array(data[pos..<(pos + fmDataLen)]); pos += fmDataLen
     fmSynth.deserializeState(fmData)
 
-    // Clear transient audio buffer
+    // Clear transient audio buffer. The CD-mix delay lines are not part of the
+    // save state either, so drop their contents rather than carrying a tail
+    // from the pre-load audio into the restored scene.
     audioBuffer.removeAll()
+    resetPostProcessors()
 
     return true
   }
