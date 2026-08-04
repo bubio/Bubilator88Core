@@ -653,7 +653,7 @@ public final class YM2608 {
         let fmL = mask.contains(.fm) ? Self.saturate16(fmOutputL) : 0
         let fmR = mask.contains(.fm) ? Self.saturate16(fmOutputR) : 0
         let (fmOutL, fmOutR) = shaped(0, Float(fmL + beepSample) / scale,
-                                         Float(fmR + beepSample) / scale)
+                                      Float(fmR + beepSample) / scale)
         fmSpatialBuffer.append(fmOutL)
         fmSpatialBuffer.append(fmOutR)
 
