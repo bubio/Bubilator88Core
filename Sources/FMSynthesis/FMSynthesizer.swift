@@ -471,7 +471,17 @@ struct FMOp {
     // when F-Number is 0 with a negative DT1: the step underflows to near the
     // top of the range and the operator screams at ~6.9 kHz instead of sitting
     // at DC. Xanadu Scenario II's level 4 BGM writes F-Number 0 deliberately
-    // for that "keen" chime; fmgen keeps the value negative and stays silent.
+    // for that "keen" chime (A4=0x28 → A0=0x00, then key-on).
+    //
+    // Stock fmgen keeps the sum negative in 32 bits and stays silent, which is
+    // why most emulators lose the chime — QUASI88, XM8 and the Common Source
+    // Project cores all inherit that. The exception is the m88 line: rururutan
+    // added a "PG overflow" guard in 2020 (fmgen.cpp, `if (pgc < 0) pgc =
+    // 0x3ff80`) that clamps to the top instead, so M88/M88M do sound it. The
+    // clamp pins every case to one frequency; wrapping keeps the DT1-dependent
+    // spread the hardware has. Both land within 0.02% of a real-machine
+    // recording of the passage (6931.6 Hz measured).
+    //
     // Real notes never reach the mask (2047 << 7 + 44 < 0x40000), so they are
     // unaffected. Only the pre-multiply wrap is modeled; hardware also wraps
     // the product to 20 bits, which cannot be reproduced here because multable
