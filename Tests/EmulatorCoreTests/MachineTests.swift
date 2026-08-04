@@ -494,6 +494,80 @@ struct MachineTests {
     #expect(!dst.cassette.isLoaded)
   }
 
+  // MARK: - Save State Sections
+
+  @Test func saveStateCarriesExtraSections() throws {
+    let src = Machine()
+    src.reset()
+    let tag = SaveStateFile.fourCC("AMTA")
+    let payload = Array("{\"bootMode\":\"v2\"}".utf8)
+    let blob = src.createSaveState(extraSections: [(tag: tag, data: payload)])
+
+    let sections = try SaveStateFile.parse(blob)
+    #expect(sections[tag] == payload)
+    // Sections the emulator itself writes are unaffected.
+    #expect(sections[SaveStateFile.fourCC("MAIN")] != nil)
+    #expect(sections[SaveStateFile.fourCC("META")] != nil)
+  }
+
+  /// Unknown tags must not break loading: that is what lets the app layer add
+  /// a section without a format version bump.
+  @Test func saveStateWithUnknownSectionStillLoads() throws {
+    let src = Machine()
+    src.reset()
+    src.bus.mainRAM[0x9000] = 0x5A
+    let blob = src.createSaveState(extraSections: [
+      (tag: SaveStateFile.fourCC("ZZZZ"), data: [0xDE, 0xAD, 0xBE, 0xEF]),
+    ])
+
+    let dst = Machine()
+    dst.reset()
+    try dst.loadSaveState(blob)
+    #expect(dst.bus.mainRAM[0x9000] == 0x5A)
+  }
+
+  @Test func saveStateStoresThumbnail() throws {
+    let src = Machine()
+    src.reset()
+    let thumb: [UInt8] = Array(repeating: 0x7F, count: 64)
+    let blob = src.createSaveState(thumbnail: thumb)
+
+    let sections = try SaveStateFile.parse(blob)
+    #expect(sections[SaveStateFile.fourCC("THMB")] == thumb)
+  }
+
+  /// `parseSectionTable` is what the app layer and the Quick Look extension
+  /// use to seek to one section without reading the whole file, so it must
+  /// agree with `parse` while only needing the leading bytes.
+  @Test func parseSectionTableMatchesFullParse() throws {
+    let src = Machine()
+    src.reset()
+    let blob = src.createSaveState(thumbnail: Array(repeating: 0x11, count: 32),
+                                   extraSections: [(tag: SaveStateFile.fourCC("AMTA"),
+                                                    data: Array("{}".utf8))])
+    let sections = try SaveStateFile.parse(blob)
+    let entries = try SaveStateFile.parseSectionTable(blob)
+
+    #expect(entries.count == sections.count)
+    for entry in entries {
+      let expected = try #require(sections[entry.tag])
+      #expect(entry.size == expected.count)
+      #expect(Array(blob[entry.offset..<(entry.offset + entry.size)]) == expected)
+    }
+
+    // Only the header plus the table is needed.
+    let prefixLength = SaveStateFile.headerSize + entries.count * SaveStateFile.sectionEntrySize
+    let fromPrefix = try SaveStateFile.parseSectionTable(Array(blob[0..<prefixLength]))
+    #expect(fromPrefix.map(\.tag) == entries.map(\.tag))
+    #expect(fromPrefix.map(\.offset) == entries.map(\.offset))
+  }
+
+  @Test func parseSectionTableRejectsForeignData() {
+    #expect(throws: (any Error).self) {
+      try SaveStateFile.parseSectionTable(Array(repeating: 0x00, count: 128))
+    }
+  }
+
   @Test func traceResetClearsLog() {
     let machine = Machine()
     machine.reset()

@@ -690,7 +690,15 @@ extension Machine {
   }
 
   /// Create a complete save state file with disk images.
-  public func createSaveState(thumbnail: [UInt8]? = nil) -> [UInt8] {
+  ///
+  /// `extraSections` are appended verbatim after the sections the emulator
+  /// itself writes. The core attaches no meaning to their tags — this is how
+  /// the app layer stores its own metadata (window/boot settings, disk source
+  /// URLs) inside the state file without EmulatorCore depending upward.
+  /// Unknown tags are ignored by `loadSaveState`, so adding one does not
+  /// require a format version bump.
+  public func createSaveState(thumbnail: [UInt8]? = nil,
+                              extraSections: [(tag: UInt32, data: [UInt8])] = []) -> [UInt8] {
     var w = SaveStateWriter()
     writeSaveState(to: &w)
     let mainSection = (tag: SaveStateFile.fourCC("MAIN"), data: w.data)
@@ -723,6 +731,8 @@ extension Machine {
     let disk1Name = subSystem.drives[1]?.name ?? ""
     let metaJSON = "{\"disk0\":\"\(disk0Name)\",\"disk1\":\"\(disk1Name)\",\"clock8MHz\":\(clock8MHz)}"
     sections.append((tag: SaveStateFile.fourCC("META"), data: Array(metaJSON.utf8)))
+
+    sections.append(contentsOf: extraSections)
 
     return SaveStateFile.build(sections: sections, thumbnail: thumbnail)
   }
