@@ -465,7 +465,19 @@ struct FMOp {
     // PG
     let dtIdx = Int(detune + bn) & 255
     let dtVal = Int(detuneTable[dtIdx])
-    pgDiff = UInt32(truncatingIfNeeded: (Int(dp) + dtVal) * Int(multable[Int(detune2)][Int(multiple)]))
+    // Hardware keeps the detuned phase step in a 17-bit adder and lets it wrap
+    // before the frequency multiplier is applied. dp and detuneTable are both
+    // twice the hardware scale here, so the mask is 18 bits. This only matters
+    // when F-Number is 0 with a negative DT1: the step underflows to near the
+    // top of the range and the operator screams at ~6.9 kHz instead of sitting
+    // at DC. Xanadu Scenario II's level 4 BGM writes F-Number 0 deliberately
+    // for that "keen" chime; fmgen keeps the value negative and stays silent.
+    // Real notes never reach the mask (2047 << 7 + 44 < 0x40000), so they are
+    // unaffected. Only the pre-multiply wrap is modeled; hardware also wraps
+    // the product to 20 bits, which cannot be reproduced here because multable
+    // folds the output sample rate into the multiplier.
+    let step = (Int(dp) + dtVal) & 0x3FFFF
+    pgDiff = UInt32(truncatingIfNeeded: step * Int(multable[Int(detune2)][Int(multiple)]))
     pgDiff >>= UInt32(2 + FM.ratioBits - FM.phaseBits)
     pgDiffLfo = pgDiff >> 11
 
