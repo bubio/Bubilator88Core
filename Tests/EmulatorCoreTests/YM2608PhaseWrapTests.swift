@@ -6,8 +6,8 @@ import Foundation
 /// F-Number 0 combined with a negative DT1 underflows the hardware's 17-bit
 /// phase-step adder, so the operator runs at close to the maximum step instead
 /// of standing still at DC. Xanadu Scenario II's level 4 BGM uses this on
-/// purpose for a high "keen" chime; fmgen-derived cores keep the step negative
-/// and stay silent there.
+/// purpose for a high "keen" chime. Stock fmgen keeps the step negative and
+/// stays silent there; see FMSynthesizer.prepare() for which cores do what.
 @Suite("YM2608 phase step wrap")
 struct YM2608PhaseWrapTests {
 
