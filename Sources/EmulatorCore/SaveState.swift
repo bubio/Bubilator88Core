@@ -294,8 +294,19 @@ public struct SaveStateFile: Sendable {
     return w.data
   }
 
-  /// Parse a save state file and return sections as a dictionary.
-  public static func parse(_ data: [UInt8]) throws -> [UInt32: [UInt8]] {
+  /// Parse the header and section table from the leading bytes of a save
+  /// state file.
+  ///
+  /// Only the first `headerSize + sectionCount * sectionEntrySize` bytes are
+  /// examined, so a caller holding an open file can read the table without
+  /// loading the whole state. EmulatorCore performs no file I/O itself — the
+  /// caller reads the bytes and seeks.
+  ///
+  /// The returned offsets are absolute from the start of the file. They are
+  /// *not* validated against a file length here (the caller knows it);
+  /// `parse` performs that check for the in-memory case.
+  public static func parseSectionTable(_ data: [UInt8]) throws
+    -> [(tag: UInt32, offset: Int, size: Int)] {
     guard data.count >= headerSize else {
       throw SaveStateError.invalidData("File too small")
     }
@@ -330,6 +341,13 @@ public struct SaveStateFile: Sendable {
       let size = Int(try r.readUInt32())
       entries.append((tag, offset, size))
     }
+
+    return entries
+  }
+
+  /// Parse a save state file and return sections as a dictionary.
+  public static func parse(_ data: [UInt8]) throws -> [UInt32: [UInt8]] {
+    let entries = try parseSectionTable(data)
 
     // Extract sections
     var sections: [UInt32: [UInt8]] = [:]
