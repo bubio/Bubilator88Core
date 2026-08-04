@@ -881,6 +881,30 @@ let adpcmTracePath: String? = {
   return raw.isEmpty ? nil : raw
 }()
 
+/// BOOTTEST_AUDIO_WAV: dumps the rendered YM2608 output to a 16-bit stereo WAV.
+let audioWAVPath: String? = {
+  let raw = ProcessInfo.processInfo.environment["BOOTTEST_AUDIO_WAV"] ?? ""
+  return raw.isEmpty ? nil : raw
+}()
+
+var capturedAudio: [Float] = []
+
+/// Writes interleaved stereo float samples as a 16-bit PCM WAV file.
+func writeWAV(path: String, samples: [Float], rate: Int) throws {
+  let frames = samples.count / 2
+  var data = Data()
+  func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+  func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+  data.append(contentsOf: Array("RIFF".utf8)); u32(UInt32(36 + frames * 4))
+  data.append(contentsOf: Array("WAVEfmt ".utf8)); u32(16); u16(1); u16(2)
+  u32(UInt32(rate)); u32(UInt32(rate * 4)); u16(4); u16(16)
+  data.append(contentsOf: Array("data".utf8)); u32(UInt32(frames * 4))
+  for s in samples {
+    u16(UInt16(bitPattern: Int16(max(-32768, min(32767, (s * 32767).rounded())))))
+  }
+  try data.write(to: URL(fileURLWithPath: path))
+}
+
 let resetAfterLoadState: Bool = {
   ProcessInfo.processInfo.environment["BOOTTEST_RESET_AFTER_LOAD"] == "1"
 }()
@@ -1028,6 +1052,7 @@ if let loadStatePath {
     // Collect ADPCM audio level for this frame
     let audioSamples = snd.audioBuffer
     if !audioSamples.isEmpty {
+      if audioWAVPath != nil { capturedAudio.append(contentsOf: audioSamples) }
       let framePeak = audioSamples.reduce(Float.zero) { max($0, abs($1)) }
       adpcmPeakPerFrame = max(adpcmPeakPerFrame, framePeak)
       if adpcmTracePath != nil {
@@ -1079,6 +1104,17 @@ if let loadStatePath {
       print("  ADPCM trace (\(adpcmTraceLines.count) entries) written to \(adpcmTracePath)")
     } catch {
       print("  Failed to write ADPCM trace: \(error)")
+    }
+  }
+
+  // Write rendered audio
+  if let audioWAVPath, !capturedAudio.isEmpty {
+    do {
+      try writeWAV(path: audioWAVPath, samples: capturedAudio, rate: YM2608.sampleRate)
+      print(String(format: "  Audio WAV (%.2fs) written to %@",
+                   Double(capturedAudio.count / 2) / Double(YM2608.sampleRate), audioWAVPath))
+    } catch {
+      print("  Failed to write audio WAV: \(error)")
     }
   }
 
@@ -1692,6 +1728,11 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         }
       }
 
+      if audioWAVPath != nil {
+        capturedAudio.append(contentsOf: dm.sound.audioBuffer)
+        dm.sound.audioBuffer.removeAll(keepingCapacity: true)
+      }
+
       if audioSummaryEnabled {
         let nonZeroSamples = dm.sound.audioBuffer.filter { $0 != 0 }
         if !nonZeroSamples.isEmpty {
@@ -1882,6 +1923,15 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
       print("  Audio frames with output: \(audioFramesWithOutput)")
       if let firstAudioFrame {
         print(String(format: "  First audio frame: %d peak=%.6f", firstAudioFrame, audioPeak))
+      }
+    }
+    if let audioWAVPath, !capturedAudio.isEmpty {
+      do {
+        try writeWAV(path: audioWAVPath, samples: capturedAudio, rate: YM2608.sampleRate)
+        print(String(format: "  Audio WAV (%.2fs) written to %@",
+                     Double(capturedAudio.count / 2) / Double(YM2608.sampleRate), audioWAVPath))
+      } catch {
+        print("  Failed to write audio WAV: \(error)")
       }
     }
     // FM register trace removed in refactor
