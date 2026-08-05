@@ -25,6 +25,12 @@ let package = Package(
         ),
         .target(
             name: "FMSynthesis",
+            // fmgen's licence text and the record of our changes to it, kept
+            // alongside the ported source rather than built into the target.
+            exclude: [
+                "fmgen-readme.txt",
+                "fmgen-changes.md",
+            ],
             swiftSettings: [
                 .unsafeFlags(["-O"], .when(configuration: .debug)),
             ]
