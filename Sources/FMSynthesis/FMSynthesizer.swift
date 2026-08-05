@@ -12,6 +12,10 @@ import ucrt
 //
 // Port of cisc's fmgen FM synthesis engine to Swift.
 // Reference: BubiC-8801MA/src/vm/fmgen/
+//
+// fmgen's original copyright notice and terms of use are in fmgen-readme.txt,
+// included verbatim in this directory. Our changes to it are recorded in
+// fmgen-changes.md, as its terms require.
 
 // MARK: - Constants
 
