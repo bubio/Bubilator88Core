@@ -1,6 +1,6 @@
 // Script.swift — model and parser for timeline operation scripts.
 //
-// A pure Swift implementation of the DRAFT specification in docs/SCRIPTING.md.
+// A pure Swift implementation of the DRAFT specification in docs/develop/Bubilator88/SCRIPTING.md.
 // It only converts text into [ScriptStep] and has no dependency on Machine;
 // replaying the steps is ScriptPlayer's job.
 
@@ -18,7 +18,7 @@ public enum KeyAction: Equatable, Sendable {
 }
 
 /// Boot mode, expanded into a DIPSW1 / DIPSW2 pair. The values follow
-/// docs/BOOTTESTER.md and docs/PERSISTENCE.md.
+/// docs/develop/Bubilator88/BOOTTESTER.md and docs/develop/Bubilator88/PERSISTENCE.md.
 public enum BootMode: String, Equatable, Sendable, CaseIterable {
   case n88v2   = "n88-v2"
   case n88v1h  = "n88-v1h"
