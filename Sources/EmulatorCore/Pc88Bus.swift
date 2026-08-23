@@ -146,6 +146,11 @@ public final class Pc88Bus: Bus {
   /// Reference: QUASI88 GRPH_CTRL_200 (0x01), BubiC Port31_200LINE
   public var mode200Line: Bool = true
 
+  /// Which CRT is attached (DIP SW1 bit 8). Owned by `Machine`, mirrored
+  /// here because port 0x40 bit 1 (SHG) reports it back to software — and,
+  /// from Step 4 on, because the V1S GVRAM wait depends on it.
+  public var monitorType: MonitorType = .khz24
+
   /// True when 400-line monochrome mode is active.
   /// 400-line mode requires: mode200Line=false AND graphicsColorMode=false.
   /// Blue plane = upper 200 lines, Red plane = lower 200 lines.
@@ -787,8 +792,13 @@ public final class Pc88Bus: Bus {
       }
       // bit 1: SHG — monitor type (hardware config).
       // XM8: hireso ? 0 : 2. QUASI88: HIGH_MODE ? 0 : 2.
-      // PC-8801-FA has 24kHz monitor (hireso) → bit 1 = 0.
+      // PC-8801-FA has a 24kHz monitor (hireso) → bit 1 = 0.
       // 15kHz monitor → bit 1 = 1 (0x02).
+      // Until 1.5.0 this comment described the spec but nothing ever set the
+      // bit, so software always saw a 24kHz monitor. `.khz24` stays the
+      // default precisely so that titles which branch on SHG (400-line
+      // capability) keep the behaviour they have today.
+      if monitorType == .khz15 { value |= 0x02 }
       return value
 
     // YM2608 ports

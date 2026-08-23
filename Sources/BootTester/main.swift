@@ -385,7 +385,10 @@ func renderCurrentFrame(machine: Machine) -> [UInt8] {
     cursorY: machine.crtc.cursorY,
     cursorVisible: machine.crtc.cursorEnabled,
     cursorBlock: (machine.crtc.cursorMode & 0x02) != 0,
-    hireso: true,
+    // Always true: the pixel buffer is 640×400 regardless of display mode
+    // (200-line output is line-doubled into it), so text is drawn at the
+    // 400-line cell height to match. Nothing to do with the monitor type.
+    is400Line: true,
     skipLine: machine.crtc.skipLine,
     into: &pixelBuffer
   )

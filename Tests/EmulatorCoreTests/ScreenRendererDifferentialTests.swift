@@ -204,7 +204,7 @@ struct ScreenRendererDifferentialTests {
     cursorY: Int,
     cursorVisible: Bool,
     cursorBlock: Bool,
-    hireso: Bool,
+    is400Line: Bool,
     skipLine: Bool,
     into buffer: inout [UInt8]
   ) {
@@ -223,8 +223,8 @@ struct ScreenRendererDifferentialTests {
     // XM8: skip_line doubles char_height (every other line is displayed)
     let fontHeight = ScreenRenderer.charHeight  // 8 pixels of font glyph data
     let baseCellHeight = textRows <= 20 ? 10 : 8
-    let cellHeight = (hireso ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
-    let screenHeight = hireso ? ScreenRenderer.height400 : ScreenRenderer.height
+    let cellHeight = (is400Line ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
+    let screenHeight = is400Line ? ScreenRenderer.height400 : ScreenRenderer.height
 
     let textCount = textData.count
     let attrCount = attrData.count
@@ -270,8 +270,8 @@ struct ScreenRendererDifferentialTests {
             let screenY = row * cellHeight + cellRow
             guard screenY < screenHeight else { break }
 
-            // In hireso mode, each font row is drawn twice
-            let fontRow = hireso ? cellRow / 2 : cellRow
+            // In is400Line mode, each font row is drawn twice
+            let fontRow = is400Line ? cellRow / 2 : cellRow
 
             var rowBits: UInt8
             if fontRow < fontHeight {
@@ -518,7 +518,7 @@ struct ScreenRendererDifferentialTests {
       let columns80 = trial % 2 == 0
       let colorMode = (trial / 2) % 2 == 0
       let attributeGraphMode = (trial / 4) % 2 == 0
-      let hireso = (trial / 8) % 2 == 0
+      let is400Line = (trial / 8) % 2 == 0
       let skipLine = (trial / 16) % 2 == 0
       let textRows = [25, 20, 24][trial % 3]
       let cursorVisible = trial % 3 != 0
@@ -548,7 +548,7 @@ struct ScreenRendererDifferentialTests {
         ? ScreenRenderer.defaultPalette
         : (0..<8).map { _ in (r: rng.byte(), g: rng.byte(), b: rng.byte()) }
 
-      let size = hireso ? ScreenRenderer.bufferSize400 : ScreenRenderer.bufferSize
+      let size = is400Line ? ScreenRenderer.bufferSize400 : ScreenRenderer.bufferSize
       // Text overlay only writes foreground pixels, so seed both buffers with
       // the same non-zero pattern: an over-eager skip shows up as leftover 0x5A.
       var actual = Array(repeating: UInt8(0x5A), count: size)
@@ -559,14 +559,14 @@ struct ScreenRendererDifferentialTests {
         displayEnabled: true, columns80: columns80, colorMode: colorMode,
         attributeGraphMode: attributeGraphMode, textRows: textRows,
         cursorX: cursorX, cursorY: cursorY, cursorVisible: cursorVisible,
-        cursorBlock: cursorBlock, hireso: hireso, skipLine: skipLine, into: &actual
+        cursorBlock: cursorBlock, is400Line: is400Line, skipLine: skipLine, into: &actual
       )
       referenceTextOverlay(
         textData: textData, attrData: attrData, fontROM: fontROM, palette: palette,
         displayEnabled: true, columns80: columns80, colorMode: colorMode,
         attributeGraphMode: attributeGraphMode, textRows: textRows,
         cursorX: cursorX, cursorY: cursorY, cursorVisible: cursorVisible,
-        cursorBlock: cursorBlock, hireso: hireso, skipLine: skipLine, into: &expected
+        cursorBlock: cursorBlock, is400Line: is400Line, skipLine: skipLine, into: &expected
       )
 
       let firstDiff = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
@@ -574,7 +574,7 @@ struct ScreenRendererDifferentialTests {
         firstDiff == nil,
         """
         trial \(trial) (cols80=\(columns80) color=\(colorMode) \
-        attrGraph=\(attributeGraphMode) hireso=\(hireso) skipLine=\(skipLine) \
+        attrGraph=\(attributeGraphMode) is400Line=\(is400Line) skipLine=\(skipLine) \
         rows=\(textRows) cursor=\(cursorX),\(cursorY) visible=\(cursorVisible) \
         block=\(cursorBlock)) diverged at byte \(firstDiff?.offset ?? -1)
         """

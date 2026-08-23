@@ -346,7 +346,7 @@ struct ScreenRendererTests {
     )
 
     // With textRows=20, cellHeight=10, coveredLines=200=screenHeight → no fill
-    // Test with smaller textRows in hireso mode
+    // Test with smaller textRows in is400Line mode
     var buffer400 = Array(repeating: UInt8(0xFF), count: ScreenRenderer.bufferSize400)
     let textData25 = Array(repeating: UInt8(0x00), count: 80 * 24)
     let attrData25 = Array(repeating: UInt8(0xE0), count: 80 * 24)
@@ -358,8 +358,8 @@ struct ScreenRendererTests {
       palette: palette,
       displayEnabled: true,
       columns80: true,
-      textRows: 24,  // 24 rows × 16 cellHeight(hireso) = 384 < 400
-      hireso: true,
+      textRows: 24,  // 24 rows × 16 cellHeight(is400Line) = 384 < 400
+      is400Line: true,
       into: &buffer400
     )
 

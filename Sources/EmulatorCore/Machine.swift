@@ -198,9 +198,52 @@ public final class Machine: @unchecked Sendable {
     }
   }
 
-  /// T-states per VSYNC frame
+  /// Which CRT is attached (DIP SW1 bit 8). Drives the scanline length, the
+  /// CRTC's reset geometry and port 0x40 bit 1 (SHG).
+  ///
+  /// Applied at reset only, like the real DIP switch — setting it mid-run
+  /// changes the line time immediately but leaves the CRTC geometry alone,
+  /// which is not a state real hardware can be in.
+  public var monitorType: MonitorType = .khz24 {
+    didSet {
+      crtc.monitorType = monitorType
+      bus.monitorType = monitorType
+    }
+  }
+
+  /// CPU clock in Hz.
+  ///
+  /// The real figures, not the round ones: BubiC `pc8801.h:132`
+  /// (`CPU_CLOCKS 3993624`) and XM8 `pc8801.cpp:94`. The 0.16% difference
+  /// from 8.0/4.0 MHz is inaudible, but every derived period below is
+  /// supposed to be hardware-accurate, so start from the hardware number.
+  public var cpuClock: Double {
+    clock8MHz ? 7_987_248.0 : 3_993_624.0
+  }
+
+  /// T-states per VSYNC frame.
+  ///
+  /// Derived, not constant. The physical primary is the monitor's horizontal
+  /// frequency; the CRTC's SET PARAMETER values say how many scanlines make a
+  /// frame; the frame period follows. A 25-row screen is 62.42Hz on a 15kHz
+  /// monitor and 55.42Hz on a 24kHz one — never 60Hz, which is what this
+  /// used to hardcode (`133_333 = 8_000_000 / 60`).
+  ///
+  /// Rounded at the frame level rather than at the line level so that the
+  /// VRTC period — the thing games actually pace off — carries no truncation
+  /// error; `tStatesPerLine` absorbs it instead.
   public var tStatesPerFrame: Int {
-    clock8MHz ? 133_333 : 66_667  // 8MHz/60Hz or 4MHz/60Hz
+    let lines = crtc.dynamicTotalScanlines
+    guard lines > 0 else { return 0 }
+    return Int((cpuClock * Double(lines) / monitorType.horizontalFrequency).rounded())
+  }
+
+  /// VSYNC frequency in Hz, for the host's frame pacer and the FPS readout.
+  /// 55.42Hz on a 24kHz monitor with a 25-row screen; 62.42Hz on a 15kHz one.
+  public var frameRate: Double {
+    let lines = crtc.dynamicTotalScanlines
+    guard lines > 0 else { return 0 }
+    return monitorType.horizontalFrequency / Double(lines)
   }
 
   /// CPU overclock multiplier (1 = real speed, 2 = 2×, 4 = 4×).
@@ -229,9 +272,10 @@ public final class Machine: @unchecked Sendable {
   /// T-states accumulated toward next RTC tick
   package var rtcCounter: Int = 0
 
-  /// T-states per RTC tick (600Hz)
+  /// T-states per RTC tick (600Hz). Rebased onto the real CPU clock along
+  /// with `tStatesPerFrame` — 8,000,000/600 would drift against it.
   private var tStatesPerRTC: Int {
-    clock8MHz ? 13_333 : 6_667  // 8MHz/600Hz or 4MHz/600Hz
+    clock8MHz ? 13_312 : 6_656  // 7,987,248/600 and 3,993,624/600
   }
 
   // MARK: - Init
