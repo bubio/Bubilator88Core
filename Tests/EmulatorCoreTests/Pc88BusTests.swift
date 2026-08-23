@@ -1349,6 +1349,102 @@ struct Pc88BusTests {
     #expect(bus.pendingWaitStates == 0)
   }
 
+  // MARK: - GVRAM Wait States (BubiC V1S/N)
+
+  /// A V1S/N machine drawing to a displayed graphic screen pays two orders of
+  /// magnitude more than a V1H/V2 one. `MEMORY_WAIT_STATES.md` §2.4.
+  private func v1sBus(clock8MHz: Bool, monitor: MonitorType) -> Pc88Bus {
+    let bus = Pc88Bus()
+    bus.dipSw2 = 0x31  // bit 6 = 0 → standard (V1S/N)
+    bus.cpuClock8MHz = clock8MHz
+    bus.monitorType = monitor
+    bus.gvramPlane = 0
+    bus.graphicsDisplayEnabled = true
+    bus.vrtcFlag = false
+    return bus
+  }
+
+  @Test func gvramWaitV1SDisplayPeriod() {
+    for (clock8MHz, monitor, expected) in [
+      (false, MonitorType.khz24, 114),
+      (false, MonitorType.khz15, 68),
+      (true, MonitorType.khz24, 141),
+      (true, MonitorType.khz15, 90),
+    ] {
+      let bus = v1sBus(clock8MHz: clock8MHz, monitor: monitor)
+
+      bus.pendingWaitStates = 0
+      _ = bus.memRead(0xC000)
+      #expect(bus.pendingWaitStates == expected)
+
+      bus.pendingWaitStates = 0
+      bus.memWrite(0xC000, value: 0xFF)
+      #expect(bus.pendingWaitStates == expected)
+    }
+  }
+
+  /// GHSM (port 0x40 write bit 4) releases the bus early, so a V1S/N machine
+  /// falls back to the V1H/V2 figures.
+  @Test func gvramWaitV1SWithGHSMFallsBackToTheShortWait() {
+    let bus = v1sBus(clock8MHz: false, monitor: .khz24)
+    bus.ioWrite(0x40, value: 0x10)
+    #expect(bus.port40GHSM)
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 2)
+
+    bus.cpuClock8MHz = true
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 5)
+  }
+
+  /// Vertical blanking does the same — this is why software waits for VRTC
+  /// before touching GVRAM.
+  @Test func gvramWaitV1SDuringVerticalBlankingIsShort() {
+    let bus = v1sBus(clock8MHz: false, monitor: .khz24)
+    bus.vrtcFlag = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 0)
+
+    bus.cpuClock8MHz = true
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 3)
+  }
+
+  /// The long wait is the boot mode's, not the memory-wait DIP's: V1H/V2 keeps
+  /// the short figures however the DIP is set.
+  @Test func gvramWaitHighSpeedBootModeNeverTakesTheLongWait() {
+    let bus = v1sBus(clock8MHz: false, monitor: .khz24)
+    bus.dipSw2 = 0x71  // bit 6 = 1 → high speed (V1H/V2)
+    #expect(!bus.bootModeStandard)
+    bus.memoryWaitDip = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 2)
+  }
+
+  /// The ALU path pays the same as the plane path.
+  @Test func gvramWaitV1SAppliesToTheALUPath() {
+    let bus = v1sBus(clock8MHz: false, monitor: .khz24)
+    bus.gvramPlane = -1
+    bus.evramMode = true
+    bus.gamMode = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 114)
+
+    bus.pendingWaitStates = 0
+    bus.memWrite(0xC000, value: 0xFF)
+    #expect(bus.pendingWaitStates == 114)
+  }
+
   // MARK: - Memory Wait DIP (SW1 bit 6)
 
   /// The memory-wait DIP is an axis of its own. Standard boot mode
