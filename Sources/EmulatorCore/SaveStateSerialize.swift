@@ -307,6 +307,15 @@ extension CRTC {
     for i in 0..<24000 { dmaBuffer[i] = dmaData[i] }
     dmaBufferPtr = try r.readInt()
     dmaUnderrun = try r.readBool()
+
+    // The parameters above land one at a time, so a half-restored combination
+    // can be rejected by the scanline-geometry guard. Settle it once here.
+    //
+    // The monitor type deliberately is *not* in the stream: it is a DIP
+    // switch, and DIP switches are restored from Settings, not from the save
+    // state (`dipSw` appears nowhere in this file either). That also keeps
+    // the format at version 3 — old `.b88s` files stay loadable.
+    refreshScanlineGeometry()
   }
 }
 

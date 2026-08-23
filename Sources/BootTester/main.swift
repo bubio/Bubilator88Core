@@ -385,7 +385,10 @@ func renderCurrentFrame(machine: Machine) -> [UInt8] {
     cursorY: machine.crtc.cursorY,
     cursorVisible: machine.crtc.cursorEnabled,
     cursorBlock: (machine.crtc.cursorMode & 0x02) != 0,
-    hireso: true,
+    // Always true: the pixel buffer is 640×400 regardless of display mode
+    // (200-line output is line-doubled into it), so text is drawn at the
+    // 400-line cell height to match. Nothing to do with the monitor type.
+    is400Line: true,
     skipLine: machine.crtc.skipLine,
     into: &pixelBuffer
   )
@@ -492,6 +495,12 @@ func maybeInstallVirtualRTC(machine: Machine, forceDefault: Bool = false) {
 
 func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
   let machine = Machine()
+  // Monitor type (DIP SW1 bit 8) — must be set before the reset, which seeds
+  // the CRTC geometry from it. `BOOTTEST_MONITOR=15` selects the 15kHz
+  // display; anything else (or unset) keeps the 24kHz default.
+  if ProcessInfo.processInfo.environment["BOOTTEST_MONITOR"] == "15" {
+    machine.monitorType = .khz15
+  }
   machine.reset()
   machine.sound.debugOutputMask = audioDebugMask
   // Honor BOOTTEST_DIPSW1 / BOOTTEST_DIPSW2 even in the cold-boot path so

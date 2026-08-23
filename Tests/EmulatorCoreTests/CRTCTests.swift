@@ -14,22 +14,41 @@ struct CRTCTests {
     #expect(crtc.mode200Line == true)
   }
 
+  /// 24kHz reset geometry: 25 rows × 16 = 400 active lines, +3 retrace rows
+  /// = 448 total. Not the old NTSC 200/262.
   @Test func vrtcFlagDuringBlanking() {
-    let crtc = CRTC()
-    crtc.reset()
+    let crtc = CRTC(monitorType: .khz24)
 
-    // Advance to just before blanking (scanline 199)
-    let tStatesPerLine = 509  // 8MHz
+    // Advance to just before blanking (scanline 399)
+    let tStatesPerLine = 321  // 8MHz / 24kHz
+    for _ in 0..<399 {
+      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    }
+    #expect(crtc.vrtcFlag == false)
+    #expect(crtc.scanline == 399)
+
+    // Advance to blanking start (scanline 400)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    #expect(crtc.vrtcFlag == true)
+    #expect(crtc.scanline == 400)
+  }
+
+  /// The 15kHz monitor gets a different reset geometry: 25 rows × 8 = 200
+  /// active, +7 retrace rows = 256 total.
+  @Test func vrtcFlagDuringBlanking15kHz() {
+    let crtc = CRTC(monitorType: .khz15)
+
+    let tStatesPerLine = 499  // 8MHz / 15kHz
     for _ in 0..<199 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     }
     #expect(crtc.vrtcFlag == false)
     #expect(crtc.scanline == 199)
 
-    // Advance to blanking start (scanline 200)
     crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     #expect(crtc.vrtcFlag == true)
     #expect(crtc.scanline == 200)
+    #expect(crtc.dynamicTotalScanlines == 256)
   }
 
   @Test func vsyncCallbackFired() {
@@ -39,9 +58,9 @@ struct CRTCTests {
     var vsyncCount = 0
     crtc.onVSYNC = { vsyncCount += 1 }
 
-    let tStatesPerLine = 509
-    // Run through one full frame (262 scanlines)
-    for _ in 0..<262 {
+    let tStatesPerLine = 321
+    // Run through one full frame (448 scanlines at 24kHz)
+    for _ in 0..<448 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     }
     #expect(vsyncCount == 1)
@@ -51,9 +70,9 @@ struct CRTCTests {
     let crtc = CRTC()
     crtc.reset()
 
-    let tStatesPerLine = 509
+    let tStatesPerLine = 321
     // Advance past one full frame
-    for _ in 0..<263 {
+    for _ in 0..<449 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     }
     #expect(crtc.scanline == 1)  // Wrapped around
@@ -152,28 +171,27 @@ struct CRTCTests {
 
   @Test("VRTC flag transitions at blanking boundary")
   func vrtcFlagTransitionsAtBlankingBoundary() {
-    let crtc = CRTC()
-    crtc.reset()
+    let crtc = CRTC(monitorType: .khz24)
 
-    let tStatesPerLine = 509  // 8MHz
+    let tStatesPerLine = 321  // 8MHz / 24kHz
 
-    // Advance to scanline 199 — still in active display
-    for _ in 0..<199 {
+    // Advance to scanline 399 — still in active display
+    for _ in 0..<399 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     }
-    #expect(crtc.scanline == 199)
+    #expect(crtc.scanline == 399)
     #expect(crtc.vrtcFlag == false)
 
-    // Advance to scanline 200 — blanking starts
+    // Advance to scanline 400 — blanking starts
     crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
-    #expect(crtc.scanline == 200)
+    #expect(crtc.scanline == 400)
     #expect(crtc.vrtcFlag == true)
 
-    // Advance through blanking (scanlines 201..261) then wrap
-    for _ in 201..<262 {
+    // Advance through blanking (scanlines 401..447) then wrap
+    for _ in 401..<448 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     }
-    // Scanline 262 wraps to 0
+    // Scanline 448 wraps to 0
     crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
     #expect(crtc.scanline == 0)  // wrapped to 0
     #expect(crtc.vrtcFlag == false)
@@ -204,10 +222,10 @@ struct CRTCTests {
 
   @Test("Dynamic scanline cache updates on parameter change")
   func dynamicScanlineCacheUpdates() {
-    let crtc = CRTC()
-    crtc.reset()
+    let crtc = CRTC(monitorType: .khz24)
 
-    // Set 400-line mode params: mode200Line=false, charLinesPerRow=16, vretrace=3
+    // Geometry comes from the CRTC parameters alone — mode200Line no longer
+    // forces the NTSC 262.
     crtc.mode200Line = false
     crtc.charLinesPerRow = 16
     crtc.linesPerScreen = 25
@@ -215,10 +233,68 @@ struct CRTCTests {
 
     // Expected: (25 + 3) * 16 = 448
     #expect(crtc.dynamicTotalScanlines == 448)
+    #expect(crtc.dynamicBlankingStart == 400)
 
-    // Change charLinesPerRow to 8 → (25 + 3) * 8 = 224, but clamped to >= 262
-    crtc.charLinesPerRow = 8
-    #expect(crtc.dynamicTotalScanlines == 262)
+    // 20-row screen: (20 + 2) * 20 = 440. Real geometry — LION, Exective and
+    // TheHospital all program it.
+    crtc.linesPerScreen = 20
+    crtc.vretrace = 2
+    crtc.charLinesPerRow = 20
+    #expect(crtc.dynamicTotalScanlines == 440)
+    #expect(crtc.dynamicBlankingStart == 400)
+  }
+
+  /// Only structurally impossible geometry is rejected. Anything software can
+  /// legitimately program has to take effect, however odd the implied frame
+  /// rate — see `updateDynamicScanlines()` for why a Hz window would be wrong.
+  @Test("Structurally invalid geometry is rejected")
+  func invalidGeometryIsRejected() {
+    let crtc = CRTC(monitorType: .khz24)
+    #expect(crtc.dynamicTotalScanlines == 448)
+
+    // A zeroed CRTC must not divide the frame into nothing.
+    crtc.linesPerScreen = 0
+    #expect(crtc.dynamicTotalScanlines == 448)
+    crtc.linesPerScreen = 25
+
+    // Nor may active exceed total.
+    crtc.vretrace = 0
+    #expect(crtc.dynamicTotalScanlines == 448)
+  }
+
+  /// The monitor type decides the *line time*, never the line count. Every
+  /// title in the regression suite programs the 24kHz convention (448 lines),
+  /// and it has to take effect on a 15kHz monitor too — even though 15,980 /
+  /// 448 = 35.7Hz, which no plausibility window would admit. Rejecting it
+  /// would leave the 15kHz setting frozen at its reset geometry, silently
+  /// ignoring everything software writes.
+  @Test("15kHz monitor honours the geometry software writes")
+  func monitor15kHzHonoursProgrammedGeometry() {
+    let crtc = CRTC(monitorType: .khz15)
+    #expect(crtc.dynamicTotalScanlines == 256)  // reset default: (25+7)*8
+
+    crtc.linesPerScreen = 25
+    crtc.vretrace = 3
+    crtc.charLinesPerRow = 16
+    #expect(crtc.dynamicTotalScanlines == 448)
+    #expect(crtc.dynamicBlankingStart == 400)
+  }
+
+  /// The 208-line transient the old `max(..., 262)` clamp defended against is
+  /// now unreachable, because `reset()` seeds monitor-correct parameters
+  /// instead of `char_height` 8 / `vretrace` 1.
+  @Test("Reset seeds monitor-correct geometry")
+  func resetSeedsMonitorCorrectGeometry() {
+    let crtc24 = CRTC(monitorType: .khz24)
+    #expect(crtc24.charLinesPerRow == 16)
+    #expect(crtc24.vretrace == 3)
+    #expect(crtc24.dynamicTotalScanlines == 448)
+
+    let crtc15 = CRTC(monitorType: .khz15)
+    #expect(crtc15.charLinesPerRow == 8)
+    #expect(crtc15.vretrace == 7)
+    #expect(crtc15.dynamicTotalScanlines == 256)
+    #expect(crtc15.dynamicBlankingStart == 200)
   }
 
   @Test("Reset interrupt command clears status")

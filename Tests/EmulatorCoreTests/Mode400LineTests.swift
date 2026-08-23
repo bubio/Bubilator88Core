@@ -73,7 +73,9 @@ struct Mode400LineTests {
     let bus = Pc88Bus()
 
     // Port 0x40 bit 1 (SHG): hardware monitor type, NOT tied to mode200Line.
-    // PC-8801-FA has 24kHz monitor (hireso) → bit 1 = 0.
+    // PC-8801-FA has a 24kHz monitor (hireso) → bit 1 = 0, which is the
+    // default. `MachineTests.monitorTypeSurfacesOnPort40` covers the 15kHz
+    // side.
     let val200 = bus.ioRead(0x40)
     #expect((val200 & 0x02) == 0, "24kHz monitor: bit 1 should be 0")
 
@@ -94,22 +96,25 @@ struct Mode400LineTests {
 
   // MARK: - CRTC: Dynamic Scanlines
 
+  /// 200-line mode does not shorten the frame: on a 24kHz monitor the CRTC
+  /// still counts 25 rows of 16 scanlines, and the 200 graphic lines are
+  /// line-doubled into them. (Before 1.5.0 this returned the NTSC 262.)
   @Test func dynamicTotalScanlines200() {
-    let crtc = CRTC()
+    let crtc = CRTC(monitorType: .khz24)
     crtc.mode200Line = true
-    #expect(crtc.dynamicTotalScanlines == 262)
-    #expect(crtc.dynamicBlankingStart == 200)
+    #expect(crtc.dynamicTotalScanlines == 448)
+    #expect(crtc.dynamicBlankingStart == 400)
   }
 
+  /// The transient the old 262 clamp existed to survive: port 0x31 has
+  /// selected 400-line mode but the CRTC parameters still belong to the
+  /// previous mode. Reset now seeds monitor-correct parameters, so the
+  /// starting geometry is already valid and nothing has to be clamped.
   @Test func dynamicTotalScanlines400WithDefaultParams() {
-    let crtc = CRTC()
+    let crtc = CRTC(monitorType: .khz24)
     crtc.mode200Line = false
-    // Default: linesPerScreen=25, vretrace=1, charLinesPerRow=8
-    // (25+1)*8 = 208 < 262 → clamp to 262 (200-line fallback)
-    // This prevents timing breakage when ROM writes port 0x31=0x00
-    // before CRTC is reconfigured for 400-line mode.
-    #expect(crtc.dynamicTotalScanlines == 262)
-    #expect(crtc.dynamicBlankingStart == 200)
+    #expect(crtc.dynamicTotalScanlines == 448)
+    #expect(crtc.dynamicBlankingStart == 400)
   }
 
   @Test func dynamicTotalScanlines400With16LinesPerChar() {
@@ -133,7 +138,7 @@ struct Mode400LineTests {
     var vsyncCount = 0
     crtc.onVSYNC = { vsyncCount += 1 }
 
-    let tStatesPerLine = 297  // 133333 / 448 ≈ 297
+    let tStatesPerLine = 321  // 144134 / 448 ≈ 321 (8MHz, 24kHz)
     // Advance to scanline 399 (still active)
     for _ in 0..<399 {
       crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
@@ -323,7 +328,7 @@ struct Mode400LineTests {
     #expect(buffer[2 * rowBytes + 2] == 0x00)
   }
 
-  // MARK: - ScreenRenderer: Text hireso mode
+  // MARK: - ScreenRenderer: Text 400-line mode
 
   @Test func textOverlayHiresoDoublesCellHeight() {
     let renderer = ScreenRenderer()
@@ -338,14 +343,14 @@ struct Mode400LineTests {
 
     var buffer = Array(repeating: UInt8(0), count: ScreenRenderer.bufferSize400)
 
-    // Non-hireso: cellHeight=8, text at 200-line resolution
+    // 200-line: cellHeight=8, text at 200-line resolution
     renderer.renderTextOverlay(
       textData: textData,
       attrData: attrData,
       fontROM: fontROM,
       palette: palette,
       displayEnabled: true,
-      hireso: false,
+      is400Line: false,
       into: &buffer
     )
     // Check that row 8 is blank (past cell height 8)
@@ -361,7 +366,7 @@ struct Mode400LineTests {
       fontROM: fontROM,
       palette: palette,
       displayEnabled: true,
-      hireso: true,
+      is400Line: true,
       into: &buffer
     )
     // Row 8 should have data (doubled font line 4)

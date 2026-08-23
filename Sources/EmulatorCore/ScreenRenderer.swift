@@ -451,9 +451,15 @@ public struct ScreenRenderer {
   ///   bit 1:   secret (character hidden)
   ///   bit 0:   reverse
   ///
-  /// When `hireso` is true, text is rendered into a 400-line buffer:
+  /// When `is400Line` is true, text is rendered into a 400-line buffer:
   /// cellHeight is doubled (16 for 25-line, 20 for 20-line), each font row
   /// is drawn twice. screenHeight = 400.
+  ///
+  /// This is the software display mode (port 0x31 bit 0), not the attached
+  /// monitor. `MonitorType` is a separate axis: a 24kHz monitor stays 24kHz
+  /// whether software is showing 200 or 400 lines. The parameter was called
+  /// `hireso` after XM8, which uses that name for the monitor — do not
+  /// re-conflate them.
   ///
   /// `markTextPixels` tags every pixel this pass paints with alpha 0xFE so the
   /// display shader can tell text apart from graphics (XM8's SDL port exempts
@@ -475,7 +481,7 @@ public struct ScreenRenderer {
     cursorY: Int = -1,
     cursorVisible: Bool = false,
     cursorBlock: Bool = false,
-    hireso: Bool = false,
+    is400Line: Bool = false,
     skipLine: Bool = false,
     markTextPixels: Bool = false,
     into buffer: inout [UInt8]
@@ -495,8 +501,8 @@ public struct ScreenRenderer {
     // XM8: skip_line doubles char_height (every other line is displayed)
     let fontHeight = Self.charHeight  // 8 pixels of font glyph data
     let baseCellHeight = textRows <= 20 ? 10 : 8
-    let cellHeight = (hireso ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
-    let screenHeight = hireso ? Self.height400 : Self.height
+    let cellHeight = (is400Line ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
+    let screenHeight = is400Line ? Self.height400 : Self.height
 
     let textCount = textData.count
     let attrCount = attrData.count
@@ -543,7 +549,7 @@ public struct ScreenRenderer {
           let inverted = usesAttributeGraphMask ? false : reverse
 
           // Fetch the glyph once per cell rather than once per scanline —
-          // in hireso every font row is drawn twice — and pack the 8 rows
+          // in 400-line mode every font row is drawn twice — and pack the 8 rows
           // into a word so the blank test below is a single comparison.
           var glyph: UInt64 = 0
           for fontRow in 0..<fontHeight {
@@ -567,8 +573,8 @@ public struct ScreenRenderer {
             let screenY = row * cellHeight + cellRow
             guard screenY < screenHeight else { break }
 
-            // In hireso mode, each font row is drawn twice
-            let fontRow = hireso ? cellRow / 2 : cellRow
+            // In 400-line mode, each font row is drawn twice
+            let fontRow = is400Line ? cellRow / 2 : cellRow
 
             var rowBits: UInt8 = fontRow < fontHeight
               ? UInt8(truncatingIfNeeded: glyph >> (UInt64(fontRow) * 8))

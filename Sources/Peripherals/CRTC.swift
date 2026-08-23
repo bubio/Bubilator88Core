@@ -25,41 +25,61 @@ public final class CRTC {
 
   // MARK: - Display Parameters
 
-  /// Total scanlines per frame — 200-line (NTSC)
-  public static let totalScanlines200 = 262
+  /// Which monitor the machine is wired to. Decides the reset-time geometry
+  /// and, via `Machine.tStatesPerLine`, the length of a scanline. Applied at
+  /// reset only, as on real hardware (it is a DIP switch).
+  public var monitorType: MonitorType
 
-  /// Active display scanlines — 200-line
-  public static let activeScanlines200 = 200
-
-  /// Blanking start — 200-line
-  public static let blankingStart200 = 200
-
-  /// Legacy alias for static references
-  public static let totalScanlines = totalScanlines200
-
-  /// Dynamic total scanlines for current mode.
-  /// 200-line: 262 (NTSC), 400-line: (linesPerScreen + vretrace) * charLinesPerRow
-  /// Guard: if mode200Line=false but CRTC params are still for 200-line mode,
-  /// the formula gives ~208 which breaks VRTC timing. Clamp to >= 262.
-  /// Cached dynamic scanline counts — updated by updateDynamicScanlines()
-  public private(set) var dynamicTotalScanlines: Int = totalScanlines200
-  public private(set) var dynamicBlankingStart: Int = blankingStart200
+  /// Cached scanline geometry, derived from the CRTC's own SET PARAMETER
+  /// values — updated by `updateDynamicScanlines()`.
+  ///
+  /// Both are in CRTC scanline units, which is *not* the same as displayed
+  /// graphic lines: a 24kHz 200-line screen is 25 rows of `char_height` 16,
+  /// so it counts 400 active lines out of 448, not 200 out of 262.
+  ///
+  /// This used to special-case 200-line mode to the NTSC constant 262. That
+  /// was wrong on two counts — 262 is not a PC-8801 line count, and it made
+  /// the frame rate independent of the monitor — but it did guard a real
+  /// transient; see `updateDynamicScanlines()`.
+  public private(set) var dynamicTotalScanlines: Int = 0
+  public private(set) var dynamicBlankingStart: Int = 0
 
   /// Recalculate cached scanline values after mode or parameter changes.
+  ///
+  /// The geometry is whatever software programmed, full stop: this is XM8's
+  /// `(height + vretrace) * char_height` (`pc88.cpp:2499`) with no correction
+  /// applied. The only rejection is structural nonsense — a zeroed or
+  /// inside-out CRTC, which would divide the frame into nothing.
+  ///
+  /// **Why there is no plausibility clamp.** The old code forced 262 lines in
+  /// 200-line mode and clamped the 400-line formula to >= 262, because the
+  /// power-on defaults (`char_height` 8, `vretrace` 1) produced (25+1)×8 = 208
+  /// lines in the window between "software flipped port 0x31" and "software
+  /// wrote the matching SET PARAMETER" — and 208 breaks VRTC timing badly
+  /// enough to hang boot. `reset()` now seeds monitor-correct defaults (448 at
+  /// 24kHz, 256 at 15kHz), so that window never contains invalid geometry and
+  /// the clamp has nothing left to defend.
+  ///
+  /// A frame-rate window is *not* an acceptable replacement, tempting as it
+  /// looks. On a 15kHz monitor the 448-line geometry every title writes is
+  /// 15,980 / 448 = 35.7Hz — outside any "plausible CRT" range, and yet
+  /// exactly what the formula yields. Rejecting it would freeze the CRTC at
+  /// its reset geometry and make the 15kHz setting quietly ignore software.
   private func updateDynamicScanlines() {
-    if mode200Line {
-      dynamicTotalScanlines = Self.totalScanlines200
-      dynamicBlankingStart = Self.blankingStart200
-    } else {
-      dynamicTotalScanlines = max(
-        (Int(linesPerScreen) + vretrace) * Int(charLinesPerRow),
-        Self.totalScanlines200
-      )
-      dynamicBlankingStart = max(
-        Int(linesPerScreen) * Int(charLinesPerRow),
-        Self.blankingStart200
-      )
-    }
+    let total = (Int(linesPerScreen) + vretrace) * Int(charLinesPerRow)
+    let active = Int(linesPerScreen) * Int(charLinesPerRow)
+    guard total > 0, active > 0, active < total else { return }
+    dynamicTotalScanlines = total
+    dynamicBlankingStart = active
+  }
+
+  /// Recompute the cached geometry from the current parameters.
+  ///
+  /// Needed after a bulk restore (save state) where the parameters are
+  /// assigned one at a time: an intermediate combination can be structurally
+  /// invalid and get rejected, so the settled values need one more pass.
+  public func refreshScanlineGeometry() {
+    updateDynamicScanlines()
   }
 
   // MARK: - State
@@ -76,10 +96,12 @@ public final class CRTC {
   /// Whether display is enabled (CRTC start command issued)
   public var displayEnabled: Bool = false
 
-  /// 200-line mode (true) or 400-line mode (false)
-  public var mode200Line: Bool = true {
-    didSet { updateDynamicScanlines() }
-  }
+  /// 200-line mode (true) or 400-line mode (false).
+  ///
+  /// Purely a display-mode flag as far as the CRTC is concerned: scanline
+  /// geometry comes from the SET PARAMETER values alone. (It used to switch
+  /// the line count to the NTSC 262; see `updateDynamicScanlines()`.)
+  public var mode200Line: Bool = true
 
   // MARK: - uPD3301 Registers
 
@@ -203,7 +225,10 @@ public final class CRTC {
 
   // MARK: - Init
 
-  public init() {}
+  public init(monitorType: MonitorType = .khz24) {
+    self.monitorType = monitorType
+    reset()
+  }
 
   // MARK: - DMA Buffer Operations
 
@@ -233,6 +258,9 @@ public final class CRTC {
   }
 
   /// Reset to power-on state.
+  ///
+  /// `monitorType` is *not* cleared here — it is a DIP switch, so the caller
+  /// sets it before resetting and it survives the reset.
   public func reset() {
     scanline = 0
     vrtcFlag = false
@@ -245,7 +273,7 @@ public final class CRTC {
     currentCommand = 0
     charsPerLine = 80
     linesPerScreen = 25
-    charLinesPerRow = 8
+    charLinesPerRow = monitorType.resetCharLinesPerRow
     skipLine = false
     displayMode = 0
     attrNonTransparent = false
@@ -259,7 +287,7 @@ public final class CRTC {
     blinkRate = 24
     blinkCounter = 0
     blinkAttribBit = 0
-    vretrace = 1
+    vretrace = monitorType.resetVretrace
     dataReady = false
     lightPen = false
     underrun = false

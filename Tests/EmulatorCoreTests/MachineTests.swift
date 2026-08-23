@@ -143,15 +143,47 @@ struct MachineTests {
 
   @Test func clockSwitchSyncsBus() {
     let machine = Machine()
+    machine.monitorType = .khz24
     machine.reset()
 
+    // 24kHz reset geometry is 448 lines, so a frame is 448 / 24,826.13 s.
+    // Not 1/60 — see `Machine.tStatesPerFrame`.
     machine.clock8MHz = true
     #expect(machine.bus.cpuClock8MHz == true)
-    #expect(machine.tStatesPerFrame == 133_333)
+    #expect(machine.tStatesPerFrame == 144_134)
 
     machine.clock8MHz = false
     #expect(machine.bus.cpuClock8MHz == false)
-    #expect(machine.tStatesPerFrame == 66_667)
+    #expect(machine.tStatesPerFrame == 72_067)
+  }
+
+  /// The whole point of Step 3: the VSYNC period follows the monitor and the
+  /// CRTC, not a hardcoded 60Hz.
+  @Test func frameRateFollowsMonitorType() {
+    let machine = Machine()
+
+    machine.monitorType = .khz24
+    machine.reset()
+    #expect(abs(machine.frameRate - 55.42) < 0.01)
+
+    machine.monitorType = .khz15
+    machine.reset()
+    #expect(machine.crtc.dynamicTotalScanlines == 256)
+    #expect(abs(machine.frameRate - 62.42) < 0.01)
+  }
+
+  /// SHG (port 0x40 bit 1) is the read-back for the monitor DIP. `.khz24`
+  /// stays the default so software sees exactly what it saw before 1.5.0.
+  @Test func monitorTypeSurfacesOnPort40() {
+    let machine = Machine()
+
+    machine.monitorType = .khz24
+    machine.reset()
+    #expect((machine.bus.ioRead(0x40) & 0x02) == 0)
+
+    machine.monitorType = .khz15
+    machine.reset()
+    #expect((machine.bus.ioRead(0x40) & 0x02) == 0x02)
   }
 
   @Test func subCpuRunsAtHalfSpeedWhenMainIs8MHz() {
