@@ -211,6 +211,14 @@ public final class Machine: @unchecked Sendable {
     }
   }
 
+  /// Memory wait DIP (DIP SW1 bit 6). Adds one wait state to main memory,
+  /// TVRAM and graphic-off GVRAM accesses; see `MEMORY_WAIT_STATES.md` §2.
+  /// Separate from the boot mode (`Pc88Bus.bootModeStandard`), which is
+  /// what decides the GVRAM wait table.
+  public var memoryWaitDip: Bool = false {
+    didSet { bus.memoryWaitDip = memoryWaitDip }
+  }
+
   /// CPU clock in Hz.
   ///
   /// The real figures, not the round ones: BubiC `pc8801.h:132`

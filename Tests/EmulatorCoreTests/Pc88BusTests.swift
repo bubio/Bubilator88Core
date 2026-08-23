@@ -1349,6 +1349,118 @@ struct Pc88BusTests {
     #expect(bus.pendingWaitStates == 0)
   }
 
+  // MARK: - Memory Wait DIP (SW1 bit 6)
+
+  /// The memory-wait DIP is an axis of its own. Standard boot mode
+  /// (DIP SW3-S0 = 0, i.e. V1S/N) used to imply a main-memory wait; it no
+  /// longer does, because BubiC gates `get_main_wait()` on `mem_wait_on`
+  /// alone. See `MEMORY_WAIT_STATES.md` §2.2.
+  @Test func bootModeAloneDoesNotAddMainWait() {
+    let bus = Pc88Bus()
+    bus.dipSw2 = 0x31  // bit 6 = 0 → standard (V1S/N)
+    #expect(bus.bootModeStandard)
+    bus.cpuClock8MHz = false
+    bus.ramMode = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0x4000)
+    #expect(bus.pendingWaitStates == 0)
+
+    bus.pendingWaitStates = 0
+    bus.memWrite(0x4000, value: 0xAA)
+    #expect(bus.pendingWaitStates == 0)
+  }
+
+  @Test func memoryWaitDipAddsOneToMainReadsAt4MHz() {
+    let bus = Pc88Bus()
+    bus.cpuClock8MHz = false
+    bus.ramMode = true
+    bus.memoryWaitDip = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0x4000)
+    #expect(bus.pendingWaitStates == 1)
+
+    // 4MHz writes are unaffected by the DIP.
+    bus.pendingWaitStates = 0
+    bus.memWrite(0x4000, value: 0xAA)
+    #expect(bus.pendingWaitStates == 0)
+  }
+
+  @Test func memoryWaitDipAddsOneToBothDirectionsAt8MHz() {
+    let bus = Pc88Bus()
+    bus.cpuClock8MHz = true
+    bus.ramMode = true
+    bus.memoryWaitDip = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0x4000)
+    #expect(bus.pendingWaitStates == 2)
+
+    bus.pendingWaitStates = 0
+    bus.memWrite(0x4000, value: 0xAA)
+    #expect(bus.pendingWaitStates == 2)
+  }
+
+  /// TVRAM at 8MHz is fixed at read +2 / write +1 — BubiC's comment on
+  /// `get_tvram_wait()` is "memory wait do not effect". At 4MHz only a read
+  /// with the DIP on costs anything.
+  @Test func tvramWaitFollowsTheDipOnlyAt4MHz() {
+    let bus = Pc88Bus()
+    bus.tvramEnabled = true
+    bus.gvramPlane = -1
+    bus.gamMode = false
+
+    bus.cpuClock8MHz = true
+    bus.memoryWaitDip = true
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xF000)
+    #expect(bus.pendingWaitStates == 2)
+    bus.pendingWaitStates = 0
+    bus.memWrite(0xF000, value: 0x41)
+    #expect(bus.pendingWaitStates == 1)
+
+    bus.cpuClock8MHz = false
+    bus.memoryWaitDip = false
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xF000)
+    #expect(bus.pendingWaitStates == 0)
+
+    bus.memoryWaitDip = true
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xF000)
+    #expect(bus.pendingWaitStates == 1)
+    bus.pendingWaitStates = 0
+    bus.memWrite(0xF000, value: 0x41)
+    #expect(bus.pendingWaitStates == 0)
+  }
+
+  /// Graphic off is the one GVRAM row the DIP reaches.
+  @Test func gvramGraphOffHonoursTheDipAt4MHz() {
+    let bus = Pc88Bus()
+    bus.cpuClock8MHz = false
+    bus.gvramPlane = 0
+    bus.graphicsDisplayEnabled = false
+    bus.memoryWaitDip = true
+
+    bus.pendingWaitStates = 0
+    _ = bus.memRead(0xC000)
+    #expect(bus.pendingWaitStates == 1)
+
+    bus.pendingWaitStates = 0
+    bus.memWrite(0xC000, value: 0xFF)
+    #expect(bus.pendingWaitStates == 0)
+  }
+
+  /// `memoryWaitDip` is a switch on the case, not machine state: a reset
+  /// must not flip it back.
+  @Test func resetPreservesTheMemoryWaitDip() {
+    let bus = Pc88Bus()
+    bus.memoryWaitDip = true
+    bus.reset()
+    #expect(bus.memoryWaitDip)
+  }
+
   // MARK: - GVRAM Wait States (BubiC V1H/V2)
 
   @Test func gvramWait8MHzActiveGraphOn() {
