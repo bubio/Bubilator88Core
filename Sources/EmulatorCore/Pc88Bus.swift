@@ -223,6 +223,14 @@ public final class Pc88Bus: Bus {
   /// Port 0x40 write register (beep, joystick, calendar, CRT sync)
   public var port40w: UInt8 = 0
 
+  /// Port 0x40 write bit 4 (GHSM): graphic high-speed mode.
+  /// When set, the video circuit releases the GVRAM bus early, so a V1S/N
+  /// machine no longer pays the long display-period GVRAM wait.
+  /// Reference: `SPECS/IO_PORT_MAP.md` port 0x40 write bit 4, BubiC
+  /// `pc88.cpp` `Port40_GHSM`.
+  @inline(__always)
+  public var port40GHSM: Bool { (port40w & 0x10) != 0 }
+
   /// CPU clock: true=8MHz, false=4MHz
   public var cpuClock8MHz: Bool = true
 
@@ -485,6 +493,29 @@ public final class Pc88Bus: Bus {
 
   // MARK: - Bus Protocol
 
+  /// GVRAM access wait states, following BubiC `pc88.cpp` `get_gvram_wait()`
+  /// (the "XM8 version 1.20" wait model). See `MEMORY_WAIT_STATES.md` §2.4
+  /// for the full table.
+  ///
+  /// Only the V1H/V2 rows are implemented here. The V1S/N rows
+  /// (68/90/114/141, gated on `port40GHSM` and `monitorType`) land in
+  /// Step 4-4 of `RELEASE_1_5_0_PLAN.md`; `read` is carried now because
+  /// the graphic-off branch will need it then.
+  @inline(__always)
+  private func addGvramWait(read: Bool) {
+    if graphicsDisplayEnabled {
+      // V1H/V2, display period vs vertical blanking
+      if cpuClock8MHz {
+        pendingWaitStates += vrtcFlag ? 3 : 5
+      } else if !vrtcFlag {
+        pendingWaitStates += 2
+      }
+    } else {
+      // Graphic off: 8MHz is a flat +3, 4MHz costs nothing.
+      if cpuClock8MHz { pendingWaitStates += 3 }
+    }
+  }
+
   public func memRead(_ addr: UInt16) -> UInt8 {
     onDebuggerMemRead?(addr)
     switch addr {
@@ -567,12 +598,7 @@ public final class Pc88Bus: Bus {
       if evramMode {
         if gamMode {
           // ALU read: load all 3 planes into registers, return comparison
-          // BubiC V1H/V2 8MHz: active+graphOn=5T, vblank/graphOff=3T
-          if cpuClock8MHz {
-            pendingWaitStates += vrtcFlag ? 3 : (graphicsDisplayEnabled ? 5 : 3)
-          } else {
-            if !vrtcFlag && graphicsDisplayEnabled { pendingWaitStates += 2 }
-          }
+          addGvramWait(read: true)
           aluReg[0] = gvram[0][offset]
           aluReg[1] = gvram[1][offset]
           aluReg[2] = gvram[2][offset]
@@ -586,12 +612,7 @@ public final class Pc88Bus: Bus {
       }
       // Independent mode: bank access via gvramPlane
       if gvramPlane >= 0 && gvramPlane < 3 {
-        // BubiC V1H/V2 8MHz: active+graphOn=5T, vblank/graphOff=3T
-        if cpuClock8MHz {
-          pendingWaitStates += vrtcFlag ? 3 : (graphicsDisplayEnabled ? 5 : 3)
-        } else {
-          if !vrtcFlag && graphicsDisplayEnabled { pendingWaitStates += 2 }
-        }
+        addGvramWait(read: true)
         return gvram[gvramPlane][offset]
       }
       return readMainOrTvram(addr)
@@ -643,12 +664,7 @@ public final class Pc88Bus: Bus {
       if evramMode {
         if gamMode {
           // ALU write: GDM selects operation mode
-          // BubiC V1H/V2 8MHz: active+graphOn=5T, vblank/graphOff=3T
-          if cpuClock8MHz {
-            pendingWaitStates += vrtcFlag ? 3 : (graphicsDisplayEnabled ? 5 : 3)
-          } else {
-            if !vrtcFlag && graphicsDisplayEnabled { pendingWaitStates += 2 }
-          }
+          addGvramWait(read: false)
           let gdm = aluControl2 & 0x30
           switch gdm {
           case 0x00: applyALU(addr: offset, value: value)
@@ -665,12 +681,7 @@ public final class Pc88Bus: Bus {
         }
       } else if gvramPlane >= 0 && gvramPlane < 3 {
         // Independent mode: direct write to selected plane
-        // BubiC V1H/V2 8MHz: active+graphOn=5T, vblank/graphOff=3T
-        if cpuClock8MHz {
-          pendingWaitStates += vrtcFlag ? 3 : (graphicsDisplayEnabled ? 5 : 3)
-        } else {
-          if !vrtcFlag && graphicsDisplayEnabled { pendingWaitStates += 2 }
-        }
+        addGvramWait(read: false)
         gvram[gvramPlane][offset] = value
       } else {
         writeMainOrTvram(addr, value: value)
