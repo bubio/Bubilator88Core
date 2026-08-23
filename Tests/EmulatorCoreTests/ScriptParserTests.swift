@@ -158,7 +158,11 @@ struct ScriptParserTests {
     #expect(BootMode.n88v2.dipSw1 == 0xC3); #expect(BootMode.n88v2.dipSw2 == 0x71)
     #expect(BootMode.n88v1h.dipSw2 == 0xF1)
     #expect(BootMode.n88v1s.dipSw2 == 0xB1)
-    #expect(BootMode.nbasic.dipSw1 == 0xC2)
+    // N-BASIC reads back as V1 + standard, the same DIP bits as V1S — BubiC
+    // port 0x31 gives bit 7 to everything that is not V2 and clears bit 6 for
+    // V1S and N alike. It used to return 0x71 here, which said "V2, high
+    // speed" and sent script and BootTester boots down the V1H/V2 wait path.
+    #expect(BootMode.nbasic.dipSw1 == 0xC2); #expect(BootMode.nbasic.dipSw2 == 0xB1)
   }
 
   @Test func bootBadThrows() {
