@@ -81,7 +81,7 @@ public enum ScriptWriter {
   /// key — so colliding keys get an explicit canonical name seeded up front and
   /// the rest are reversed one-to-one. Every alias parses back to the same key,
   /// so the round-trip holds whichever name is chosen; these match
-  /// docs/develop/Bubilator88/BOOTTESTER.md for readability.
+  /// docs/develop/BOOTTESTER.md for readability.
   private static let canonicalNames: [Keyboard.Key: String] = {
     var rev: [Keyboard.Key: String] = [
       Keyboard.kpReturn: "return",
