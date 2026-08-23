@@ -234,13 +234,24 @@ public final class Pc88Bus: Bus {
   /// CPU clock: true=8MHz, false=4MHz
   public var cpuClock8MHz: Bool = true
 
-  /// V1S / V1 mode memory wait: when DIP SW2 bit 6 (SW_H) is 0 the machine
-  /// behaves as V1S — the real PC-8801 inserts extra wait states on main
-  /// memory R/W to emulate V1 compatibility speed. When SW_H=1 (V1H/V2)
-  /// no extra wait is applied. Matches BubiC `pc88.cpp:2275-2340` (XM8
-  /// version 1.20 wait model, memory-wait branch).
+  /// Boot mode axis: DIP SW3-S0, reported as port 0x31 read bit 6.
+  /// 0 = standard (V1S, or N-BASIC), 1 = high speed (V1H / V2).
+  ///
+  /// This is BubiC's `config.boot_mode == MODE_PC88_V1S || MODE_PC88_N`
+  /// (`pc88.cpp:1880` computes the same bit from it). It decides which
+  /// GVRAM wait table applies and how the 0xF000 range is routed — it is
+  /// *not* the memory-wait DIP, which is `memoryWaitDip` below.
   @inline(__always)
-  public var v1sMemWait: Bool { (dipSw2 & 0x40) == 0 }
+  public var bootModeStandard: Bool { (dipSw2 & 0x40) == 0 }
+
+  /// Memory wait DIP: DIP SW1 bit 6 ("メモリウェイト", ON = add 1 WAIT).
+  ///
+  /// An axis of its own, independent of `bootModeStandard`. It does not
+  /// appear in port 0x30 (`SPECS/DIP_SWITCH.md` — the port only carries
+  /// SW1-1..SW1-5), so software cannot read it back and it lives here
+  /// rather than in `dipSw1`. Off by default, matching BubiC's
+  /// `DIPSWITCH_DEFAULT`. Survives `reset()`, like a real switch.
+  public var memoryWaitDip: Bool = false
 
   /// VRTC flag (set by CRTC during vertical blanking)
   public var vrtcFlag: Bool = false
@@ -493,6 +504,36 @@ public final class Pc88Bus: Bus {
 
   // MARK: - Bus Protocol
 
+  /// Main RAM / ROM access wait states, following BubiC `pc88.cpp`
+  /// `get_main_wait()`. See `MEMORY_WAIT_STATES.md` §2.2.
+  ///
+  /// At 4MHz only a read with the memory-wait DIP on costs anything. At
+  /// 8MHz every access costs 1T (this is not an 8MHzH machine) and the DIP
+  /// adds a second one to reads and writes alike.
+  @inline(__always)
+  private func addMainWait(read: Bool) {
+    if cpuClock8MHz {
+      pendingWaitStates += 1
+      if memoryWaitDip { pendingWaitStates += 1 }
+    } else if memoryWaitDip && read {
+      pendingWaitStates += 1
+    }
+  }
+
+  /// TVRAM (0xF000-0xFFFF) access wait states, following BubiC `pc88.cpp`
+  /// `get_tvram_wait()`. See `MEMORY_WAIT_STATES.md` §2.3.
+  ///
+  /// At 8MHz the figures are fixed — BubiC's comment is "memory wait do not
+  /// effect" — so the DIP only shows up in the 4MHz read.
+  @inline(__always)
+  private func addTvramWait(read: Bool) {
+    if cpuClock8MHz {
+      pendingWaitStates += read ? 2 : 1
+    } else if memoryWaitDip && read {
+      pendingWaitStates += 1
+    }
+  }
+
   /// GVRAM access wait states, following BubiC `pc88.cpp` `get_gvram_wait()`
   /// (the "XM8 version 1.20" wait model). See `MEMORY_WAIT_STATES.md` §2.4
   /// for the full table.
@@ -511,8 +552,13 @@ public final class Pc88Bus: Bus {
         pendingWaitStates += 2
       }
     } else {
-      // Graphic off: 8MHz is a flat +3, 4MHz costs nothing.
-      if cpuClock8MHz { pendingWaitStates += 3 }
+      // Graphic off: 8MHz is a flat +3; at 4MHz only a read with the
+      // memory-wait DIP on costs anything.
+      if cpuClock8MHz {
+        pendingWaitStates += 3
+      } else if memoryWaitDip && read {
+        pendingWaitStates += 1
+      }
     }
   }
 
@@ -520,8 +566,7 @@ public final class Pc88Bus: Bus {
     onDebuggerMemRead?(addr)
     switch addr {
     case 0x0000..<0x6000:
-      if cpuClock8MHz { pendingWaitStates += 1 }
-      if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
+      addMainWait(read: true)
       // Extended RAM read
       if extRAMReadEnable, let ext = extRAM,
          extRAMCard < ext.count, extRAMBank < ext[extRAMCard].count {
@@ -534,8 +579,7 @@ public final class Pc88Bus: Bus {
       return readROM(addr)
 
     case 0x6000..<0x8000:
-      if cpuClock8MHz { pendingWaitStates += 1 }
-      if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
+      addMainWait(read: true)
       // Extended RAM read
       if extRAMReadEnable, let ext = extRAM,
          extRAMCard < ext.count, extRAMBank < ext[extRAMCard].count {
@@ -573,8 +617,7 @@ public final class Pc88Bus: Bus {
       return readROM(addr)
 
     case 0x8000..<0x8400:
-      if cpuClock8MHz { pendingWaitStates += 1 }
-      if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
+      addMainWait(read: true)
       // Text window: with MMODE=0 and RMODE=0 (N88-BASIC ROM), map to an
       // address in mainRAM based on textWindowOffset.
       // Reference: QUASI88 pc88main.c:555, BubiC pc88.cpp:777.
@@ -587,8 +630,7 @@ public final class Pc88Bus: Bus {
       return mainRAM[Int(addr)]
 
     case 0x8400..<0xC000:
-      if cpuClock8MHz { pendingWaitStates += 1 }
-      if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
+      addMainWait(read: true)
       // Always main RAM
       return mainRAM[Int(addr)]
 
@@ -626,10 +668,7 @@ public final class Pc88Bus: Bus {
     onDebuggerMemWrite?(addr, value)
     switch addr {
     case 0x0000..<0x8000:
-      if cpuClock8MHz {
-        pendingWaitStates += 1
-        if v1sMemWait { pendingWaitStates += 1 }  // V1S 8MHz write wait
-      }
+      addMainWait(read: false)
       // Extended RAM write (in-place to avoid CoW copy of nested arrays)
       if extRAMWriteEnable, extRAM != nil,
          extRAMCard < extRAM!.count, extRAMBank < extRAM![extRAMCard].count {
@@ -639,10 +678,7 @@ public final class Pc88Bus: Bus {
       mainRAM[Int(addr)] = value
 
     case 0x8000..<0x8400:
-      if cpuClock8MHz {
-        pendingWaitStates += 1
-        if v1sMemWait { pendingWaitStates += 1 }  // V1S 8MHz write wait
-      }
+      addMainWait(read: false)
       // Text window: with MMODE=0 and RMODE=0 (N88-BASIC ROM).
       if !ramMode && romModeN88 {
         let ramAddr = (Int(textWindowOffset) << 8) + Int(addr & 0x03FF)
@@ -652,10 +688,7 @@ public final class Pc88Bus: Bus {
       }
 
     case 0x8400..<0xC000:
-      if cpuClock8MHz {
-        pendingWaitStates += 1
-        if v1sMemWait { pendingWaitStates += 1 }  // V1S 8MHz write wait
-      }
+      addMainWait(read: false)
       mainRAM[Int(addr)] = value
 
     case 0xC000...0xFFFF:
@@ -700,19 +733,18 @@ public final class Pc88Bus: Bus {
   ///   - V1H/V2 + TMODE=1: mainRAM (main_high_ram hidden buffer).
   @inline(__always)
   private var cpuUsesTvramForTextArea: Bool {
-    // v1sMemWait == !swH == !high_mode
-    tvramEnabled || v1sMemWait
+    // bootModeStandard == !swH == !high_mode
+    tvramEnabled || bootModeStandard
   }
 
   /// Read from mainRAM or tvram (0xC000-0xFFFF fallthrough path).
   @inline(__always)
   private func readMainOrTvram(_ addr: UInt16) -> UInt8 {
     if cpuUsesTvramForTextArea && addr >= 0xF000 {
-      if cpuClock8MHz { pendingWaitStates += 2 }  // tvram read wait
+      addTvramWait(read: true)
       return tvram[Int(addr) - 0xF000]
     }
-    if cpuClock8MHz { pendingWaitStates += 1 }
-    if v1sMemWait { pendingWaitStates += 1 }  // V1S read wait
+    addMainWait(read: true)
     return mainRAM[Int(addr)]
   }
 
@@ -720,14 +752,11 @@ public final class Pc88Bus: Bus {
   @inline(__always)
   private func writeMainOrTvram(_ addr: UInt16, value: UInt8) {
     if cpuUsesTvramForTextArea && addr >= 0xF000 {
-      if cpuClock8MHz { pendingWaitStates += 1 }  // tvram write wait
+      addTvramWait(read: false)
       tvram[Int(addr) - 0xF000] = value
       return
     }
-    if cpuClock8MHz {
-      pendingWaitStates += 1
-      if v1sMemWait { pendingWaitStates += 1 }  // V1S 8MHz write wait
-    }
+    addMainWait(read: false)
     mainRAM[Int(addr)] = value
   }
 

@@ -600,6 +600,18 @@ struct MachineTests {
     }
   }
 
+  /// The memory-wait DIP is a switch on the case: `Machine.reset()` must
+  /// leave it alone, and it must reach the bus through `Machine`.
+  @Test func memoryWaitDipReachesTheBusAndSurvivesReset() {
+    let machine = Machine()
+    machine.memoryWaitDip = true
+    #expect(machine.bus.memoryWaitDip)
+
+    machine.reset()
+    #expect(machine.memoryWaitDip)
+    #expect(machine.bus.memoryWaitDip)
+  }
+
   @Test func traceResetClearsLog() {
     let machine = Machine()
     machine.reset()
