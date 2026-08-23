@@ -262,9 +262,10 @@ public final class Pc88Bus: Bus {
   /// Warm boot (STOP held) skips workspace LDIR init, causing E69F garbage.
   public var directBasicBoot: Bool = false
 
-  /// Memory WAIT: accumulated wait T-states from memory access (8MHz main RAM +1T,
-  /// GVRAM: 8MHz active+graphOn=+5T, vblank/graphOff=+3T; 4MHz active+graphOn=+2T).
-  /// Machine reads and clears this after each CPU step.
+  /// Memory WAIT: accumulated wait T-states from memory access, added by
+  /// `addMainWait` / `addTvramWait` / `addGvramWait`. `Machine` reads and
+  /// clears this after each CPU step. See `MEMORY_WAIT_STATES.md` for the
+  /// tables; the figures range from 0 to 141 T-states for one access.
   public var pendingWaitStates: Int = 0
 
   /// V2 high-speed text RAM (0xF000-0xFFFF, 4KB).
@@ -538,20 +539,24 @@ public final class Pc88Bus: Bus {
   /// (the "XM8 version 1.20" wait model). See `MEMORY_WAIT_STATES.md` §2.4
   /// for the full table.
   ///
-  /// Only the V1H/V2 rows are implemented here. The V1S/N rows
-  /// (68/90/114/141, gated on `port40GHSM` and `monitorType`) land in
-  /// Step 4-4 of `RELEASE_1_5_0_PLAN.md`; `read` is carried now because
-  /// the graphic-off branch will need it then.
+  /// The V1S/N figures are the ones that matter. While the graphic screen is
+  /// being displayed, the video circuit holds the GVRAM bus for most of the
+  /// scanline and the CPU waits 68 to 141 T-states for a single byte — one to
+  /// two orders of magnitude more than an ordinary memory access. That is why
+  /// PC-88 software waits for VRTC before touching GVRAM, and it is what
+  /// paces every V1S title's drawing.
+  ///
+  /// Two things call the wait off: vertical blanking, when the video circuit
+  /// is not fetching, and GHSM (port 0x40 write bit 4), which releases the bus
+  /// early. Either one drops V1S/N back to the V1H/V2 figures.
+  ///
+  /// A 24kHz monitor costs more than a 15kHz one (114/141 against 68/90) —
+  /// more scanlines, more fetching. The ratio is 1.57, not the 2.0 the line
+  /// count would suggest; no primary source for that number has been found,
+  /// so it is carried over from the reference implementations as-is.
   @inline(__always)
   private func addGvramWait(read: Bool) {
-    if graphicsDisplayEnabled {
-      // V1H/V2, display period vs vertical blanking
-      if cpuClock8MHz {
-        pendingWaitStates += vrtcFlag ? 3 : 5
-      } else if !vrtcFlag {
-        pendingWaitStates += 2
-      }
-    } else {
+    guard graphicsDisplayEnabled else {
       // Graphic off: 8MHz is a flat +3; at 4MHz only a read with the
       // memory-wait DIP on costs anything.
       if cpuClock8MHz {
@@ -559,6 +564,22 @@ public final class Pc88Bus: Bus {
       } else if memoryWaitDip && read {
         pendingWaitStates += 1
       }
+      return
+    }
+    if bootModeStandard && !port40GHSM && !vrtcFlag {
+      // V1S / N, graphic displayed, video circuit holding the bus.
+      if cpuClock8MHz {
+        pendingWaitStates += monitorType == .khz24 ? 141 : 90
+      } else {
+        pendingWaitStates += monitorType == .khz24 ? 114 : 68
+      }
+      return
+    }
+    // V1H/V2, or V1S/N let off by GHSM or vertical blanking.
+    if cpuClock8MHz {
+      pendingWaitStates += vrtcFlag ? 3 : 5
+    } else if !vrtcFlag {
+      pendingWaitStates += 2
     }
   }
 
