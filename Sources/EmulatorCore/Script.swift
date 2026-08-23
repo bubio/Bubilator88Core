@@ -32,12 +32,16 @@ public enum BootMode: String, Equatable, Sendable, CaseIterable {
     }
   }
 
+  /// Port 0x31's DIP bits. Bit 7 is SW4-S2 (0 = V2, 1 = V1) and bit 6 is
+  /// SW3-S0 (0 = standard, 1 = high speed); BubiC derives both from the boot
+  /// mode in `pc88.cpp` `read_io8` for port 0x31, and N-BASIC comes out as
+  /// V1 + standard there — the same value as V1S.
   public var dipSw2: UInt8 {
     switch self {
     case .n88v2:  return 0x71
     case .n88v1h: return 0xF1
     case .n88v1s: return 0xB1
-    case .nbasic: return 0x71
+    case .nbasic: return 0xB1
     }
   }
 }
