@@ -605,6 +605,29 @@ func runScriptMode(scriptPath: String) -> Never {
   maybeInstallVirtualRTC(machine: machine, forceDefault: true)
   machine.bus.directBasicBoot = ProcessInfo.processInfo.environment["BOOTTEST_DIRECT_BASIC"] == "1"
 
+  // CPU instruction trace, same format and env vars as the disk-boot path.
+  // Script mode has no per-VSYNC frame counter to gate on, so
+  // BOOTTEST_CPU_TRACE_START_FRAME is ignored here; f=0 always.
+  var scriptCpuTraceHandle: FileHandle? = nil
+  var scriptCpuTraceSeq: Int = 0
+  if let cpuTracePath {
+    FileManager.default.createFile(atPath: cpuTracePath, contents: nil)
+    scriptCpuTraceHandle = FileHandle(forWritingAtPath: cpuTracePath)
+    let targetCPU: Z80 = (cpuTraceWhich == "sub") ? machine.subSystem.subCpu : machine.cpu
+    let limit = cpuTraceLimit
+    targetCPU.onInstructionTrace = { cpu in
+      guard let h = scriptCpuTraceHandle else { return }
+      if limit > 0, scriptCpuTraceSeq >= limit { return }
+      let line = String(
+        format: "seq=%d f=0 PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X I=%02X R=%02X IFF=%d T=%llu\n",
+        scriptCpuTraceSeq, cpu.pc, cpu.af, cpu.bc, cpu.de, cpu.hl,
+        cpu.ix, cpu.iy, cpu.sp, cpu.i, cpu.r, cpu.iff1 ? 1 : 0, machine.totalTStates)
+      scriptCpuTraceSeq += 1
+      if let d = line.data(using: .utf8) { h.write(d) }
+    }
+    print("  CPU trace (\(cpuTraceWhich)) → \(cpuTracePath)")
+  }
+
   // Relative paths resolve against the script's own directory; absolute paths
   // are used as-is.
   let baseDir = scriptURL.deletingLastPathComponent()
@@ -650,6 +673,18 @@ func runScriptMode(scriptPath: String) -> Never {
     let pixels = renderCurrentFrame(machine: machine)
     try? writePPMScreenshot(path: shot, pixels: pixels)
     print("  Screenshot: \(shot)")
+  }
+
+  if let memoryDumpDirectory {
+    let url = URL(fileURLWithPath: memoryDumpDirectory)
+    do {
+      let files = try MemoryDump.write(
+        machine: machine, to: url, metadata: ["script": scriptURL.lastPathComponent]
+      )
+      print("  Memory dump (\(files.count) files) written to \(memoryDumpDirectory)")
+    } catch {
+      print("  Memory dump failed: \(error)")
+    }
   }
   exit(0)
 }
