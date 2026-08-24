@@ -3,7 +3,7 @@ extension Z80 {
 
   /// Execute ED-prefixed instruction. Returns T-states (includes ED prefix).
   internal func executeED(bus: some Bus) -> Int {
-    let opcode = fetchByte(bus: bus)
+    let opcode = fetchOpcode(bus: bus)
     incrementR()
 
     switch opcode {

@@ -209,7 +209,7 @@ public final class Z80 {
       return 4  // NOP T-states
     }
 
-    let opcode = fetchByte(bus: bus)
+    let opcode = fetchOpcode(bus: bus)
     incrementR()
 
     return executeUnprefixed(opcode: opcode, bus: bus)
@@ -282,6 +282,18 @@ public final class Z80 {
 
   internal func fetchByte(bus: some Bus) -> UInt8 {
     let value = bus.memRead(pc)
+    pc &+= 1
+    return value
+  }
+
+  /// Fetch a byte as an M1 (opcode fetch) cycle.
+  ///
+  /// Used for the opcode byte itself and for the byte following a CB / ED /
+  /// DD / FD prefix — those are the reads the Z80 drives `/M1` low for.
+  /// Operands (`LD A,n`, `JP nn`, the DDCB displacement and its opcode) are
+  /// ordinary reads and must keep using `fetchByte`.
+  internal func fetchOpcode(bus: some Bus) -> UInt8 {
+    let value = bus.opcodeRead(pc)
     pc &+= 1
     return value
   }

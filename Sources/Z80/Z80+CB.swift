@@ -3,7 +3,7 @@ extension Z80 {
 
   /// Execute CB-prefixed instruction. Returns T-states (includes the CB prefix fetch).
   internal func executeCB(bus: some Bus) -> Int {
-    let opcode = fetchByte(bus: bus)
+    let opcode = fetchOpcode(bus: bus)
     incrementR()
 
     let reg = opcode & 0x07
