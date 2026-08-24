@@ -204,7 +204,16 @@ public final class Z80 {
     }
 
     if halted {
-      // HALT: execute NOP, R increments, but PC stays
+      // HALT: execute NOP, R increments, but PC stays.
+      //
+      // The fetch is a real bus cycle and has to be charged for. `0x76` left
+      // PC pointing at the HALT opcode itself, so this re-reads that byte
+      // every cycle — exactly what BubiC's `ENTER_HALT` (`PC--`) makes
+      // `run_one_opecode` do, where `FETCHOP` pays the ordinary read wait and
+      // the M1 wait through `fetch_op`. Without this the wait layer stops
+      // billing entirely while halted. The byte itself is discarded; only the
+      // bus side effects matter.
+      _ = bus.opcodeRead(pc)
       incrementR()
       return 4  // NOP T-states
     }

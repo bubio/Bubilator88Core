@@ -152,6 +152,55 @@ struct M1WaitTests {
     #expect(cpu.pc == 0x3000)
   }
 
+  /// HALT is not a pause in the bus traffic. The CPU keeps running M1 cycles
+  /// on the HALT opcode itself, so every halted step is a fetch of the same
+  /// address — matching BubiC, whose `ENTER_HALT` decrements PC so that
+  /// `run_one_opecode` re-runs `FETCHOP` on `0x76`.
+  @Test func haltKeepsFetchingTheHaltOpcode() {
+    let cpu = Z80()
+    let bus = TestBus()
+    bus.load(at: 0x8000, data: [0x76])  // HALT
+    cpu.pc = 0x8000
+
+    _ = cpu.step(bus: bus)  // executes HALT
+    #expect(cpu.halted)
+    #expect(cpu.pc == 0x8000)  // PC left on the opcode
+    bus.clearLogs()
+
+    for _ in 0..<3 {
+      #expect(cpu.step(bus: bus) == 4)
+    }
+
+    #expect(bus.opcodeReadLog == [0x8000, 0x8000, 0x8000])
+  }
+
+  /// Leaving HALT through an interrupt stops the fetches and resumes at the
+  /// byte after the opcode.
+  @Test func leavingHaltStopsTheFetches() {
+    let cpu = Z80()
+    let bus = TestBus()
+    bus.load(at: 0x8000, data: [0x76, 0x00])  // HALT ; NOP
+    cpu.pc = 0x8000
+    cpu.im = 1
+    cpu.iff1 = true
+    cpu.sp = 0xF000
+
+    _ = cpu.step(bus: bus)
+    _ = cpu.step(bus: bus)
+    _ = cpu.interrupt(vector: 0x00, bus: bus)
+
+    #expect(!cpu.halted)
+    // The whole scheme rests on PC sitting *on* the opcode while halted, so
+    // leaving HALT has to step over it: the return address pushed is 0x8001,
+    // the byte after HALT, not the HALT itself.
+    let pushed = UInt16(bus.memory[Int(cpu.sp)]) | (UInt16(bus.memory[Int(cpu.sp) + 1]) << 8)
+    #expect(pushed == 0x8001)
+    bus.clearLogs()
+
+    _ = cpu.step(bus: bus)
+    #expect(bus.opcodeReadLog == [0x0038])  // IM1 handler, not 0x8000
+  }
+
   // MARK: - What the bus charges
 
   /// V1S / N: `dipSw2` bit 6 clear. Every other axis at its default.
@@ -353,5 +402,26 @@ struct M1WaitTests {
 
     #expect(tStatesForTenNOPs(v1hBus()) == 40)
     #expect(tStatesForTenNOPs(v1sBus()) == 50)
+  }
+
+  /// And the same on a halted CPU: a V1S machine at 4MHz burns 5T per halted
+  /// cycle, not 4T. This is what used to be missing — the wait layer stopped
+  /// billing entirely while halted, so a HALT loop ran ~10% fast.
+  @Test func haltIsChargedTheM1WaitToo() {
+    func tStatesForTenHaltedSteps(_ bus: Pc88Bus) -> Int {
+      let cpu = Z80()
+      bus.memWrite(0x8000, value: 0x76)  // HALT
+      cpu.pc = 0x8000
+      _ = cpu.step(bus: bus)  // execute it
+      var total = 0
+      for _ in 0..<10 {
+        bus.pendingWaitStates = 0
+        total += cpu.step(bus: bus) + bus.pendingWaitStates
+      }
+      return total
+    }
+
+    #expect(tStatesForTenHaltedSteps(v1hBus()) == 40)
+    #expect(tStatesForTenHaltedSteps(v1sBus()) == 50)
   }
 }
