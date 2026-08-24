@@ -89,6 +89,17 @@ let pioFlowPath: String? = {
 /// BOOTTEST_CPU_TRACE_LIMIT caps lines written (default unlimited).
 /// BOOTTEST_CPU_TRACE_START_FRAME skips earlier frames to keep late-boot
 /// traces small and focused.
+///
+/// `T=` is `Machine.totalTStates` *before* the instruction on the line runs,
+/// which is what makes the wait layer measurable: consecutive differences
+/// give the cost of each instruction, waits included. It lines up with
+/// BubiC's `total_icount` read at the top of `run_one_opecode` — see
+/// `MEMORY_WAIT_STATES.md` §6.
+///
+/// One caveat: at `cpuOverclock` > 1 `totalTStates` advances in wall-clock
+/// T-states (CPU cycles divided by the overclock), so the column stops being
+/// a CPU cycle count. Leave `BOOTTEST_CPU_OVERCLOCK` at 1 when diffing.
+/// `BOOTTEST_TURBO` is unrelated and safe — it runs whole extra frames.
 let cpuTracePath: String? = {
   let raw = ProcessInfo.processInfo.environment["BOOTTEST_CPU_TRACE_PATH"] ?? ""
   return raw.isEmpty ? nil : raw
@@ -1351,9 +1362,9 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         guard currentTraceFrame >= startFrame else { return }
         if limit > 0, cpuTraceSeq >= limit { return }
         let line = String(
-          format: "seq=%d f=%d PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X I=%02X R=%02X IFF=%d\n",
+          format: "seq=%d f=%d PC=%04X AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X I=%02X R=%02X IFF=%d T=%llu\n",
           cpuTraceSeq, currentTraceFrame, cpu.pc, cpu.af, cpu.bc, cpu.de, cpu.hl,
-          cpu.ix, cpu.iy, cpu.sp, cpu.i, cpu.r, cpu.iff1 ? 1 : 0)
+          cpu.ix, cpu.iy, cpu.sp, cpu.i, cpu.r, cpu.iff1 ? 1 : 0, dm.totalTStates)
         cpuTraceSeq += 1
         if let d = line.data(using: .utf8) { h.write(d) }
       }
