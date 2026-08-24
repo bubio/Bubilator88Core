@@ -471,8 +471,10 @@ func maybeInstallVirtualRTC(machine: Machine, forceDefault: Bool = false) {
   let baseDay  = 1
   let baseWday = 3     // 0=Sunday; 2025-01-01 = Wed
   machine.calendar.timeProvider = { [unowned machine] in
-    let rate: UInt64 = machine.clock8MHz ? 8_000_000 : 4_000_000
-    let elapsed = Int(machine.totalTStates / rate)
+    // `machine.cpuClock`, not a round 8/4MHz: the real figures are 7,987,248
+    // and 3,993,624, and reading them from the machine keeps this in step with
+    // whatever the clock is set to instead of drifting 0.16% away from it.
+    let elapsed = Int(Double(machine.totalTStates) / machine.cpuClock)
     let sec  = elapsed % 60
     let minT = elapsed / 60
     let min  = minT % 60
