@@ -583,6 +583,50 @@ public final class Pc88Bus: Bus {
     }
   }
 
+  /// True when the 0xC000-0xFFFF window is showing GVRAM rather than main
+  /// RAM / TVRAM, mirroring BubiC `pc88.cpp` `update_gvram_sel()`.
+  ///
+  /// In EVRAM mode (port 0x32 bit 6) the ALU takes over and the window counts
+  /// as selected only when GAM (port 0x35 bit 7) is on; otherwise it follows
+  /// the plane latch set by ports 0x5C-0x5F.
+  @inline(__always)
+  private var gvramSelected: Bool {
+    evramMode ? gamMode : gvramPlane >= 0
+  }
+
+  /// Opcode fetch (M1) wait states, following BubiC `pc88.cpp`
+  /// `get_m1_wait()`. See `MEMORY_WAIT_STATES.md` §2.1.
+  ///
+  /// This is charged *on top of* the ordinary read wait for the same address
+  /// — BubiC's `fetch_op` does `read_data8w` first and then adds the M1
+  /// figure — so `opcodeRead` calls `memRead` and then this.
+  ///
+  /// At 8MHz the figure is always 0, and the memory-wait DIP being on also
+  /// silences it, so the whole thing only bites at 4MHz with the DIP off.
+  /// There it splits by boot mode: V1S/N pays 1T on *every* opcode fetch
+  /// regardless of address (M1 happens once per instruction, so that is
+  /// roughly a 10% slowdown), while V1H/V2 pays only when fetching from the
+  /// TVRAM window at 0xF000 and that window is really showing TVRAM.
+  @inline(__always)
+  private func addM1Wait(_ addr: UInt16) {
+    guard !cpuClock8MHz, !memoryWaitDip else { return }
+    if bootModeStandard {
+      // V1S or N
+      pendingWaitStates += 1
+      return
+    }
+    // V1H or V2 — TVRAM only.
+    if addr & 0xF000 == 0xF000 && !gvramSelected && tvramEnabled {
+      pendingWaitStates += 1
+    }
+  }
+
+  public func opcodeRead(_ addr: UInt16) -> UInt8 {
+    let value = memRead(addr)
+    addM1Wait(addr)
+    return value
+  }
+
   public func memRead(_ addr: UInt16) -> UInt8 {
     onDebuggerMemRead?(addr)
     switch addr {

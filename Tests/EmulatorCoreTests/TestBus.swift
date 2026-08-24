@@ -11,10 +11,19 @@ final class TestBus: Bus {
   var ioReadLog: [(port: UInt16, value: UInt8)] = []
   var ioWriteLog: [(port: UInt16, value: UInt8)] = []
 
+  /// Addresses the CPU fetched as M1 (opcode) cycles. Lets a test assert
+  /// which bytes of an instruction the Z80 drives `/M1` for.
+  var opcodeReadLog: [UInt16] = []
+
   func memRead(_ addr: UInt16) -> UInt8 {
     let value = memory[Int(addr)]
     memReadLog.append((addr, value))
     return value
+  }
+
+  func opcodeRead(_ addr: UInt16) -> UInt8 {
+    opcodeReadLog.append(addr)
+    return memRead(addr)
   }
 
   func memWrite(_ addr: UInt16, value: UInt8) {
@@ -45,5 +54,6 @@ final class TestBus: Bus {
     memWriteLog.removeAll()
     ioReadLog.removeAll()
     ioWriteLog.removeAll()
+    opcodeReadLog.removeAll()
   }
 }

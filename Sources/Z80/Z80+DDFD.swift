@@ -4,21 +4,65 @@
 /// This is implemented as a shared method with a register parameter.
 extension Z80 {
 
+  /// How many DD/FD bytes `executeIndexPrefix` consumes before returning.
+  /// Real code chains two at most; the cap only exists so a runaway PC over
+  /// prefix-filled memory still yields T-states on every `step`.
+  private static let maxIndexPrefixChain = 16
+
   /// Execute DD-prefixed instruction. Returns T-states.
   internal func executeDD(bus: some Bus) -> Int {
-    return executeIndexed(bus: bus, indexReg: &ix)
+    return executeIndexPrefix(bus: bus, useIY: false)
   }
 
   /// Execute FD-prefixed instruction. Returns T-states.
   internal func executeFD(bus: some Bus) -> Int {
-    return executeIndexed(bus: bus, indexReg: &iy)
+    return executeIndexPrefix(bus: bus, useIY: true)
+  }
+
+  /// Consume a DD/FD prefix chain and execute the instruction it prefixes.
+  ///
+  /// The caller has already fetched one prefix byte. A run of further DD/FD
+  /// bytes is legal — each is its own 4T M1 cycle and only the last one
+  /// decides whether IX or IY is used — so they are consumed iteratively
+  /// rather than by re-entering the decoder, which keeps the M1 count (and
+  /// hence the PC-8801 M1 wait) right without recursing once per byte.
+  private func executeIndexPrefix(bus: some Bus, useIY: Bool) -> Int {
+    var useIY = useIY
+    var extraPrefixTStates = 0
+    var prefixCount = 0
+
+    while true {
+      let opcode = fetchOpcode(bus: bus)
+      incrementR()
+
+      switch opcode {
+      case 0xDD, 0xFD:
+        useIY = opcode == 0xFD
+        extraPrefixTStates += 4
+        prefixCount += 1
+        if prefixCount >= Self.maxIndexPrefixChain {
+          // A runaway PC over a page of DD/FD bytes. The hardware just keeps
+          // fetching 4T NOPs forever and so would this loop — but it would do
+          // so without ever returning, which stalls the frame instead of
+          // merely wasting it. Hand back what has been consumed (PC is left
+          // on the next unread byte) and let the next `step` pick the chain
+          // up again; the T-state total comes out the same either way.
+          return 4 + extraPrefixTStates
+        }
+      default:
+        let cycles = useIY
+          ? executeIndexed(opcode: opcode, bus: bus, indexReg: &iy)
+          : executeIndexed(opcode: opcode, bus: bus, indexReg: &ix)
+        return extraPrefixTStates + cycles
+      }
+    }
   }
 
   /// Shared IX/IY instruction execution.
-  private func executeIndexed(bus: some Bus, indexReg: inout UInt16) -> Int {
-    let opcode = fetchByte(bus: bus)
-    incrementR()
-
+  ///
+  /// `opcode` has already been fetched as an M1 cycle by `executeIndexPrefix`.
+  /// The returned T-states include the 4T of the prefix that introduced it.
+  private func executeIndexed(opcode: UInt8, bus: some Bus, indexReg: inout UInt16) -> Int {
     switch opcode {
 
     // LD IX/IY, nn
@@ -231,10 +275,12 @@ extension Z80 {
       return executeIndexedCB(indexReg: indexReg, bus: bus)
 
     default:
-      // Unrecognized DD/FD opcode: treat as NOP prefix, re-execute opcode
-      // The opcode is consumed but acts as if only the prefix was a NOP
-      pc &-= 1  // re-execute the opcode without prefix
-      return 4
+      // Not an indexed instruction: the prefix behaved as a 4T NOP and this
+      // byte executes as an ordinary opcode. Dispatching it here — rather
+      // than rewinding PC and letting the next `step` fetch it again — is
+      // what keeps the M1 count at the two cycles the hardware charges
+      // (prefix + opcode) instead of three, and stops R from over-counting.
+      return 4 + executeUnprefixed(opcode: opcode, bus: bus)
     }
   }
 
