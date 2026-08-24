@@ -208,7 +208,7 @@ struct ScreenRendererDifferentialTests {
     skipLine: Bool,
     into buffer: inout [UInt8]
   ) {
-    guard displayEnabled || skipLine else { return }
+    guard displayEnabled else { return }
 
     let textCols = columns80 ? ScreenRenderer.textCols80 : ScreenRenderer.textCols40
     let pixelWidth = columns80 ? ScreenRenderer.charWidth : ScreenRenderer.charWidth * 2  // 40-col: double-width chars

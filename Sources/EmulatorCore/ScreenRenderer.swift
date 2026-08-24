@@ -486,7 +486,7 @@ public struct ScreenRenderer {
     markTextPixels: Bool = false,
     into buffer: inout [UInt8]
   ) {
-    guard displayEnabled || skipLine else { return }
+    guard displayEnabled else { return }
 
     let textCols = columns80 ? Self.textCols80 : Self.textCols40
     let pixelWidth = columns80 ? Self.charWidth : Self.charWidth * 2  // 40-col: double-width chars
