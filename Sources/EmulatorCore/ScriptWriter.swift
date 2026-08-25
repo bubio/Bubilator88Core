@@ -29,6 +29,8 @@ public enum ScriptWriter {
     switch step {
     case .boot(let mode):                return "boot \(mode.rawValue)"
     case .clock(let mhz):                return "clock \(mhz)"
+    case .monitor(let type):             return "monitor \(type == .khz24 ? "24k" : "15k")"
+    case .memoryWait(let v):             return "memwait \(v ? "on" : "off")"
     case .dipsw1(let v):                 return "dipsw1 0x\(hex2(v))"
     case .dipsw2(let v):                 return "dipsw2 0x\(hex2(v))"
     case .diskMount(let d, let p, let i): return diskLine("disk \(d)", path: p, image: i)

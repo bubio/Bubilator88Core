@@ -34,6 +34,10 @@ struct ScriptWriterTests {
     #expect(ScriptWriter.write([.boot(.n88v1h)]) == "boot n88-v1h\n")
     #expect(ScriptWriter.write([.clock(mhz: 4)]) == "clock 4\n")
     #expect(ScriptWriter.write([.clock(mhz: 8)]) == "clock 8\n")
+    #expect(ScriptWriter.write([.monitor(.khz15)]) == "monitor 15k\n")
+    #expect(ScriptWriter.write([.monitor(.khz24)]) == "monitor 24k\n")
+    #expect(ScriptWriter.write([.memoryWait(true)]) == "memwait on\n")
+    #expect(ScriptWriter.write([.memoryWait(false)]) == "memwait off\n")
     #expect(ScriptWriter.write([.dipsw1(0xC3)]) == "dipsw1 0xC3\n")
     #expect(ScriptWriter.write([.dipsw2(0x71)]) == "dipsw2 0x71\n")
     #expect(ScriptWriter.write([.dipsw2(0x08)]) == "dipsw2 0x08\n")  // zero-padded to two digits
@@ -79,6 +83,8 @@ struct ScriptWriterTests {
     try roundTrip([
       .boot(.n88v2),
       .clock(mhz: 4),
+      .monitor(.khz15),
+      .memoryWait(true),
       .diskMount(drive: 0, path: "/Volumes/X6/sorpack.d88", image: 0),
       .diskMount(drive: 1, path: "/Volumes/X6/sorpack.d88", image: 1),
     ])

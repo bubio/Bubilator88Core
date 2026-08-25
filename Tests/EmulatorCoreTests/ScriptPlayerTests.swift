@@ -54,6 +54,22 @@ struct ScriptPlayerTests {
     #expect(m.clock8MHz == true)
   }
 
+  @Test func monitorSetsType() throws {
+    let (p, m) = makePlayer()
+    try p.run([.monitor(.khz15)])
+    #expect(m.monitorType == .khz15)
+    try p.run([.monitor(.khz24)])
+    #expect(m.monitorType == .khz24)
+  }
+
+  @Test func memoryWaitSetsDip() throws {
+    let (p, m) = makePlayer()
+    try p.run([.memoryWait(true)])
+    #expect(m.memoryWaitDip == true)
+    try p.run([.memoryWait(false)])
+    #expect(m.memoryWaitDip == false)
+  }
+
   @Test func dipswRawOverrides() throws {
     let (p, m) = makePlayer()
     try p.run([.dipsw1(0xAA), .dipsw2(0x55)])
@@ -282,6 +298,18 @@ struct ScriptPlayerTests {
     #expect(m.clock8MHz == false)
     try p.run([.reset(preserveRAM: false)])
     #expect(m.clock8MHz == false)  // still 4MHz after the reset
+  }
+
+  @Test func resetPreservesScriptMonitorAndMemoryWait() throws {
+    // Unlike clock8MHz, neither Machine.reset nor Pc88Bus.reset touches
+    // monitorType/memoryWaitDip, so no reapply is needed.
+    let (p, m) = makePlayer()
+    try p.run([.monitor(.khz15), .memoryWait(true)])
+    #expect(m.monitorType == .khz15)
+    #expect(m.memoryWaitDip == true)
+    try p.run([.reset(preserveRAM: false)])
+    #expect(m.monitorType == .khz15)
+    #expect(m.memoryWaitDip == true)
   }
 
   @Test func clockUnspecifiedFollowsResetDefault() throws {

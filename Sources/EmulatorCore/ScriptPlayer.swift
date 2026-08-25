@@ -201,6 +201,12 @@ public final class ScriptPlayer {
       machine.clock8MHz = want
       desiredClock8MHz = want
 
+    case .monitor(let type):
+      machine.monitorType = type
+
+    case .memoryWait(let v):
+      machine.memoryWaitDip = v
+
     case .dipsw1(let v):
       machine.bus.dipSw1 = v
 

@@ -179,6 +179,28 @@ struct ScriptParserTests {
     #expect(throws: ScriptError.self) { try ScriptParser.parse("clock") }
   }
 
+  @Test func monitorModes() throws {
+    #expect(try ScriptParser.parse("monitor 15k") == [.monitor(.khz15)])
+    #expect(try ScriptParser.parse("monitor 24k") == [.monitor(.khz24)])
+    #expect(try ScriptParser.parse("MONITOR 24K") == [.monitor(.khz24)])
+  }
+
+  @Test func monitorBadThrows() {
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("monitor 30k") }
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("monitor") }
+  }
+
+  @Test func memWaitModes() throws {
+    #expect(try ScriptParser.parse("memwait on") == [.memoryWait(true)])
+    #expect(try ScriptParser.parse("memwait off") == [.memoryWait(false)])
+    #expect(try ScriptParser.parse("MEMWAIT ON") == [.memoryWait(true)])
+  }
+
+  @Test func memWaitBadThrows() {
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("memwait yes") }
+    #expect(throws: ScriptError.self) { try ScriptParser.parse("memwait") }
+  }
+
   @Test func dipsw() throws {
     #expect(try ScriptParser.parse("dipsw1 0xC3") == [.dipsw1(0xC3)])
     #expect(try ScriptParser.parse("dipsw2 113") == [.dipsw2(113)])   // 0x71

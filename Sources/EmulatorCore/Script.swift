@@ -51,6 +51,8 @@ public enum ScriptStep: Equatable, Sendable {
   // --- setup ---
   case boot(BootMode)
   case clock(mhz: Int)                                  // 4 or 8
+  case monitor(MonitorType)
+  case memoryWait(Bool)
   case dipsw1(UInt8)
   case dipsw2(UInt8)
   case diskMount(drive: Int, path: String, image: Int)  // initial mount
@@ -168,6 +170,8 @@ public enum ScriptParser {
     case "reset":             return try parseReset(args, line: line)
     case "boot", "bootmode":  return try parseBoot(args, line: line)
     case "clock":             return try parseClock(args, line: line)
+    case "monitor":           return try parseMonitor(args, line: line)
+    case "memwait":           return try parseMemWait(args, line: line)
     case "dipsw1":            return .dipsw1(try parseByte(args, verb: verb, line: line))
     case "dipsw2":            return .dipsw2(try parseByte(args, verb: verb, line: line))
     default:
@@ -288,6 +292,28 @@ public enum ScriptParser {
       throw ScriptError(line: line, format: "clock must be 4 or 8.")
     }
     return .clock(mhz: mhz)
+  }
+
+  private static func parseMonitor(_ args: [String], line: Int) throws -> ScriptStep {
+    guard args.count == 1 else {
+      throw ScriptError(line: line, format: "monitor must be 15k or 24k.")
+    }
+    switch args[0].lowercased() {
+    case "15k": return .monitor(.khz15)
+    case "24k": return .monitor(.khz24)
+    default:    throw ScriptError(line: line, format: "monitor must be 15k or 24k.")
+    }
+  }
+
+  private static func parseMemWait(_ args: [String], line: Int) throws -> ScriptStep {
+    guard args.count == 1 else {
+      throw ScriptError(line: line, format: "memwait must be on or off.")
+    }
+    switch args[0].lowercased() {
+    case "on":  return .memoryWait(true)
+    case "off": return .memoryWait(false)
+    default:    throw ScriptError(line: line, format: "memwait must be on or off.")
+    }
   }
 
   // MARK: Scalar parsers
