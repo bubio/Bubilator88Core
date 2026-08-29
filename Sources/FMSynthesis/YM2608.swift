@@ -780,9 +780,23 @@ public final class YM2608 {
   /// Advance ADPCM playback by one FM sample period.
   private func advanceADPCM() {
     if adpcmPlaying {
-      if adpcmPlaybackCounter < 0 {
+      // The playback accumulator can fall more than one decode step behind
+      // when a sample's authored playback rate exceeds the 44.1kHz audio
+      // output rate, so fully catch up (decoding every pending nibble)
+      // instead of decoding at most once per output sample. Skipping
+      // nibbles here lets the adaptive step size run away between output
+      // ticks, producing loud, distorted output for samples encoded above
+      // ~44.1kHz.
+      while adpcmPlaying && adpcmPlaybackCounter < 0 {
         adpcmPlaybackCounter += Self.adpcmFixedPointUnit
         decodeADPCMOutput()
+      }
+      if !adpcmPlaying {
+        // Playback ended mid-catch-up: the counter may still be negative
+        // (it only reaches >= 0 via the increment above, which stops as
+        // soon as the sample ends). Clamp so the interpolation below can't
+        // read it as a negative weight and emit a sign-flipped sample.
+        adpcmPlaybackCounter = max(adpcmPlaybackCounter, 0)
       }
 
       let sample: Int
@@ -817,7 +831,7 @@ public final class YM2608 {
     }
   }
 
-  /// Decode one ADPCM step and update fmgen-style interpolation stages.
+  /// Decode one ADPCM step and update the interpolation stages.
   private func decodeADPCMOutput() {
     adpcmOutputStage0 = adpcmOutputStage1
     let ram = decodeADPCMNibble()
