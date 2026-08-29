@@ -69,6 +69,51 @@ struct YM2608Tests {
     #expect(ym.timerAValue == 0x3FF)
   }
 
+  // ADPCM-B samples authored at a playback rate above the 44.1kHz audio
+  // output rate need more than one nibble decoded per output sample to
+  // keep the resampler caught up. A regression here silently drops
+  // nibbles, letting the adaptive step size run away and producing loud,
+  // distorted output — audible in disk images with ADPCM voice samples
+  // above ~44.1kHz.
+  @Test func highRateADPCMDecodesMoreThanOneNibblePerSample() {
+    let ym = YM2608()
+    ym.reset()
+
+    // Fill ADPCM RAM (default 1-bit layout) with varied nibble data so the
+    // decoder doesn't idle at a constant step size.
+    for i in 0..<ym.adpcmRAM.count {
+      ym.adpcmRAM[i] = UInt8((i * 0x37) & 0xFF)
+    }
+
+    ym.adpcmStartAddr = 0
+    ym.adpcmStopAddr = 0xFFFF  // far beyond anything this test will reach
+
+    // delta-N chosen so playback rate ≈ 55kHz, above the 44.1kHz output
+    // rate this decoder mixes at.
+    ym.writeExtAddr(0x09)
+    ym.writeExtData(UInt8(64984 & 0xFF))
+    ym.writeExtAddr(0x0A)
+    ym.writeExtData(UInt8((64984 >> 8) & 0xFF))
+
+    ym.writeExtAddr(0x0B)  // total level, so decoded output isn't silent
+    ym.writeExtData(0xFF)
+
+    ym.writeExtAddr(0x00)  // control1: start playback
+    ym.writeExtData(0x80)
+
+    let startMemAddr = ym.adpcmMemAddr
+
+    // Advance ~200 output samples' worth of T-states.
+    let tStatesPerSample = ym.cpuClockHz / YM2608.sampleRate
+    ym.tick(tStates: tStatesPerSample * 200)
+
+    let samplesProduced = ym.audioBuffer.count / 2
+    let nibblesDecoded = Int(ym.adpcmMemAddr - startMemAddr) / 8
+
+    #expect(samplesProduced > 0)
+    #expect(nibblesDecoded > samplesProduced)
+  }
+
   @Test func timerBSetup() {
     let ym = YM2608()
     ym.reset()
