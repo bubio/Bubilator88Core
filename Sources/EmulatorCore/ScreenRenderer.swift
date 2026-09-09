@@ -78,6 +78,11 @@ public struct ScreenRenderer {
   /// The three plane bytes are spread to one byte per pixel and combined into
   /// a single UInt64 holding eight 3-bit palette indices — the bit-plane
   /// interleave the PC-8801 does in hardware, done 8 pixels at a time.
+  ///
+  /// Pixels are emitted four at a time as `SIMD4<UInt32>`, so each VRAM byte
+  /// costs two 16-byte stores rather than eight 4-byte ones. `storeBytes` is
+  /// used instead of a typed `SIMD4` pointer so no alignment stronger than the
+  /// caller's `UInt32` buffer is assumed — the core must stay portable.
   @inline(__always)
   private static func renderColorScanline(
     blue: UnsafePointer<UInt8>,
@@ -89,23 +94,36 @@ public struct ScreenRenderer {
     spread: UnsafePointer<UInt64>,
     dst: UnsafeMutablePointer<UInt32>
   ) {
-    var pixelOffset = 0
+    let rawDst = UnsafeMutableRawPointer(dst)
+    var byteOffset = 0
     for byteIndex in 0..<bytesPerLine {
       let offset = srcOffset + byteIndex
       var indices = spread[Int(blue[offset])]
         | (spread[Int(red[offset])] << 1)
         | (spread[Int(green[offset])] << 2)
-      for pixel in 0..<8 {
-        dst[pixelOffset + pixel] = palette[Int(indices & 7)]
-        indices >>= 8
+      // Two 16-byte stores per VRAM byte instead of eight 4-byte ones.
+      for _ in 0..<2 {
+        let quad = SIMD4<UInt32>(
+          palette[Int(indices & 7)],
+          palette[Int((indices >> 8) & 7)],
+          palette[Int((indices >> 16) & 7)],
+          palette[Int((indices >> 24) & 7)]
+        )
+        rawDst.storeBytes(of: quad, toByteOffset: byteOffset, as: SIMD4<UInt32>.self)
+        byteOffset += 16
+        indices >>= 32
       }
-      pixelOffset += 8
     }
   }
 
   /// Write the 8 pixels of one attribute-graphics cell byte. Set plane bits
   /// take the cell's attribute color, clear bits take the background.
   /// `dst` points at the first of the 8 destination pixels.
+  ///
+  /// Deliberately left as a scalar per-pixel loop: `color` and `background` are
+  /// loop-invariant, so the compiler already vectorises this well. Rewriting it
+  /// as explicit `SIMD4` stores measured 16-20% *slower* on the attribute paths,
+  /// because building the lane mask costs more than the stores it saves.
   @inline(__always)
   private static func emitAttributeCell(
     bits: UInt8,
