@@ -352,7 +352,6 @@ struct FMOp {
       } else {
         egLevel += 4 * Int(decayRateTable[egRate][egCurveCount & 7])
         if egLevel >= egLevelOnNextPhase {
-          egUpdate()
           switch egPhase {
           case .decay:   shiftPhase(.sustain, ratio: ratio)
           case .sustain: shiftPhase(.attack, ratio: ratio)
@@ -360,6 +359,7 @@ struct FMOp {
           default: break
           }
         }
+        egUpdate()
       }
     }
     egCurveCount += 1
