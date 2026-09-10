@@ -711,7 +711,7 @@ print(String(format: "  DISK.ROM[0..3]: %02X %02X %02X %02X",
 var readyCount = 0
 var firstREADYFrame = -1
 var howManyFilesFrame = -1
-var coldBootStart = CFAbsoluteTimeGetCurrent()
+var coldBootStart = Date().timeIntervalSinceReferenceDate
 
 let coldBootLoopFrames = (ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil) ? diskBootFrames : 120
 struct HeldKey { let row: Int; let bit: Int }
@@ -841,7 +841,7 @@ for frame in 0..<coldBootLoopFrames {
   let subDelta = m.subSystem.subCpuTStates - subBefore
   if frame % 200 == 199 || frame < 5 {
     let e69f = m.bus.mainRAM[0xE69F]
-    let elapsed = CFAbsoluteTimeGetCurrent() - coldBootStart
+    let elapsed = Date().timeIntervalSinceReferenceDate - coldBootStart
     print(String(format: "  Frame %d: PC=%04X E69F=%02X READY=%d IFF=%d IM=%d subT=%llu t=%.2fs",
                  frame, m.cpu.pc, e69f, readyCount, m.cpu.iff1 ? 1 : 0, m.cpu.im,
                  subDelta, elapsed))
@@ -1074,7 +1074,7 @@ if let loadStatePath {
   }
 
   // Run frames
-  let stateBootStart = CFAbsoluteTimeGetCurrent()
+  let stateBootStart = Date().timeIntervalSinceReferenceDate
   for frame in 0..<diskBootFrames {
     if let (dx, dy) = mouseMove { sm.mouse.injectMovement(dx: dx, dy: dy) }
     let frameEvents = loadStateKeyEvents[frame] ?? []
@@ -1138,7 +1138,7 @@ if let loadStatePath {
 
     let showFrame = frame < 3 || frame % 60 == 0 || frame == diskBootFrames - 1
     if showFrame {
-      let elapsed = CFAbsoluteTimeGetCurrent() - stateBootStart
+      let elapsed = Date().timeIntervalSinceReferenceDate - stateBootStart
       print(String(format: "  Frame %d: PC=%04X ADPCM playing=%d accum=%d TL=%d peak=%.4f t=%.2fs",
                    frame, sm.cpu.pc,
                    snd.adpcmPlaying ? 1 : 0, snd.adpcmAccum,
@@ -1467,7 +1467,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
 
     var lastPC: UInt16 = 0
     var pcLog: [(frame: Int, pc: UInt16)] = []
-    let diskBootStart = CFAbsoluteTimeGetCurrent()
+    let diskBootStart = Date().timeIntervalSinceReferenceDate
     var traceArmed = false
     var crashFrame: Int?
     var stopReason: String?
@@ -1818,7 +1818,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
       }
 
       let subDelta = dm.subSystem.subCpuTStates - subBefore
-      let elapsed = CFAbsoluteTimeGetCurrent() - diskBootStart
+      let elapsed = Date().timeIntervalSinceReferenceDate - diskBootStart
       let curPCN0 = dm.subSystem.fdc.pcn[0]
       let curFDCInt = dm.subSystem.fdcInterruptDeliveredCount
       let fdcIntDelta = curFDCInt - prevFDCIntCount

@@ -88,7 +88,14 @@ public final class UPD1990A {
   package var timeProvider: () -> (sec: Int, min: Int, hour: Int, day: Int, wday: Int, mon: Int, year: Int) = {
     var t = time(nil)
     var cal = tm()
+    // localtime_r is POSIX (Darwin/Glibc/Musl). Windows ucrt ships
+    // localtime_s instead, with the arguments REVERSED (tm first, time
+    // second). Same result either way.
+    #if os(Windows)
+    _ = localtime_s(&cal, &t)
+    #else
     localtime_r(&t, &cal)
+    #endif
     return (
       sec: Int(cal.tm_sec),
       min: Int(cal.tm_min),
