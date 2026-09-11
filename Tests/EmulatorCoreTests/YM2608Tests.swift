@@ -712,8 +712,10 @@ struct YM2608Tests {
     #expect(ym.fmSynth.ch[2].op[0].tlLatch == 0x30)
   }
 
-  @Test("FM CSM stays active when channel 3 special mode is also enabled")
-  func fmCSMAndChannel3SpecialModeCanCoexist() {
+  // Mode bits 7-6 of reg 0x27: 10 is CSM, 01 and 11 are channel 3 special
+  // mode without CSM (fmgen `(regtc & 0xc0) == 0x80`, ymfm `csm() == 2`).
+  @Test("FM mode 0xC0 is channel 3 special mode without CSM")
+  func fmMode11IsSpecialModeWithoutCSM() {
     let ym = YM2608()
     ym.reset()
 
@@ -729,18 +731,50 @@ struct YM2608Tests {
     ym.writeAddr(0x27)
     ym.writeData(0xC0)
 
+    // Not CSM: TL writes take effect immediately instead of latching.
     ym.writeAddr(0x42)
     ym.writeData(0x20)
-    #expect(ym.fmSynth.ch[2].op[0].tl == 0x10)
+    #expect(ym.fmSynth.ch[2].op[0].tl == 0x20)
     #expect(ym.fmSynth.ch[2].op[0].tlLatch == 0x20)
+
+    // Timer A overflow must not retrigger channel 3: an operator keyed off
+    // by software stays in release.
+    ym.writeAddr(0x28)
+    ym.writeData(0x02)
+    #expect(ym.fmSynth.ch[2].op[0].egPhase == .release)
 
     ym.writeAddr(0x27)
     ym.writeData(0xC1)
     ym.tick(tStates: 144)
 
-    #expect(ym.timerAOverflow == false)
-    #expect(ym.fmSynth.ch[2].op[0].keyOn == true)
-    #expect(ym.fmSynth.ch[2].op[0].tl == 0x20)
+    #expect(ym.fmSynth.ch[2].op[0].keyOn == false)
+    #expect(ym.fmSynth.ch[2].op[0].egPhase == .release)
+  }
+
+  @Test("FM mode 0xC0 keeps channel 3 per-operator frequency routing")
+  func fmMode11KeepsChannel3SpecialRouting() {
+    let ym = YM2608()
+    ym.reset()
+
+    ym.writeAddr(0xA6)
+    ym.writeData((4 << 3) | 0x01)
+    ym.writeAddr(0xA2)
+    ym.writeData(0x80)
+    ym.writeAddr(0xAC)
+    ym.writeData((2 << 3) | 0x01)
+    ym.writeAddr(0xA8)
+    ym.writeData(0x20)
+
+    ym.writeAddr(0x27)
+    ym.writeData(0xC0)
+
+    func dp(_ high: UInt8, _ low: UInt8) -> UInt32 {
+      let f = UInt32(low) | (UInt32(high) << 8)
+      return (f & 2047) << ((f >> 11) & 7)
+    }
+
+    #expect(ym.fmSynth.ch[2].op[2].dp == dp((2 << 3) | 0x01, 0x20))
+    #expect(ym.fmSynth.ch[2].op[3].dp == dp((4 << 3) | 0x01, 0x80))
   }
 
   @Test("FM SSG-EG register write follows fmgen phase mapping")
@@ -1244,6 +1278,38 @@ struct YM2608Tests {
 
     #expect(op.egOut < 0)
     _ = op.calc(0, ratio: 161)
+  }
+
+  // fmgen's EGCalc calls EGUpdate after every step in SSG-EG mode as well, so
+  // the attenuation follows the envelope continuously rather than only when
+  // the phase changes.
+  @Test("SSG-EG envelope output tracks every EG step")
+  func ssgEGOutputTracksEveryStep() {
+    for ssgType: UInt32 in [0x08, 0x0A, 0x0C, 0x0E] {
+      var op = FMOp()
+      op.ar = 62  // instant attack, as SSG-EG patches normally use
+      op.dr = 40
+      op.sr = 40
+      op.sl = 16
+      op.rr = 30
+      op.tl = 0
+      op.tlLatch = 0
+      op.ssgType = ssgType
+      op.ssgPhase = -1
+      op.shiftPhase(.attack, ratio: 161)
+      op.egUpdate()
+
+      var distinctOutputs = Set<Int>()
+      for _ in 0..<200 {
+        op.egCalc(ratio: 161)
+        let expected = min(op.tlOut + op.egLevel * op.ssgVector + op.ssgOffset,
+                           FM.egMaxLevel) << 3
+        #expect(op.egOut == expected, "type \(ssgType)")
+        distinctOutputs.insert(op.egOut)
+      }
+      // The envelope moves through many levels, not just phase endpoints.
+      #expect(distinctOutputs.count > 20, "type \(ssgType)")
+    }
   }
 
   @Test("Phase accumulator wraps correctly at 32-bit boundary")

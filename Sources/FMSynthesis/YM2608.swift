@@ -1626,8 +1626,10 @@ public final class YM2608 {
     (registers[0x27] & 0xC0) != 0
   }
 
+  /// Mode bits 7-6 = 10 only. 11 is channel 3 special mode without CSM
+  /// (fmgen `(regtc & 0xc0) == 0x80`).
   private var csmModeEnabled: Bool {
-    (registers[0x27] & 0x80) != 0
+    (registers[0x27] & 0xC0) == 0x80
   }
 
   private func triggerCSMKeyControl() {
