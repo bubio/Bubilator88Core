@@ -12,7 +12,9 @@ import Testing
 /// This suite exists because `scripts/regression_compare.py` does NOT cover
 /// every renderer path: as of 2026-08-03 none of its 19 captures reach
 /// `renderAttributeGraph200` (verified by instrumenting the BootTester
-/// dispatch), since the suite's games all boot into color graphics mode.
+/// dispatch, and again on 2026-09-11): each capture is either color graphics
+/// or 400-line monochrome (Exective, The Man I Love, The Hospital), never
+/// 200-line monochrome.
 /// A byte-identity check here is what makes those loops safe to optimize.
 @Suite("ScreenRenderer Differential Tests")
 struct ScreenRendererDifferentialTests {
