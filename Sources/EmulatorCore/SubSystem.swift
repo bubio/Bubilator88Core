@@ -1,4 +1,6 @@
 import Logging
+import Z80
+import Peripherals
 
 private let subLog = Logger(label: "EmulatorCore.SubSystem")
 

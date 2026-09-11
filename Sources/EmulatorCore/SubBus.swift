@@ -1,3 +1,6 @@
+import Z80
+import Peripherals
+
 /// SubBus — Bus implementation for the PC-8801 sub-CPU (disk controller).
 ///
 /// Memory map (QUASI88 compatible):

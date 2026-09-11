@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Z80
 
 /// M1 (opcode fetch) wait states — `MEMORY_WAIT_STATES.md` §2.1.
 ///

@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("UPD765A Tests")
 struct UPD765ATests {

@@ -1,4 +1,5 @@
 import EmulatorCore
+import Z80
 
 /// Simple Bus implementation for unit testing.
 /// Provides 64KB RAM and 256 I/O ports with read/write tracking.

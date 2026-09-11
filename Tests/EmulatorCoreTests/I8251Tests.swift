@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("I8251 USART Tests")
 struct I8251Tests {

@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Z80
 
 @Suite("Z80 Core Tests")
 struct Z80Tests {

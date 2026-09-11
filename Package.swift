@@ -95,7 +95,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "BootTester",
-            dependencies: ["EmulatorCore"]
+            dependencies: ["EmulatorCore", "Z80", "FMSynthesis", "Peripherals"]
         ),
         .testTarget(
             name: "EmulatorCoreTests",

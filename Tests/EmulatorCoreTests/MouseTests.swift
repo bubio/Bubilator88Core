@@ -1,5 +1,8 @@
 import Testing
 @testable import EmulatorCore
+import Z80
+import FMSynthesis
+import Peripherals
 
 @Suite("PC-8801 Bus Mouse Tests")
 struct MouseTests {

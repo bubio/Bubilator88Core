@@ -1,3 +1,6 @@
+import Z80
+import Peripherals
+
 #if DEBUG
 @inline(__always) private func textDMADebugHex8(_ value: UInt8) -> String {
   let s = String(value, radix: 16, uppercase: true)
