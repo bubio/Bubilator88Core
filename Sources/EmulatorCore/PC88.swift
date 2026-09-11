@@ -14,6 +14,7 @@
 
 import Foundation
 @_exported import PC88Types
+import FMSynthesis
 
 /// A PC-8801-FA.
 ///
@@ -367,8 +368,11 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Sound
 
+  /// The rate every sample from `takeAudioSamples()` is produced at, in Hz.
+  public static let audioSampleRate = YM2608.sampleRate
+
   /// Samples generated since the last `takeAudioSamples()`: interleaved
-  /// stereo Float32 (L, R, L, R, …) at `YM2608.sampleRate` (44.1kHz), −1…1.
+  /// stereo Float32 (L, R, L, R, …) at `audioSampleRate` (44.1kHz), −1…1.
   public struct AudioSamples: Sendable {
     /// The mixed output.
     public var stereo: [Float]

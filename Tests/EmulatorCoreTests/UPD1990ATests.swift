@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("UPD1990A Calendar Tests")
 struct UPD1990ATests {

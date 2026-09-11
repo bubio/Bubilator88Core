@@ -1,6 +1,7 @@
-@_exported import FMSynthesis
-@_exported import Peripherals
+import FMSynthesis
+import Peripherals
 import Logging
+import Z80
 
 private let busLog = Logger(label: "EmulatorCore.Pc88Bus")
 

@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("FontROM Tests")
 struct FontROMTests {

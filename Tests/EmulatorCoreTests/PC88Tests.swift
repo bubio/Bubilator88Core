@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @_spi(Debug) @testable import EmulatorCore
+import FMSynthesis
 
 /// `PC88` only delegates to `Machine` for now; these check each delegation
 /// lands on the component it is meant to.

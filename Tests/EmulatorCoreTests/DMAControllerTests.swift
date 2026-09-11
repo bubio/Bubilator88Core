@@ -1,5 +1,7 @@
 import Testing
 @testable import EmulatorCore
+import Z80
+import Peripherals
 
 @Suite("DMAController Tests")
 struct DMAControllerTests {

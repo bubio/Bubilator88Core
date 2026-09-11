@@ -1,5 +1,6 @@
 import Testing
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("InterruptController (i8214) Tests")
 struct InterruptControllerTests {

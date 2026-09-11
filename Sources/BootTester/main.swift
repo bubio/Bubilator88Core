@@ -1,6 +1,9 @@
 import Foundation
 import EmulatorCore
 import Logging
+import Z80
+import FMSynthesis
+import Peripherals
 
 setbuf(stdout, nil)  // Disable stdout buffering for diagnostics
 LoggingSystem.bootstrap(StreamLogHandler.standardError)

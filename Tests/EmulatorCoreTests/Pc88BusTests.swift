@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import EmulatorCore
+import Peripherals
 
 @Suite("Pc88Bus Tests")
 struct Pc88BusTests {
