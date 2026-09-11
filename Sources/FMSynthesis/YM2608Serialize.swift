@@ -113,6 +113,9 @@ extension YM2608 {
     appendU32(&buf, UInt32(fmData.count))
     buf.append(contentsOf: fmData)
 
+    // Appended fields (absent in older saves)
+    buf.append(adpcmReadPrefetch)
+
     return buf
   }
 
@@ -226,6 +229,11 @@ extension YM2608 {
     guard pos + fmDataLen <= data.count else { return false }
     let fmData = Array(data[pos..<(pos + fmDataLen)]); pos += fmDataLen
     fmSynth.deserializeState(fmData)
+
+    // Appended fields. Saves from before the two-stage read pipeline lack the
+    // prefetch byte; a load taken mid RAM read then returns one zero byte.
+    adpcmReadPrefetch = pos < data.count ? data[pos] : 0
+    if pos < data.count { pos += 1 }
 
     // Clear transient audio buffer. The CD-mix delay lines are not part of the
     // save state either, so drop their contents rather than carrying a tail

@@ -294,10 +294,12 @@ public final class YM2608 {
   /// ADPCM RAM (256KB, for ADPCM-B data storage)
   public var adpcmRAM: [UInt8] = Array(repeating: 0, count: 0x40000)
 
-  /// ADPCM RAM read buffer (fmgen rembuf). Reg 0x08 reads in memory-read mode
-  /// return the previously latched byte; first read after entering the mode
-  /// is a "dummy read" on real hardware.
+  /// ADPCM RAM read pipeline (fmgen adpcmreadbuf, low and high byte). Reg 0x08
+  /// reads in memory-read mode return `adpcmReadBuffer`, shift the prefetched
+  /// byte into it and fetch the next one, so the first two reads after
+  /// entering the mode are dummies, as on the chip.
   package var adpcmReadBuffer: UInt8 = 0
+  package var adpcmReadPrefetch: UInt8 = 0
 
   private var adpcmUsesEightBitRAMLayout: Bool {
     (adpcmControl2 & 0x02) != 0
@@ -539,6 +541,7 @@ public final class YM2608 {
     adpcmMemAddr = 0
     adpcmLimitAddr = 0x3FFFFF
     adpcmReadBuffer = 0
+    adpcmReadPrefetch = 0
     beepOn = false
     singSignal = false
     beepPhase = 0.0
@@ -1198,12 +1201,13 @@ public final class YM2608 {
     return extRegisters[Int(selectedExtAddr)]
   }
 
-  /// Read one byte from ADPCM RAM at adpcmMemAddr (fmgen ReadRAM).
-  /// Returns the previously latched byte, then prefetches the next and
-  /// advances memaddr. Matches the "dummy read" behavior real YM2608
-  /// programs rely on (e.g. TROUBADOUR RAM DISK on DARK SHRINE).
+  /// Read one byte through the reg 0x08 pipeline (fmgen GetReg(0x108)).
+  /// Returns the byte fetched two reads ago, then fetches the next from ADPCM
+  /// RAM (fmgen ReadRAM) and advances memaddr. DARK SHRINE's TROUBADOUR RAM
+  /// DISK discards exactly two reads before each 256-byte sector.
   private func readADPCMRAMByte() -> UInt8 {
     let data = adpcmReadBuffer
+    adpcmReadBuffer = adpcmReadPrefetch
 
     if adpcmUsesEightBitRAMLayout {
       let base = Int((adpcmMemAddr >> 4) & 0x7FFF)
@@ -1217,13 +1221,13 @@ public final class YM2608 {
             byte |= UInt8(1 << i)
           }
         }
-        adpcmReadBuffer = byte
+        adpcmReadPrefetch = byte
       }
       adpcmMemAddr &+= 2
     } else {
       let ramAddr = Int((adpcmMemAddr >> 4) & 0x3FFFF)
       if ramAddr < adpcmRAM.count {
-        adpcmReadBuffer = adpcmRAM[ramAddr]
+        adpcmReadPrefetch = adpcmRAM[ramAddr]
       }
       adpcmMemAddr &+= 16
     }
@@ -1438,6 +1442,7 @@ public final class YM2608 {
         adpcmMemAddr = adpcmStartAddr << 6
         adpcmStatusFlags &= ~0x04  // Clear EOS
         adpcmReadBuffer = 0
+        adpcmReadPrefetch = 0
         updateIRQLine()
       }
       if value & 0x01 != 0 {
