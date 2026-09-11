@@ -15,9 +15,10 @@ import Peripherals
 /// Entry 0x0000 is a "no-op / blank" placeholder in the original table.
 public final class TextPasteQueue {
 
-  public struct KeyAction: Sendable {
-    public let row: Int
-    public let bit: Int
+  /// One key going down or up, for the host to pass to `PC88.pressKey` /
+  /// `releaseKey`.
+  public struct KeyEvent: Equatable, Sendable {
+    public let key: PC88Key
     public let down: Bool
   }
 
@@ -51,16 +52,16 @@ public final class TextPasteQueue {
   /// Clear all pending characters and release any currently-held keys via
   /// `emit`. Must be called when cancelling a paste (e.g. user hit ESC)
   /// so the emulator doesn't end up with a stuck-down key in its matrix.
-  public func cancel(emit: (KeyAction) -> Void) {
+  public func cancel(emit: (KeyEvent) -> Void) {
     if pressed, let code = queue.first, code != 0x0000 {
       let row = (Int(code) >> 4) & 0x0F
       let bit = Int(code) & 0x07
       let shift = (code & 0x0100) != 0
       let kana = (code & 0x1000) != 0
       // Release the main key first, then modifiers (matches tick() order).
-      emit(KeyAction(row: row, bit: bit, down: false))
-      if kana { emit(KeyAction(row: Self.kanaKey.row, bit: Self.kanaKey.bit, down: false)) }
-      if shift { emit(KeyAction(row: Self.shiftKey.row, bit: Self.shiftKey.bit, down: false)) }
+      emit(KeyEvent(key: PC88Key(row, bit), down: false))
+      if kana { emit(KeyEvent(key: Self.kanaKey, down: false)) }
+      if shift { emit(KeyEvent(key: Self.shiftKey, down: false)) }
     }
     queue.removeAll()
     tickCount = 0
@@ -100,7 +101,7 @@ public final class TextPasteQueue {
   }
 
   /// Drive the queue by one logical frame. Emits key actions via `emit`.
-  public func tick(emit: (KeyAction) -> Void) {
+  public func tick(emit: (KeyEvent) -> Void) {
     guard let code = queue.first else { return }
     if code == 0x0000 {
       // Skip blank slots (e.g. unmapped lower-alpha 0x7F or kana 0xA0).
@@ -116,17 +117,17 @@ public final class TextPasteQueue {
 
     switch tickCount {
     case Self.modifierDownTick:
-      if shift { emit(KeyAction(row: Self.shiftKey.row, bit: Self.shiftKey.bit, down: true)) }
-      if kana { emit(KeyAction(row: Self.kanaKey.row, bit: Self.kanaKey.bit, down: true)) }
+      if shift { emit(KeyEvent(key: Self.shiftKey, down: true)) }
+      if kana { emit(KeyEvent(key: Self.kanaKey, down: true)) }
       if shift || kana { pressed = true }
     case Self.keyDownTick:
-      emit(KeyAction(row: row, bit: bit, down: true))
+      emit(KeyEvent(key: PC88Key(row, bit), down: true))
       pressed = true
     case Self.keyUpTick where pressed:
-      emit(KeyAction(row: row, bit: bit, down: false))
+      emit(KeyEvent(key: PC88Key(row, bit), down: false))
     case Self.modifierUpTick where pressed:
-      if kana { emit(KeyAction(row: Self.kanaKey.row, bit: Self.kanaKey.bit, down: false)) }
-      if shift { emit(KeyAction(row: Self.shiftKey.row, bit: Self.shiftKey.bit, down: false)) }
+      if kana { emit(KeyEvent(key: Self.kanaKey, down: false)) }
+      if shift { emit(KeyEvent(key: Self.shiftKey, down: false)) }
       pressed = false
     default:
       break

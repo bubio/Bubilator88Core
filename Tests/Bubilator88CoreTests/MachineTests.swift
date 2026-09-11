@@ -600,6 +600,25 @@ struct MachineTests {
     }
   }
 
+  /// The Quick Look extension reads the section count and the timestamp from
+  /// the header alone.
+  @Test func parseHeaderReadsCountAndTimestamp() throws {
+    let src = Machine()
+    src.reset()
+    let before = Date().timeIntervalSince1970
+    let blob = src.createSaveState(thumbnail: Array(repeating: 0x11, count: 32))
+    let after = Date().timeIntervalSince1970
+
+    let header = try SaveStateFile.parseHeader(Array(blob[0..<SaveStateFile.headerSize]))
+    #expect(header.version == SaveStateFile.currentVersion)
+    #expect(header.sectionCount == (try SaveStateFile.parseSectionTable(blob)).count)
+    #expect(header.timestamp >= before && header.timestamp <= after)
+
+    #expect(throws: SaveStateError.self) {
+      try SaveStateFile.parseHeader(Array(repeating: 0x00, count: SaveStateFile.headerSize))
+    }
+  }
+
   /// The memory-wait DIP is a switch on the case: `Machine.reset()` must
   /// leave it alone, and it must reach the bus through `Machine`.
   @Test func memoryWaitDipReachesTheBusAndSurvivesReset() {

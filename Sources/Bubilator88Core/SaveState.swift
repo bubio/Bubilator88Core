@@ -173,22 +173,57 @@ package struct SaveStateReader: Sendable {
 
 // MARK: - Save State File Format
 
+/// The `.b88s` container: a 64-byte header, a section table, then the
+/// sections. `PC88.createSaveState` / `loadSaveState` read and write whole
+/// files; the public members here are for hosts that want one section (the
+/// thumbnail, their own metadata) out of a file without loading all of it.
 public struct SaveStateFile: Sendable {
-  public static let magic: UInt32 = 0x38385542  // "BU88" little-endian
+  package static let magic: UInt32 = 0x38385542  // "BU88" little-endian
   /// v2 (2026-04): CRTC gains blinkCounter + blinkAttribBit fields.
   /// v3 (2026-04-21): dropped chase-heuristic fields (`needsSubCPURun`,
   /// `pioInterleaveInstructionsRemaining`, `subPortBWriteGeneration`,
   /// `pendingFreshMainPort*`, `pendingATNIdleLoopObservation`, etc.) as
   /// part of the BubiC event.cpp scheduler migration. v2 files are no
   /// longer loadable — pre-release only.
-  public static let currentVersion: UInt16 = 3
+  package static let currentVersion: UInt16 = 3
+  /// Bytes in the header. The section table follows it.
   public static let headerSize = 64
+  /// Bytes per section table entry.
   public static let sectionEntrySize = 12
 
-  public struct SectionEntry: Sendable {
-    public let tag: UInt32    // FourCC
-    public let offset: UInt32
-    public let size: UInt32
+  package struct SectionEntry: Sendable {
+    package let tag: UInt32    // FourCC
+    package let offset: UInt32
+    package let size: UInt32
+  }
+
+  /// What the header says, without the section table.
+  public struct Header: Sendable {
+    /// Format version. `parseSectionTable` rejects versions it cannot load.
+    public var version: UInt16
+    /// When the state was written, in seconds since 1970.
+    public var timestamp: Double
+    /// Entries in the section table that follows the header.
+    public var sectionCount: Int
+  }
+
+  /// Read the header from the first `headerSize` bytes of a file. Checks the
+  /// magic number only, so the timestamp of a file too old to load is still
+  /// readable.
+  public static func parseHeader(_ data: [UInt8]) throws -> Header {
+    guard data.count >= headerSize else {
+      throw SaveStateError.invalidData("File too small")
+    }
+    var r = SaveStateReader(data)
+    guard try r.readUInt32() == magic else {
+      throw SaveStateError.invalidMagic
+    }
+    let version = try r.readUInt16()
+    try r.skip(2)  // reserved
+    let timestamp = try r.readDouble()
+    try r.skip(32 + 4 * 3)  // version string, flags, thumbnail offset and size
+    let sectionCount = Int(try r.readUInt32())
+    return Header(version: version, timestamp: timestamp, sectionCount: sectionCount)
   }
 
   /// Create a FourCC from a 4-character string.
@@ -203,7 +238,7 @@ public struct SaveStateFile: Sendable {
 
   /// Append a little-endian u32 to a byte buffer. Used when nesting
   /// multiple blobs inside a single section.
-  public static func appendU32LE(_ buf: inout [UInt8], _ v: UInt32) {
+  package static func appendU32LE(_ buf: inout [UInt8], _ v: UInt32) {
     buf.append(UInt8(v & 0xFF))
     buf.append(UInt8((v >> 8) & 0xFF))
     buf.append(UInt8((v >> 16) & 0xFF))
@@ -212,7 +247,7 @@ public struct SaveStateFile: Sendable {
 
   /// Read a little-endian u32 from a byte buffer. Returns nil if the
   /// buffer ends before 4 bytes can be read.
-  public static func readU32LE(_ data: [UInt8], at pos: inout Int) -> UInt32? {
+  package static func readU32LE(_ data: [UInt8], at pos: inout Int) -> UInt32? {
     guard pos + 4 <= data.count else { return nil }
     let v = UInt32(data[pos])
       | (UInt32(data[pos + 1]) << 8)
@@ -223,8 +258,8 @@ public struct SaveStateFile: Sendable {
   }
 
   /// Build a complete save state file from named sections.
-  public static func build(sections: [(tag: UInt32, data: [UInt8])],
-                           thumbnail: [UInt8]? = nil) -> [UInt8] {
+  package static func build(sections: [(tag: UInt32, data: [UInt8])],
+                            thumbnail: [UInt8]? = nil) -> [UInt8] {
     let sectionCount = sections.count + (thumbnail != nil ? 1 : 0)
     let tableSize = sectionCount * sectionEntrySize
     let dataOffset = headerSize + tableSize
@@ -307,31 +342,16 @@ public struct SaveStateFile: Sendable {
   /// `parse` performs that check for the in-memory case.
   public static func parseSectionTable(_ data: [UInt8]) throws
     -> [(tag: UInt32, offset: Int, size: Int)] {
-    guard data.count >= headerSize else {
-      throw SaveStateError.invalidData("File too small")
+    let header = try parseHeader(data)
+    // v1/v2 files are pre-release (v1 had a different CRTC layout; v2
+    // carried chase-heuristic fields that no longer exist) — reject both.
+    guard header.version >= 3, header.version <= currentVersion else {
+      throw SaveStateError.unsupportedVersion(header.version)
     }
 
     var r = SaveStateReader(data)
-
-    let fileMagic = try r.readUInt32()
-    guard fileMagic == magic else {
-      throw SaveStateError.invalidMagic
-    }
-
-    let version = try r.readUInt16()
-    // v1/v2 files are pre-release (v1 had a different CRTC layout; v2
-    // carried chase-heuristic fields that no longer exist) — reject both.
-    guard version >= 3, version <= currentVersion else {
-      throw SaveStateError.unsupportedVersion(version)
-    }
-
-    try r.skip(2)  // reserved
-    _ = try r.readDouble()  // timestamp
-    try r.skip(32) // version string
-    _ = try r.readUInt32()  // flags
-    _ = try r.readUInt32()  // thumbnail offset
-    _ = try r.readUInt32()  // thumbnail size
-    let sectionCount = try r.readUInt32()
+    try r.skip(headerSize)
+    let sectionCount = header.sectionCount
 
     // Read section table
     var entries: [(tag: UInt32, offset: Int, size: Int)] = []
@@ -346,7 +366,7 @@ public struct SaveStateFile: Sendable {
   }
 
   /// Parse a save state file and return sections as a dictionary.
-  public static func parse(_ data: [UInt8]) throws -> [UInt32: [UInt8]] {
+  package static func parse(_ data: [UInt8]) throws -> [UInt32: [UInt8]] {
     let entries = try parseSectionTable(data)
 
     // Extract sections

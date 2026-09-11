@@ -49,7 +49,7 @@ struct TextPasteQueueTests {
     q.enqueue("A")
     #expect(!q.isEmpty)
 
-    var events: [TextPasteQueue.KeyAction] = []
+    var events: [TextPasteQueue.KeyEvent] = []
     // Run 13 ticks to consume one char (ticksPerChar = 12)
     for _ in 0..<13 {
       q.tick { events.append($0) }
@@ -59,10 +59,10 @@ struct TextPasteQueueTests {
     // 'A' = SHIFT + 'a' (row 2 bit 1). Expect SHIFT-down, key-down,
     // then key-up, SHIFT-up.
     #expect(events.count == 4)
-    #expect(events[0].row == 8 && events[0].bit == 6 && events[0].down)  // shift down
-    #expect(events[1].row == 2 && events[1].bit == 1 && events[1].down)  // a down
-    #expect(events[2].row == 2 && events[2].bit == 1 && !events[2].down) // a up
-    #expect(events[3].row == 8 && events[3].bit == 6 && !events[3].down) // shift up
+    #expect(events[0].key == PC88Key(8, 6) && events[0].down)  // shift down
+    #expect(events[1].key == PC88Key(2, 1) && events[1].down)  // a down
+    #expect(events[2].key == PC88Key(2, 1) && !events[2].down) // a up
+    #expect(events[3].key == PC88Key(8, 6) && !events[3].down) // shift up
   }
 
   @Test func cancelClearsQueue() {
@@ -80,20 +80,20 @@ struct TextPasteQueueTests {
     q.enqueue("A")  // shift + 'a' (row 2 bit 1)
 
     // Advance into the "pressed" window (past keyDownTick = 3).
-    var events: [TextPasteQueue.KeyAction] = []
+    var events: [TextPasteQueue.KeyEvent] = []
     for _ in 0..<5 { q.tick { events.append($0) } }
 
     // Shift-down and 'a'-down should have been emitted.
-    #expect(events.contains { $0.row == 8 && $0.bit == 6 && $0.down })
-    #expect(events.contains { $0.row == 2 && $0.bit == 1 && $0.down })
+    #expect(events.contains { $0.key == PC88Key(8, 6) && $0.down })
+    #expect(events.contains { $0.key == PC88Key(2, 1) && $0.down })
 
     // Cancel and capture emitted release events.
-    var releases: [TextPasteQueue.KeyAction] = []
+    var releases: [TextPasteQueue.KeyEvent] = []
     q.cancel { releases.append($0) }
 
     // Both the main key and Shift must be released.
-    #expect(releases.contains { $0.row == 2 && $0.bit == 1 && !$0.down })
-    #expect(releases.contains { $0.row == 8 && $0.bit == 6 && !$0.down })
+    #expect(releases.contains { $0.key == PC88Key(2, 1) && !$0.down })
+    #expect(releases.contains { $0.key == PC88Key(8, 6) && !$0.down })
     #expect(q.isEmpty)
   }
 
@@ -107,13 +107,13 @@ struct TextPasteQueueTests {
 
     // Fresh paste.
     q.enqueue("a")
-    var events: [TextPasteQueue.KeyAction] = []
+    var events: [TextPasteQueue.KeyEvent] = []
     for _ in 0..<13 { q.tick { events.append($0) } }
 
     // 'a' = lowercase, row 2 bit 1. Exactly one press and one release.
     #expect(events.count == 2)
-    #expect(events[0].row == 2 && events[0].bit == 1 && events[0].down)
-    #expect(events[1].row == 2 && events[1].bit == 1 && !events[1].down)
+    #expect(events[0].key == PC88Key(2, 1) && events[0].down)
+    #expect(events[1].key == PC88Key(2, 1) && !events[1].down)
   }
 
   /// Regression: Shift is pressed *before* the main key (separate ticks) so
@@ -125,7 +125,7 @@ struct TextPasteQueueTests {
     var tickOf: [(key: String, down: Bool, tick: Int)] = []
     for t in 0..<13 {
       q.tick { ev in
-        let k = (ev.row == 8 && ev.bit == 6) ? "shift" : "main"
+        let k = (ev.key == PC88Key(8, 6)) ? "shift" : "main"
         tickOf.append((k, ev.down, t))
       }
     }
@@ -142,13 +142,13 @@ struct TextPasteQueueTests {
   @Test func newlineProducesReturnKey() {
     let q = TextPasteQueue()
     q.enqueue("\n")
-    var events: [TextPasteQueue.KeyAction] = []
+    var events: [TextPasteQueue.KeyEvent] = []
     for _ in 0..<13 {
       q.tick { events.append($0) }
     }
     #expect(events.count == 2)
-    #expect(events[0].row == 1 && events[0].bit == 7 && events[0].down)
-    #expect(events[1].row == 1 && events[1].bit == 7 && !events[1].down)
+    #expect(events[0].key == PC88Key(1, 7) && events[0].down)
+    #expect(events[1].key == PC88Key(1, 7) && !events[1].down)
   }
 
   @Test func kanjiSkipped() {

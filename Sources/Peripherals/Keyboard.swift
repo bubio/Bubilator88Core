@@ -24,13 +24,13 @@ package final class Keyboard {
 
   /// Press a key (set bit to 0 = pressed, active low).
   package func pressKey(row: Int, bit: Int) {
-    guard row < 15, bit < 8 else { return }
+    guard (0..<15).contains(row), (0..<8).contains(bit) else { return }
     matrix[row] &= ~UInt8(1 << bit)
   }
 
   /// Release a key (set bit to 1 = released, active low).
   package func releaseKey(row: Int, bit: Int) {
-    guard row < 15, bit < 8 else { return }
+    guard (0..<15).contains(row), (0..<8).contains(bit) else { return }
     matrix[row] |= UInt8(1 << bit)
   }
 
