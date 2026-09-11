@@ -848,6 +848,14 @@ if ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil {
 // Save state load mode (BOOTTEST_LOAD_STATE)
 // Loads a .b88s save state file and runs frames from there.
 // ============================================================
+/// Wall-clock budget for a disk boot run before it is aborted as hung.
+/// The regression scripts raise it: their longest scenario (FRDemo) runs
+/// about 25s in a debug build, too close to the old fixed 30s.
+let maxWallSeconds: Double = {
+  let raw = ProcessInfo.processInfo.environment["BOOTTEST_MAX_WALL_SECONDS"] ?? ""
+  return Double(raw) ?? 30
+}()
+
 let loadStatePath: String? = {
   let raw = ProcessInfo.processInfo.environment["BOOTTEST_LOAD_STATE"] ?? ""
   return raw.isEmpty ? nil : raw
@@ -1788,9 +1796,10 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         print("    FDC total interrupts: \(dm.subSystem.fdcInterruptDeliveredCount)")
         print("    FDC pcn: [\(dm.subSystem.fdc.pcn[0]), \(dm.subSystem.fdc.pcn[1])]")
       }
-      // Safety: abort if single frame takes > 30s
-      if elapsed > 30.0 {
-        print("  ABORT: total elapsed \(elapsed)s > 30s at frame \(frame)")
+      // Safety: abort a run that has taken too long in wall-clock time
+      // (BOOTTEST_MAX_WALL_SECONDS, default 30s) — a hung boot, usually.
+      if elapsed > maxWallSeconds {
+        print("  ABORT: total elapsed \(elapsed)s > \(maxWallSeconds)s at frame \(frame)")
         print(String(format: "    subPC=%04X subIFF=%d subHalt=%d fdcPending=%d",
                      dm.subSystem.subCpu.pc, dm.subSystem.subCpu.iff1 ? 1 : 0,
                      dm.subSystem.subCpu.halted ? 1 : 0,

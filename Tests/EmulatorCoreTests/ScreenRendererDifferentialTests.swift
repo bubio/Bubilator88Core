@@ -9,12 +9,12 @@ import Testing
 /// those replaced — they are deliberately slow and dumb so they are easy to
 /// read against the hardware docs.
 ///
-/// This suite exists because `scripts/regression_compare.py` does NOT cover
-/// every renderer path: as of 2026-08-03 none of its 19 captures reach
+/// This suite exists because `scripts/regression_compare.py` did not cover
+/// every renderer path: until 2026-09-11 none of its captures reached
 /// `renderAttributeGraph200` (verified by instrumenting the BootTester
-/// dispatch, and again on 2026-09-11): each capture is either color graphics
-/// or 400-line monochrome (Exective, The Man I Love, The Hospital), never
-/// 200-line monochrome.
+/// dispatch) — each was color graphics or 400-line monochrome (Exective, The
+/// Man I Love, The Hospital). FRDemo now captures one 200-line monochrome
+/// screen, but a single frame of line art is thin cover for the loops' cases.
 /// A byte-identity check here is what makes those loops safe to optimize.
 @Suite("ScreenRenderer Differential Tests")
 struct ScreenRendererDifferentialTests {
