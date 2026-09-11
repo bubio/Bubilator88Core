@@ -177,4 +177,64 @@ struct PC88Tests {
     #expect(pc88.takeDiskActivity() == [true, true])
     #expect(pc88.takeDiskActivity() == [false, false])
   }
+
+  @Test func dirtyDiskImageIsTakenOnce() throws {
+    let pc88 = PC88()
+    var disk = D88Disk()
+    disk.name = "SAVE"
+    disk.tracks[0] = [D88Disk.Sector()]
+    pc88.mountDisk(drive: 1, disk: disk)
+    #expect(pc88.mountedDisk(drive: 1)?.name == "SAVE")
+    #expect(pc88.mountedDisk(drive: 5) == nil)
+    #expect(pc88.takeDirtyDiskImage(drive: 1) == nil)  // clean
+
+    pc88.markDiskDirty(drive: 1)
+    let image = try #require(pc88.takeDirtyDiskImage(drive: 1))
+    #expect(image == disk.serialize())
+    #expect(pc88.mountedDisk(drive: 1)?.dirty == false)
+    #expect(pc88.takeDirtyDiskImage(drive: 1) == nil)  // already taken
+  }
+
+  @Test func onDiskWrittenIsTheSubSystemHook() {
+    let pc88 = PC88()
+    var written: [Int] = []
+    pc88.onDiskWritten = { written.append($0) }
+    pc88.machine.subSystem.onDiskWritten?(1)
+    #expect(written == [1])
+  }
+
+  @Test func takeAudioSamplesDrainsEveryBuffer() {
+    let pc88 = PC88()
+    let sound = pc88.machine.sound
+    sound.audioBuffer = [0.1, 0.2]
+    sound.fmSpatialBuffer = [0.3, 0.4]
+    sound.rhythmSpatialBuffer = [0.5, 0.6]
+    let samples = pc88.takeAudioSamples()
+    #expect(samples.stereo == [0.1, 0.2])
+    #expect(samples.fm == [0.3, 0.4])
+    #expect(samples.ssg.isEmpty)
+    #expect(samples.rhythm == [0.5, 0.6])
+    #expect(sound.audioBuffer.isEmpty)
+    #expect(sound.fmSpatialBuffer.isEmpty)
+    #expect(sound.rhythmSpatialBuffer.isEmpty)
+  }
+
+  @Test func adjustAudioRateTracksTheHostQueue() {
+    let pc88 = PC88()
+    let base = YM2608.baseCpuClockHz8MHz
+    pc88.adjustAudioRate(bufferedFrames: 500, capacityFrames: 1000)
+    #expect(pc88.machine.sound.cpuClockHz == base)          // half full: no change
+    pc88.adjustAudioRate(bufferedFrames: 510, capacityFrames: 1000)
+    #expect(pc88.machine.sound.cpuClockHz == base + 160)    // over: run faster
+    pc88.adjustAudioRate(bufferedFrames: 0, capacityFrames: 1_000_000)
+    #expect(pc88.machine.sound.cpuClockHz == base - base / 200)  // capped
+  }
+
+  @Test func glyphComesFromTheFontROM() {
+    let pc88 = PC88()
+    var font = [UInt8](repeating: 0, count: 2048)
+    font[0x41 * 8] = 0x18
+    pc88.loadROM(.font, data: font)
+    #expect(pc88.glyph(for: 0x41).first == 0x18)
+  }
 }
