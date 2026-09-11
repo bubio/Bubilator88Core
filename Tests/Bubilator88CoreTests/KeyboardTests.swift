@@ -76,6 +76,11 @@ struct KeyboardTests {
     kb.pressKey(row: 20, bit: 0)
     kb.pressKey(row: 0, bit: 10)
     kb.releaseKey(row: 20, bit: 0)
+    // Negative too: `PC88Key(_:_:)` takes any Int.
+    kb.pressKey(row: -1, bit: 0)
+    kb.pressKey(row: 0, bit: -1)
+    kb.releaseKey(row: -1, bit: 0)
+    for row in 0..<15 { #expect(kb.matrix[row] == 0xFF) }
 
     // Invalid row read
     #expect(kb.readRow(0x0F) == 0xFF)

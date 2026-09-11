@@ -342,7 +342,9 @@ public final class PC88: @unchecked Sendable {
 
   /// Composite the current screen into `pixelBuffer`, which must hold
   /// `frameBufferSize` bytes: 640×400 RGBA, with 200-line modes
-  /// line-doubled into it.
+  /// line-doubled into it. A shorter buffer is a programming error and traps:
+  /// the renderer writes through raw pointers and would otherwise run past
+  /// its end.
   ///
   /// - Parameters:
   ///   - blinkCursor: honour the cursor blink phase. Pass false while the
@@ -352,6 +354,7 @@ public final class PC88: @unchecked Sendable {
   ///     exempt them from scanlines).
   public func render(into pixelBuffer: inout [UInt8], blinkCursor: Bool,
                      markTextPixels: Bool = false) {
+    Self.checkFrameBuffer(pixelBuffer)
     compositor.render(machine, into: &pixelBuffer, blinkCursor: blinkCursor,
                       markTextPixels: markTextPixels)
   }
@@ -360,8 +363,14 @@ public final class PC88: @unchecked Sendable {
   /// for hiding the text layer.
   @_spi(Debug) public func render(into pixelBuffer: inout [UInt8], blinkCursor: Bool,
                                   textLayerEnabled: Bool, markTextPixels: Bool = false) {
+    Self.checkFrameBuffer(pixelBuffer)
     compositor.render(machine, into: &pixelBuffer, blinkCursor: blinkCursor,
                       textLayerEnabled: textLayerEnabled, markTextPixels: markTextPixels)
+  }
+
+  private static func checkFrameBuffer(_ pixelBuffer: [UInt8]) {
+    precondition(pixelBuffer.count >= frameBufferSize,
+                 "render: buffer holds \(pixelBuffer.count) bytes, needs \(frameBufferSize)")
   }
 
   /// True in 400-line monochrome mode. The frame is then 640×400 rather than

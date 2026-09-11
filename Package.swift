@@ -51,8 +51,8 @@ let package = Package(
             swiftSettings: alwaysOptimize
         ),
         // Plain values that cross from the machine to its users: which key,
-        // which disk image, which monitor. The one module Bubilator88Core
-        // re-exports, so the parts below it can stay hidden.
+        // which disk image, which monitor, which boot mode. The one module
+        // Bubilator88Core re-exports, so the parts below it can stay hidden.
         .target(
             name: "PC88Types",
             swiftSettings: alwaysOptimize

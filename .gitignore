@@ -1,0 +1,5 @@
+# Duplicates the monorepo's rules for now; becomes the core repository's own
+# .gitignore once the package is split out.
+.build/
+.swiftpm/
+*.DS_Store

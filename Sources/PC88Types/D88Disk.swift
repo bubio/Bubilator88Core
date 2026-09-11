@@ -10,7 +10,7 @@ import Foundation
 ///   0x20 (4x164B): Track offset table (164 entries)
 ///
 /// Each sector: 16-byte header + data
-public struct D88Disk {
+public struct D88Disk: Sendable {
 
   // MARK: - Types
 
@@ -48,7 +48,9 @@ public struct D88Disk {
   public var writeProtected: Bool
   public var diskType: DiskType
   public var tracks: [[Sector]]    // Indexed by track number (up to 164)
-  public var dirty: Bool = false
+  /// Changed since it was mounted or last written back. The machine's
+  /// bookkeeping; hosts see it through `PC88.takeDirtyDiskImage(drive:)`.
+  package var dirty: Bool = false
 
   /// Total number of track slots in D88 format
   public static let maxTracks = 164
