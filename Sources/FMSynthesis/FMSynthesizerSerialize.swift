@@ -7,8 +7,8 @@ import Foundation
 
 // MARK: - SaveState Writer/Reader (minimal subset for FMSynthesis module)
 
-// Re-declare the minimal interface needed. The actual SaveState types are in EmulatorCore,
-// but we cannot import EmulatorCore from FMSynthesis (circular dependency).
+// Re-declare the minimal interface needed. The actual SaveState types are in Bubilator88Core,
+// but we cannot import Bubilator88Core from FMSynthesis (circular dependency).
 // Instead, FMSynthesizer serializes to/from raw byte arrays.
 
 extension FMSynthesizer {

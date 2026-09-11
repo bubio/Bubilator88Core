@@ -64,7 +64,7 @@ jobs:
         run: |
           git checkout -q "refs/tags/$VERSION"
           ! grep -n '"-O"' Package.swift
-          swift build --product EmulatorCore
+          swift build --product Bubilator88Core
           git checkout -q -
 
       - name: Push the tag

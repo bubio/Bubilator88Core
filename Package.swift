@@ -8,24 +8,24 @@ import PackageDescription
 // SwiftPM refuses unsafe flags in a dependency pinned by version. Release tags
 // therefore point at a commit of their own where this is empty, made by
 // scripts/tag-release.sh; main keeps the flag. Nothing else in this file may
-// use unsafeFlags on the EmulatorCore product's targets, or tagging breaks.
+// use unsafeFlags on the Bubilator88Core product's targets, or tagging breaks.
 let alwaysOptimize: [SwiftSetting] = [
     .unsafeFlags(["-O"], .when(configuration: .debug)),
 ]
 
 let package = Package(
-    name: "EmulatorCore",
+    name: "Bubilator88Core",
     platforms: [
         .macOS(.v15)
     ],
     products: [
         .library(
-            name: "EmulatorCore",
-            targets: ["EmulatorCore"]
+            name: "Bubilator88Core",
+            targets: ["Bubilator88Core"]
         ),
         // Windows native port: C ABI shim built as a dynamic library (DLL).
         // The C# WinUI 3 shell loads this via P/Invoke. macOS continues to
-        // static-link EmulatorCore through the Xcode project, unaffected.
+        // static-link Bubilator88Core through the Xcode project, unaffected.
         .library(
             name: "Bubilator88C",
             type: .dynamic,
@@ -51,7 +51,7 @@ let package = Package(
             swiftSettings: alwaysOptimize
         ),
         // Plain values that cross from the machine to its users: which key,
-        // which disk image, which monitor. The one module EmulatorCore
+        // which disk image, which monitor. The one module Bubilator88Core
         // re-exports, so the parts below it can stay hidden.
         .target(
             name: "PC88Types",
@@ -66,7 +66,7 @@ let package = Package(
             swiftSettings: alwaysOptimize
         ),
         .target(
-            name: "EmulatorCore",
+            name: "Bubilator88Core",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
                 "Z80",
@@ -79,7 +79,7 @@ let package = Package(
         .target(
             name: "CApi",
             dependencies: [
-                "EmulatorCore",
+                "Bubilator88Core",
             ],
             swiftSettings: alwaysOptimize,
             // Windows: export the @_cdecl symbols from the DLL via a .def file
@@ -96,11 +96,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "BootTester",
-            dependencies: ["EmulatorCore", "Z80", "FMSynthesis", "Peripherals"]
+            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals"]
         ),
         .testTarget(
-            name: "EmulatorCoreTests",
-            dependencies: ["EmulatorCore", "Z80", "FMSynthesis", "Peripherals", "PC88Types"]
+            name: "Bubilator88CoreTests",
+            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals", "PC88Types"]
         ),
     ]
 )
