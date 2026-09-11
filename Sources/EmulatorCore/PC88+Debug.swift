@@ -180,10 +180,12 @@ extension PC88 {
     )
   }
 
-  /// The text DMA state of the frame just run (DEBUG builds record it).
+  #if DEBUG
+  /// The text DMA state of the frame just run. Only DEBUG builds record it.
   @_spi(Debug) public func textDMADebugSnapshot() -> TextDMADebugSnapshot {
     machine.bus.textDMADebugSnapshot()
   }
+  #endif
 
   // MARK: - Sound
 
