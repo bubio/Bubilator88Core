@@ -18,19 +18,24 @@
 // symbols listed in a module-definition (.def) file or exported via
 // `-Xlinker /EXPORT:`. See docs/WINDOWS_PORT.md for the build recipe.
 
-@_spi(Debug) import EmulatorCore
+import EmulatorCore
 import Foundation
 
 /// Owns one emulated machine plus its render scratch state.
 public final class B88Context {
   let pc88 = PC88()
-  var machine: Machine { pc88.machine }
   /// Reusable 640×400 RGBA buffer; rendered into, then copied to the host.
   var pixelBuffer = [UInt8](repeating: 0, count: ScreenRenderer.bufferSize400)
   /// Last save-state blob produced by `b88_save_state`, stashed so the host
   /// can query the length and then copy it out in a second call (the blob is
   /// variable-length: RAM + disk images, so the host can't pre-size a buffer).
   var saveStateBlob: [UInt8] = []
+  /// Stereo samples taken from the core but not yet handed to the host.
+  /// `b88_drain_audio` returns at most what the host asks for, while
+  /// `PC88.takeAudioSamples()` takes everything, so the rest waits here. Cleared
+  /// wherever the core clears its own buffer (reset, state load), so a stale
+  /// tail never plays after either.
+  var pendingAudio: [Float] = []
 
   /// Per-drive FDD sound event counters, sampled + cleared by
   /// `b88_fdd_sound_events`. Distinct from `PC88.takeDiskActivity()` (which
@@ -102,14 +107,14 @@ public func b88_load_rom(_ handle: UnsafeMutableRawPointer?,
   let data = bytes(ptr, len)
   guard !data.isEmpty else { return }
   switch kind {
-  case 0:  c.machine.loadN88BasicROM(data)
-  case 1:  c.machine.loadNBasicROM(data)
-  case 2:  c.machine.loadDiskROM(data)
-  case 3:  c.machine.loadFontROM(data)
-  case 4:  c.machine.loadKanjiROM1(data)
-  case 5:  c.machine.loadKanjiROM2(data)
+  case 0:  c.pc88.loadROM(.n88Basic, data: data)
+  case 1:  c.pc88.loadROM(.nBasic, data: data)
+  case 2:  c.pc88.loadROM(.disk, data: data)
+  case 3:  c.pc88.loadROM(.font, data: data)
+  case 4:  c.pc88.loadROM(.kanji1, data: data)
+  case 5:  c.pc88.loadROM(.kanji2, data: data)
   case 10, 11, 12, 13:
-    c.machine.loadN88ExtROM(bank: Int(kind - 10), data: data)
+    c.pc88.loadROM(.n88Ext(bank: Int(kind - 10)), data: data)
   default: break
   }
 }
@@ -131,7 +136,7 @@ public func b88_load_rhythm_sample(_ handle: UnsafeMutableRawPointer?,
   guard let c = context(handle) else { return }
   let data = bytes(ptr, len)
   guard let (samples, sampleRate) = parseWAV(data) else { return }
-  c.machine.loadRhythmSample(index: Int(index), data: samples, sampleRate: sampleRate)
+  c.pc88.loadRhythmSample(index: Int(index), data: samples, sampleRate: sampleRate)
 }
 
 /// Parse a RIFF/WAVE blob and extract signed 16-bit PCM samples + sample rate.
@@ -195,13 +200,13 @@ public func b88_mount_disk(_ handle: UnsafeMutableRawPointer?,
   let disks = D88Disk.parseAll(data: data)
   let idx = Int(imageIndex)
   guard idx >= 0, idx < disks.count else { return Int32(disks.count) }
-  c.machine.mountDisk(drive: Int(drive), disk: disks[idx])
+  c.pc88.mountDisk(drive: Int(drive), disk: disks[idx])
   return Int32(disks.count)
 }
 
 @_cdecl("b88_eject_disk")
 public func b88_eject_disk(_ handle: UnsafeMutableRawPointer?, _ drive: Int32) {
-  context(handle)?.machine.ejectDisk(drive: Int(drive))
+  context(handle)?.pc88.ejectDisk(drive: Int(drive))
 }
 
 /// Probe a (possibly multi-image) D88 blob WITHOUT mounting. Returns the image
@@ -241,17 +246,17 @@ public func b88_d88_probe(_ ptr: UnsafePointer<UInt8>?,
 public func b88_set_write_protect(_ handle: UnsafeMutableRawPointer?,
                                   _ drive: Int32,
                                   _ protected: Int32) {
-  context(handle)?.machine.setWriteProtect(drive: Int(drive), protected: protected != 0)
+  context(handle)?.pc88.setWriteProtect(drive: Int(drive), protected: protected != 0)
 }
 
 /// Enable/disable the pseudo-stereo (Haas effect) chorus on mono FM/SSG
 /// output. Mirrors macOS `EmulatorViewModel.pseudoStereo` →
-/// `machine.sound.pseudoStereoEnabled`. Windows has no immersive-audio
+/// `PC88.pseudoStereoEnabled`. Windows has no immersive-audio
 /// mode yet, so unlike macOS there is no mutual-exclusion flag to combine
 /// this with.
 @_cdecl("b88_set_pseudo_stereo")
 public func b88_set_pseudo_stereo(_ handle: UnsafeMutableRawPointer?, _ enabled: Int32) {
-  context(handle)?.machine.sound.pseudoStereoEnabled = enabled != 0
+  context(handle)?.pc88.pseudoStereoEnabled = enabled != 0
 }
 
 // MARK: - Machine control
@@ -259,7 +264,7 @@ public func b88_set_pseudo_stereo(_ handle: UnsafeMutableRawPointer?, _ enabled:
 /// Set DIP SW1 raw value (e.g. 0xC3 = N88-BASIC, 0xC2 = N-BASIC).
 @_cdecl("b88_set_dipsw1")
 public func b88_set_dipsw1(_ handle: UnsafeMutableRawPointer?, _ value: Int32) {
-  context(handle)?.machine.bus.dipSw1 = UInt8(truncatingIfNeeded: value)
+  context(handle)?.pc88.dipSw1 = UInt8(truncatingIfNeeded: value)
 }
 
 /// Re-evaluate the boot strap (DIP SW2 bit 3) from drive-0 occupancy.
@@ -269,35 +274,37 @@ public func b88_set_dipsw1(_ handle: UnsafeMutableRawPointer?, _ value: Int32) {
 public func b88_apply_bootstrap(_ handle: UnsafeMutableRawPointer?, _ dipsw2Base: Int32) {
   guard let c = context(handle) else { return }
   if dipsw2Base >= 0 {
-    c.machine.applyBootStrap(base: UInt8(truncatingIfNeeded: dipsw2Base))
+    c.pc88.applyBootStrap(base: UInt8(truncatingIfNeeded: dipsw2Base))
   } else {
-    c.machine.applyBootStrap()
+    c.pc88.applyBootStrap()
   }
 }
 
 @_cdecl("b88_reset")
 public func b88_reset(_ handle: UnsafeMutableRawPointer?, _ preserveRAM: Int32) {
-  context(handle)?.machine.reset(preserveRAM: preserveRAM != 0)
+  guard let c = context(handle) else { return }
+  c.pc88.reset(preserveRAM: preserveRAM != 0)
+  c.pendingAudio.removeAll()
 }
 
 /// Install extended RAM (cards × 4 banks × 32KB). 0=none, 1=128KB, 8=1MB,
-/// matching Settings.extramCards on macOS. Mirrors machine.installExtRAM,
+/// matching Settings.extramCards on macOS. Mirrors PC88.installExtRAM,
 /// called fresh on every boot/reset so the host doesn't need to track state.
 @_cdecl("b88_install_ext_ram")
 public func b88_install_ext_ram(_ handle: UnsafeMutableRawPointer?, _ cards: Int32) {
-  context(handle)?.machine.installExtRAM(cards: Int(cards), banksPerCard: 4)
+  context(handle)?.pc88.installExtRAM(cards: Int(cards), banksPerCard: 4)
 }
 
 @_cdecl("b88_set_clock_8mhz")
 public func b88_set_clock_8mhz(_ handle: UnsafeMutableRawPointer?, _ on: Int32) {
-  context(handle)?.machine.clock8MHz = (on != 0)
+  context(handle)?.pc88.clock8MHz = (on != 0)
 }
 
 /// Query the current CPU clock (1 = 8 MHz, 0 = 4 MHz). Used after a save-state
 /// load to re-sync the host UI, since the clock is restored from the state.
 @_cdecl("b88_get_clock_8mhz")
 public func b88_get_clock_8mhz(_ handle: UnsafeMutableRawPointer?) -> Int32 {
-  (context(handle)?.machine.clock8MHz ?? true) ? 1 : 0
+  (context(handle)?.pc88.clock8MHz ?? true) ? 1 : 0
 }
 
 /// Query the current line mode (1 = native 400-line, 0 = 200-line doubled).
@@ -308,13 +315,13 @@ public func b88_get_clock_8mhz(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 /// KNOWN_PITFALLS §9 — filters must run at real content resolution).
 @_cdecl("b88_is_400line")
 public func b88_is_400line(_ handle: UnsafeMutableRawPointer?) -> Int32 {
-  (context(handle)?.machine.bus.is400LineMode ?? false) ? 1 : 0
+  (context(handle)?.pc88.is400LineMode ?? false) ? 1 : 0
 }
 
 // MARK: - Save state
 //
 // Mirrors the macOS quick/slot save-state feature (EmulatorViewModel save/load).
-// The core owns the binary format (Machine.createSaveState / loadSaveState —
+// The core owns the binary format (PC88.createSaveState / loadSaveState —
 // magic "BU88", versioned, with MAIN/DSK0/DSK1/CMT/META sections + optional
 // thumbnail). The host handles only the file layout (slot_N.b88s + sidecar
 // meta.json + thumb.png), so both shells write the same .b88s format and a
@@ -326,7 +333,7 @@ public func b88_is_400line(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 @_cdecl("b88_save_state")
 public func b88_save_state(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   guard let c = context(handle) else { return 0 }
-  c.saveStateBlob = c.machine.createSaveState()
+  c.saveStateBlob = c.pc88.createSaveState()
   return Int32(c.saveStateBlob.count)
 }
 
@@ -356,7 +363,8 @@ public func b88_load_state(_ handle: UnsafeMutableRawPointer?,
   let data = bytes(ptr, len)
   guard !data.isEmpty else { return 0 }
   do {
-    try c.machine.loadSaveState(data)
+    try c.pc88.loadSaveState(data)
+    c.pendingAudio.removeAll()
     return 1
   } catch {
     return 0
@@ -367,19 +375,19 @@ public func b88_load_state(_ handle: UnsafeMutableRawPointer?,
 @_cdecl("b88_run_frame")
 public func b88_run_frame(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   guard let c = context(handle) else { return 0 }
-  return Int32(truncatingIfNeeded: c.machine.runFrame())
+  return Int32(truncatingIfNeeded: c.pc88.runFrame())
 }
 
 // MARK: - Input (15-row keyboard matrix, active-low)
 
 @_cdecl("b88_press_key")
 public func b88_press_key(_ handle: UnsafeMutableRawPointer?, _ row: Int32, _ bit: Int32) {
-  context(handle)?.machine.keyboard.pressKey(row: Int(row), bit: Int(bit))
+  context(handle)?.pc88.pressKey(Keyboard.Key(Int(row), Int(bit)))
 }
 
 @_cdecl("b88_release_key")
 public func b88_release_key(_ handle: UnsafeMutableRawPointer?, _ row: Int32, _ bit: Int32) {
-  context(handle)?.machine.keyboard.releaseKey(row: Int(row), bit: Int(bit))
+  context(handle)?.pc88.releaseKey(Keyboard.Key(Int(row), Int(bit)))
 }
 
 // MARK: - Video
@@ -415,18 +423,18 @@ public func b88_drain_audio(_ handle: UnsafeMutableRawPointer?,
                             _ outPtr: UnsafeMutablePointer<Float>?,
                             _ maxPairs: Int32) -> Int32 {
   guard let c = context(handle), let outPtr, maxPairs > 0 else { return 0 }
-  let sound = c.machine.sound
-  let available = sound.audioBuffer.count            // interleaved floats
+  c.pendingAudio.append(contentsOf: c.pc88.takeAudioSamples().stereo)
+  let available = c.pendingAudio.count               // interleaved floats
   let wantFloats = Int(maxPairs) * 2
   let copyFloats = min(wantFloats, available)
   guard copyFloats > 0 else { return 0 }
-  sound.audioBuffer.withUnsafeBufferPointer { src in
+  c.pendingAudio.withUnsafeBufferPointer { src in
     outPtr.update(from: src.baseAddress!, count: copyFloats)
   }
   if copyFloats == available {
-    sound.audioBuffer.removeAll(keepingCapacity: true)
+    c.pendingAudio.removeAll(keepingCapacity: true)
   } else {
-    sound.audioBuffer.removeFirst(copyFloats)
+    c.pendingAudio.removeFirst(copyFloats)
   }
   return Int32(copyFloats / 2)
 }
@@ -435,19 +443,14 @@ public func b88_drain_audio(_ handle: UnsafeMutableRawPointer?,
 /// rate tracks the host audio device, keeping the host's queued latency
 /// (`fillPairs`) near `capacityPairs / 2`. Without this the emulator (paced by
 /// the 60 Hz frame loop) and XAudio2 (locked to 44.1 kHz) slowly drift, causing
-/// latency growth or dropouts. Ported verbatim from AudioOutput.adaptiveRate.
+/// latency growth or dropouts. The same correction macOS applies
+/// (`PC88.adjustAudioRate`).
 @_cdecl("b88_audio_rate_control")
 public func b88_audio_rate_control(_ handle: UnsafeMutableRawPointer?,
                                    _ fillPairs: Int32,
                                    _ capacityPairs: Int32) {
-  guard let c = context(handle) else { return }
-  let sound = c.machine.sound
-  let targetFill = Int(capacityPairs) / 2
-  let error = Int(fillPairs) - targetFill
-  let baseClock = sound.clock8MHz ? YM2608.baseCpuClockHz8MHz : YM2608.baseCpuClockHz4MHz
-  let maxAdj = baseClock / 200
-  let adj = max(-maxAdj, min(maxAdj, error * 16))
-  sound.cpuClockHz = baseClock + adj
+  context(handle)?.pc88.adjustAudioRate(bufferedFrames: Int(fillPairs),
+                                        capacityFrames: Int(capacityPairs))
 }
 
 // MARK: - Status
