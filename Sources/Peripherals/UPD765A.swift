@@ -1,7 +1,7 @@
 import Logging
 import PC88Types
 
-private let fdcLog = Logger(label: "EmulatorCore.UPD765A")
+private let fdcLog = Logger(label: "Bubilator88Core.UPD765A")
 
 @inline(__always) private func hexByte(_ v: UInt8) -> String {
   let s = String(v, radix: 16, uppercase: true)

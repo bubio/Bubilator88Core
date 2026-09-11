@@ -1,10 +1,10 @@
 // CApi.swift — C ABI shim for the Windows native port.
 //
-// The emulation core (EmulatorCore / Z80 / FMSynthesis / Peripherals) is a
+// The emulation core (Bubilator88Core / Z80 / FMSynthesis / Peripherals) is a
 // single Swift source of truth. To avoid a divergent second implementation,
 // the Windows shell (C# + WinUI 3) drives the SAME Swift core through this
 // thin `@_cdecl` layer compiled into `Bubilator88C.dll` and called via
-// P/Invoke. macOS keeps static-linking EmulatorCore directly and never sees
+// P/Invoke. macOS keeps static-linking Bubilator88Core directly and never sees
 // this file.
 //
 // Design:
@@ -18,7 +18,7 @@
 // symbols listed in a module-definition (.def) file or exported via
 // `-Xlinker /EXPORT:`. See docs/WINDOWS_PORT.md for the build recipe.
 
-import EmulatorCore
+import Bubilator88Core
 import Foundation
 
 /// Owns one emulated machine plus its render scratch state.

@@ -1,5 +1,5 @@
 import Foundation
-@_spi(Debug) import EmulatorCore
+@_spi(Debug) import Bubilator88Core
 import Logging
 import Z80
 import FMSynthesis
