@@ -147,6 +147,12 @@ public final class PC88: @unchecked Sendable {
     dipSw2 = (mode.dipSw2 & ~Machine.bootStrapBit) | (dipSw2 & Machine.bootStrapBit)
   }
 
+  /// `base` with the boot strap (DIP switch 2 bit 3) set for disk boot when
+  /// `hasDiskInDrive0`, ROM boot otherwise. For deciding ahead of mounting.
+  public static func resolvedBootStrap(base: UInt8, hasDiskInDrive0: Bool) -> UInt8 {
+    Machine.resolvedBootStrap(base: base, hasDiskInDrive0: hasDiskInDrive0)
+  }
+
   /// Set the boot strap (DIP switch 2 bit 3) from whether drive 0 holds a
   /// disk: disk boot if it does, straight to BASIC if not — an empty drive 0
   /// would otherwise sit through a ~30 second IPL timeout. With `base`, DIP
@@ -201,6 +207,39 @@ public final class PC88: @unchecked Sendable {
 
   public func isWriteProtected(drive: Int) -> Bool {
     machine.isWriteProtected(drive: drive)
+  }
+
+  /// The disk in a drive as it is now, guest writes included, or nil if the
+  /// drive is empty.
+  public func mountedDisk(drive: Int) -> D88Disk? {
+    guard drive >= 0, drive < machine.subSystem.drives.count else { return nil }
+    return machine.subSystem.drives[drive]
+  }
+
+  /// Called after the guest writes to or formats a disk, synchronously on
+  /// the thread running `runFrame()`. The drive number is the argument.
+  /// Pair it with `takeDirtyDiskImage(drive:)` to write disks back to files.
+  public var onDiskWritten: ((_ drive: Int) -> Void)? {
+    get { machine.subSystem.onDiskWritten }
+    set { machine.subSystem.onDiskWritten = newValue }
+  }
+
+  /// If the disk in `drive` has been written since it was mounted or last
+  /// taken, return its serialised D88 image and mark it clean — in one step,
+  /// so a write landing in between cannot be lost. Returns nil when there is
+  /// nothing to write back. Call `markDiskDirty(drive:)` if saving the image
+  /// fails, so the next attempt picks it up again.
+  public func takeDirtyDiskImage(drive: Int) -> [UInt8]? {
+    guard let disk = mountedDisk(drive: drive), disk.dirty,
+          let bytes = disk.serialize() else { return nil }
+    machine.subSystem.drives[drive]?.dirty = false
+    return bytes
+  }
+
+  /// Flag the disk in `drive` as needing write-back again.
+  public func markDiskDirty(drive: Int) {
+    guard drive >= 0, drive < machine.subSystem.drives.count else { return }
+    machine.subSystem.drives[drive]?.dirty = true
   }
 
   /// What the floppy drive mechanism just did, for drive sound effects.
@@ -319,7 +358,64 @@ public final class PC88: @unchecked Sendable {
     machine.bus.is400LineMode
   }
 
+  /// The 8×8 font ROM glyph for a character code, one byte per row, MSB on
+  /// the left. All zero when no font ROM is loaded.
+  public func glyph(for code: UInt8) -> [UInt8] {
+    machine.fontROM.glyph(for: code)
+  }
+
   // MARK: - Sound
+
+  /// Samples generated since the last `takeAudioSamples()`: interleaved
+  /// stereo Float32 (L, R, L, R, …) at `YM2608.sampleRate` (44.1kHz), −1…1.
+  public struct AudioSamples: Sendable {
+    /// The mixed output.
+    public var stereo: [Float]
+    /// The same span split by source, each interleaved stereo with the
+    /// chip's own panning. Empty unless `immersiveOutputEnabled`. The beeper
+    /// is mixed into `fm`.
+    public var fm: [Float]
+    public var ssg: [Float]
+    public var adpcm: [Float]
+    public var rhythm: [Float]
+  }
+
+  /// Take the audio produced by `runFrame()` so far and clear the chip's
+  /// buffers. Call it after every frame; nothing else empties them.
+  public func takeAudioSamples() -> AudioSamples {
+    let sound = machine.sound
+    let samples = AudioSamples(stereo: sound.audioBuffer,
+                               fm: sound.fmSpatialBuffer,
+                               ssg: sound.ssgSpatialBuffer,
+                               adpcm: sound.adpcmSpatialBuffer,
+                               rhythm: sound.rhythmSpatialBuffer)
+    // keepingCapacity: the chip appends every sample, so do not make it
+    // regrow the buffers from empty each frame.
+    sound.audioBuffer.removeAll(keepingCapacity: true)
+    sound.fmSpatialBuffer.removeAll(keepingCapacity: true)
+    sound.ssgSpatialBuffer.removeAll(keepingCapacity: true)
+    sound.adpcmSpatialBuffer.removeAll(keepingCapacity: true)
+    sound.rhythmSpatialBuffer.removeAll(keepingCapacity: true)
+    return samples
+  }
+
+  /// Nudge the sound chip's sample clock so its output keeps pace with the
+  /// host's audio device. The frame pacer and the device clock drift apart
+  /// slowly; left alone the host's queue grows (latency) or runs dry
+  /// (dropouts). Call after queueing each batch of samples, with how many
+  /// stereo frames the host has queued and how many it can hold; this keeps
+  /// the queue near half full. The correction is capped at ±0.5%.
+  public func adjustAudioRate(bufferedFrames: Int, capacityFrames: Int) {
+    let sound = machine.sound
+    let targetFill = capacityFrames / 2
+    let error = bufferedFrames - targetFill
+    let baseClock = sound.clock8MHz
+      ? YM2608.baseCpuClockHz8MHz
+      : YM2608.baseCpuClockHz4MHz
+    let maxAdj = baseClock / 200
+    let adj = max(-maxAdj, min(maxAdj, error * 16))
+    sound.cpuClockHz = baseClock + adj
+  }
 
   /// Haas-effect widening of mono FM/SSG output. Has no effect once a program
   /// pans an FM channel itself.

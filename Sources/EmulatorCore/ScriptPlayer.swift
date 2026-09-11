@@ -93,6 +93,10 @@ public final class ScriptPlayer {
     self.loader = loader
   }
 
+  public convenience init(pc88: PC88, loader: @escaping FileLoader) {
+    self.init(machine: pc88.machine, loader: loader)
+  }
+
   /// Replays a whole script in drive mode, where the player owns the clock.
   public func run(_ steps: [ScriptStep]) throws {
     for step in steps {
