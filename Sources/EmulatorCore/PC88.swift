@@ -24,7 +24,7 @@ public final class PC88: @unchecked Sendable {
 
   /// The machine this wraps. For the debugger and development tools only;
   /// everything else should go through `PC88`.
-  @_spi(Debug) public let machine: Machine
+  package let machine: Machine
 
   private let compositor = FrameCompositor()
 
@@ -330,16 +330,26 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Display
 
+  /// Width of every frame `render` produces, in pixels.
+  public static let frameWidth = ScreenRenderer.width
+  /// Height of every frame, in pixels. 200-line modes are line-doubled.
+  public static let frameHeight = ScreenRenderer.height400
+  /// Bytes in one frame: `frameWidth` × `frameHeight` × 4 (RGBA).
+  public static let frameBufferSize = ScreenRenderer.bufferSize400
+  /// The alpha `render(…, markTextPixels: true)` gives text-layer pixels;
+  /// every other pixel is 0xFF.
+  public static let textPixelAlpha = ScreenRenderer.textPixelAlphaTag
+
   /// Composite the current screen into `pixelBuffer`, which must hold
-  /// `ScreenRenderer.bufferSize400` bytes: 640×400 RGBA, with 200-line modes
+  /// `frameBufferSize` bytes: 640×400 RGBA, with 200-line modes
   /// line-doubled into it.
   ///
   /// - Parameters:
   ///   - blinkCursor: honour the cursor blink phase. Pass false while the
   ///     machine is paused, so a frozen frame does not keep blinking.
-  ///   - markTextPixels: tag text-layer pixels with
-  ///     `ScreenRenderer.textPixelAlphaTag` in the alpha channel, so a display
-  ///     shader can tell them apart (e.g. to exempt them from scanlines).
+  ///   - markTextPixels: tag text-layer pixels with `textPixelAlpha` in the
+  ///     alpha channel, so a display shader can tell them apart (e.g. to
+  ///     exempt them from scanlines).
   public func render(into pixelBuffer: inout [UInt8], blinkCursor: Bool,
                      markTextPixels: Bool = false) {
     compositor.render(machine, into: &pixelBuffer, blinkCursor: blinkCursor,

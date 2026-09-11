@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 import Peripherals
 
 @Suite("Pc88Bus Tests")

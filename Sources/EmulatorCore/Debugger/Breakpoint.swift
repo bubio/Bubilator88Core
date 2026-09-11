@@ -5,7 +5,7 @@ import Foundation
 /// Value type identified by ``id`` so UI lists can distinguish
 /// otherwise-equal entries. ``kind`` encodes both the CPU/bus target
 /// and the address, keeping the public API small.
-public struct Breakpoint: Identifiable, Hashable, Sendable {
+@_spi(Debug) public struct Breakpoint: Identifiable, Hashable, Sendable {
 
   public enum Kind: Hashable, Sendable {
     case mainPC(UInt16)

@@ -15,7 +15,7 @@ import Foundation
 /// still populate IX/IY/AF'/etc. even though PC-8801 software rarely
 /// uses them on the sub side, so diffing across two adjacent rows
 /// doesn't need to special-case sub vs main.
-public struct InstructionTraceEntry: Sendable, Hashable {
+@_spi(Debug) public struct InstructionTraceEntry: Sendable, Hashable {
   public let pc: UInt16
   public let af: UInt16
   public let bc: UInt16

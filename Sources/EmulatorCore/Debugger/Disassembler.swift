@@ -1,7 +1,7 @@
 import Foundation
 
 /// A single disassembled Z80 instruction.
-public struct DisassembledInstruction: Sendable, Hashable {
+@_spi(Debug) public struct DisassembledInstruction: Sendable, Hashable {
   public let address: UInt16
   public let bytes: [UInt8]
   public let mnemonic: String
@@ -17,7 +17,7 @@ public struct DisassembledInstruction: Sendable, Hashable {
 /// Keeps a best-effort mnemonic database that covers the vast majority of
 /// instructions encountered in PC-8801 ROMs and game code. Unknown opcodes
 /// fall back to `DB xx` form so instruction length is always correct.
-public enum Disassembler {
+@_spi(Debug) public enum Disassembler {
 
   /// Maximum Z80 instruction length (e.g. `DD CB d op`, `DD 36 d n`,
   /// `ED 43 nn nn`). We prefetch this many bytes and work on the

@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 import Z80
 import FMSynthesis
 import Peripherals

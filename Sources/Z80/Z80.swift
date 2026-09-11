@@ -2,110 +2,110 @@
 ///
 /// Communicates with the outside world exclusively through Bus protocol.
 /// Returns consumed T-states from each step() call.
-public final class Z80 {
+package final class Z80 {
 
   // MARK: - Register Pairs
 
   /// Main register set stored as 16-bit pairs for efficient access.
   /// Individual 8-bit registers are accessed via computed properties.
-  public var af: UInt16 = 0xFFFF
-  public var bc: UInt16 = 0x0000
-  public var de: UInt16 = 0x0000
-  public var hl: UInt16 = 0x0000
+  package var af: UInt16 = 0xFFFF
+  package var bc: UInt16 = 0x0000
+  package var de: UInt16 = 0x0000
+  package var hl: UInt16 = 0x0000
 
   /// Alternate register set (EXX / EX AF,AF')
-  public var af2: UInt16 = 0xFFFF
-  public var bc2: UInt16 = 0x0000
-  public var de2: UInt16 = 0x0000
-  public var hl2: UInt16 = 0x0000
+  package var af2: UInt16 = 0xFFFF
+  package var bc2: UInt16 = 0x0000
+  package var de2: UInt16 = 0x0000
+  package var hl2: UInt16 = 0x0000
 
   /// Index registers
-  public var ix: UInt16 = 0x0000
-  public var iy: UInt16 = 0x0000
+  package var ix: UInt16 = 0x0000
+  package var iy: UInt16 = 0x0000
 
   /// Stack pointer
-  public var sp: UInt16 = 0xFFFF
+  package var sp: UInt16 = 0xFFFF
 
   /// Program counter
-  public var pc: UInt16 = 0x0000
+  package var pc: UInt16 = 0x0000
 
   /// Interrupt vector base register (high byte for IM2 vector table)
-  public var i: UInt8 = 0x00
+  package var i: UInt8 = 0x00
 
   /// Memory refresh counter (incremented on each M1 cycle)
-  public var r: UInt8 = 0x00
+  package var r: UInt8 = 0x00
 
   /// Interrupt flip-flops
-  public var iff1: Bool = false
-  public var iff2: Bool = false
+  package var iff1: Bool = false
+  package var iff2: Bool = false
 
   /// Interrupt mode (0, 1, or 2). PC-8801 uses IM2.
-  public var im: UInt8 = 0
+  package var im: UInt8 = 0
 
   /// HALT state — CPU executes NOPs until interrupt
-  public var halted: Bool = false
+  package var halted: Bool = false
 
   /// EI delay — interrupts are enabled after the NEXT instruction following EI
   package var eiPending: Bool = false
 
   // MARK: - 8-bit Register Accessors
 
-  public var a: UInt8 {
+  package var a: UInt8 {
     get { UInt8(af >> 8) }
     set { af = (UInt16(newValue) << 8) | (af & 0x00FF) }
   }
 
-  public var f: UInt8 {
+  package var f: UInt8 {
     get { UInt8(af & 0x00FF) }
     set { af = (af & 0xFF00) | UInt16(newValue) }
   }
 
-  public var b: UInt8 {
+  package var b: UInt8 {
     get { UInt8(bc >> 8) }
     set { bc = (UInt16(newValue) << 8) | (bc & 0x00FF) }
   }
 
-  public var c: UInt8 {
+  package var c: UInt8 {
     get { UInt8(bc & 0x00FF) }
     set { bc = (bc & 0xFF00) | UInt16(newValue) }
   }
 
-  public var d: UInt8 {
+  package var d: UInt8 {
     get { UInt8(de >> 8) }
     set { de = (UInt16(newValue) << 8) | (de & 0x00FF) }
   }
 
-  public var e: UInt8 {
+  package var e: UInt8 {
     get { UInt8(de & 0x00FF) }
     set { de = (de & 0xFF00) | UInt16(newValue) }
   }
 
-  public var h: UInt8 {
+  package var h: UInt8 {
     get { UInt8(hl >> 8) }
     set { hl = (UInt16(newValue) << 8) | (hl & 0x00FF) }
   }
 
-  public var l: UInt8 {
+  package var l: UInt8 {
     get { UInt8(hl & 0x00FF) }
     set { hl = (hl & 0xFF00) | UInt16(newValue) }
   }
 
-  public var ixh: UInt8 {
+  package var ixh: UInt8 {
     get { UInt8(ix >> 8) }
     set { ix = (UInt16(newValue) << 8) | (ix & 0x00FF) }
   }
 
-  public var ixl: UInt8 {
+  package var ixl: UInt8 {
     get { UInt8(ix & 0x00FF) }
     set { ix = (ix & 0xFF00) | UInt16(newValue) }
   }
 
-  public var iyh: UInt8 {
+  package var iyh: UInt8 {
     get { UInt8(iy >> 8) }
     set { iy = (UInt16(newValue) << 8) | (iy & 0x00FF) }
   }
 
-  public var iyl: UInt8 {
+  package var iyl: UInt8 {
     get { UInt8(iy & 0x00FF) }
     set { iy = (iy & 0xFF00) | UInt16(newValue) }
   }
@@ -113,41 +113,41 @@ public final class Z80 {
   // MARK: - Flag Accessors
 
   /// Flag bit positions
-  public static let flagC: UInt8  = 0x01  // bit 0: Carry
-  public static let flagN: UInt8  = 0x02  // bit 1: Subtract
-  public static let flagPV: UInt8 = 0x04  // bit 2: Parity/Overflow
-  public static let flagF3: UInt8 = 0x08  // bit 3: undocumented (copy of bit 3)
-  public static let flagH: UInt8  = 0x10  // bit 4: Half carry
-  public static let flagF5: UInt8 = 0x20  // bit 5: undocumented (copy of bit 5)
-  public static let flagZ: UInt8  = 0x40  // bit 6: Zero
-  public static let flagS: UInt8  = 0x80  // bit 7: Sign
+  package static let flagC: UInt8  = 0x01  // bit 0: Carry
+  package static let flagN: UInt8  = 0x02  // bit 1: Subtract
+  package static let flagPV: UInt8 = 0x04  // bit 2: Parity/Overflow
+  package static let flagF3: UInt8 = 0x08  // bit 3: undocumented (copy of bit 3)
+  package static let flagH: UInt8  = 0x10  // bit 4: Half carry
+  package static let flagF5: UInt8 = 0x20  // bit 5: undocumented (copy of bit 5)
+  package static let flagZ: UInt8  = 0x40  // bit 6: Zero
+  package static let flagS: UInt8  = 0x80  // bit 7: Sign
 
-  public var flagC: Bool {
+  package var flagC: Bool {
     get { f & Self.flagC != 0 }
     set { if newValue { f |= Self.flagC } else { f &= ~Self.flagC } }
   }
 
-  public var flagN: Bool {
+  package var flagN: Bool {
     get { f & Self.flagN != 0 }
     set { if newValue { f |= Self.flagN } else { f &= ~Self.flagN } }
   }
 
-  public var flagPV: Bool {
+  package var flagPV: Bool {
     get { f & Self.flagPV != 0 }
     set { if newValue { f |= Self.flagPV } else { f &= ~Self.flagPV } }
   }
 
-  public var flagH: Bool {
+  package var flagH: Bool {
     get { f & Self.flagH != 0 }
     set { if newValue { f |= Self.flagH } else { f &= ~Self.flagH } }
   }
 
-  public var flagZ: Bool {
+  package var flagZ: Bool {
     get { f & Self.flagZ != 0 }
     set { if newValue { f |= Self.flagZ } else { f &= ~Self.flagZ } }
   }
 
-  public var flagS: Bool {
+  package var flagS: Bool {
     get { f & Self.flagS != 0 }
     set { if newValue { f |= Self.flagS } else { f &= ~Self.flagS } }
   }
@@ -158,14 +158,14 @@ public final class Z80 {
   /// upcoming instruction). Designed for cross-emulator diff workflows —
   /// dump the same format from BubiC and compare line-by-line to find the
   /// first divergent instruction.
-  public var onInstructionTrace: ((Z80) -> Void)?
+  package var onInstructionTrace: ((Z80) -> Void)?
 
   // MARK: - Initialization
 
-  public init() {}
+  package init() {}
 
   /// Cold reset — restores CPU to power-on state.
-  public func reset() {
+  package func reset() {
     // Align with BubiC (z80.cpp special_reset + reset):
     //   PC=SP=0, AF=ZF only (A=0, F=0x40), BC/DE/HL=0,
     //   shadow regs all 0, IX=IY=0xFFFF, I=R=0, IFF=0, IM=0.
@@ -193,7 +193,7 @@ public final class Z80 {
   // MARK: - Execution
 
   /// Execute one instruction and return consumed T-states.
-  public func step(bus: some Bus) -> Int {
+  package func step(bus: some Bus) -> Int {
     onInstructionTrace?(self)
 
     // Handle EI delay: if EI was executed last instruction, now enable interrupts
@@ -226,7 +226,7 @@ public final class Z80 {
 
   /// Service a maskable interrupt (IM2). Returns consumed T-states.
   /// `vector` is the low byte provided by the interrupting device.
-  public func interrupt(vector: UInt8, bus: some Bus) -> Int {
+  package func interrupt(vector: UInt8, bus: some Bus) -> Int {
     guard iff1 else { return 0 }
 
     iff1 = false
@@ -273,7 +273,7 @@ public final class Z80 {
   }
 
   /// Service a non-maskable interrupt. Returns consumed T-states.
-  public func nmi(bus: some Bus) -> Int {
+  package func nmi(bus: some Bus) -> Int {
     iff2 = iff1
     iff1 = false
 

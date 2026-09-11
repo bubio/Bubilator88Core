@@ -39,40 +39,40 @@ private func portIDToFlow(_ raw: UInt8) -> PIOFlowEntry.Port {
 /// `Sendable` in the sense that the reference is handed to that one queue and
 /// never touched concurrently. **Callers must keep that contract: all access
 /// from one serial queue, no concurrent reads from the UI thread.**
-public final class Machine: @unchecked Sendable {
+package final class Machine: @unchecked Sendable {
 
   // MARK: - Components
 
-  public let cpu: Z80
-  public let bus: Pc88Bus
-  public let interruptBox: InterruptControllerBox
-  public let keyboard: Keyboard
-  public let dma: DMAController
-  public let crtc: CRTC
-  public let fontROM: FontROM
-  public let sound: YM2608
-  public let subSystem: SubSystem
-  public let calendar: UPD1990A
-  public let usart: I8251
-  public let cassette: CassetteDeck
-  public let mouse: Mouse
+  package let cpu: Z80
+  package let bus: Pc88Bus
+  package let interruptBox: InterruptControllerBox
+  package let keyboard: Keyboard
+  package let dma: DMAController
+  package let crtc: CRTC
+  package let fontROM: FontROM
+  package let sound: YM2608
+  package let subSystem: SubSystem
+  package let calendar: UPD1990A
+  package let usart: I8251
+  package let cassette: CassetteDeck
+  package let mouse: Mouse
 
   /// Total T-states elapsed since reset
-  public var totalTStates: UInt64 = 0
+  package var totalTStates: UInt64 = 0
 
   // MARK: - Trace
 
   /// Trace log entry for debugging boot issues
-  public struct TraceEntry {
-    public let pc: UInt16
-    public let opcode: UInt8
-    public let ioPort: UInt16?
-    public let ioValue: UInt8?
-    public let isWrite: Bool
+  package struct TraceEntry {
+    package let pc: UInt16
+    package let opcode: UInt8
+    package let ioPort: UInt16?
+    package let ioValue: UInt8?
+    package let isWrite: Bool
   }
 
   /// Enable/disable execution trace logging
-  public var traceEnabled: Bool = false {
+  package var traceEnabled: Bool = false {
     didSet {
       if traceEnabled {
         bus.onIOAccess = { [weak self] port, value, isWrite in
@@ -85,10 +85,10 @@ public final class Machine: @unchecked Sendable {
   }
 
   /// Collected trace entries (capped at traceMaxEntries)
-  public var traceLog: [TraceEntry] = []
+  package var traceLog: [TraceEntry] = []
 
   /// Maximum number of trace entries to keep
-  public var traceMaxEntries: Int = 10_000
+  package var traceMaxEntries: Int = 10_000
 
   /// Pending I/O accesses captured during current instruction
   private var pendingIOTraces: [(port: UInt16, value: UInt8, isWrite: Bool)] = []
@@ -101,7 +101,7 @@ public final class Machine: @unchecked Sendable {
   /// routes through `debugRun(tStates:)` which consults the debugger
   /// before every main-CPU instruction and installs a sub-CPU hook
   /// on ``SubSystem``.
-  public var debugger: Debugger? {
+  package var debugger: Debugger? {
     didSet {
       if let dbg = debugger {
         subSystem.subCPUStepHook = { [weak dbg] pc in
@@ -191,7 +191,7 @@ public final class Machine: @unchecked Sendable {
   }
 
   /// Clock mode: true = 8MHz, false = 4MHz
-  public var clock8MHz: Bool = true {
+  package var clock8MHz: Bool = true {
     didSet {
       bus.cpuClock8MHz = clock8MHz
       sound.clock8MHz = clock8MHz
@@ -204,7 +204,7 @@ public final class Machine: @unchecked Sendable {
   /// Applied at reset only, like the real DIP switch — setting it mid-run
   /// changes the line time immediately but leaves the CRTC geometry alone,
   /// which is not a state real hardware can be in.
-  public var monitorType: MonitorType = .khz24 {
+  package var monitorType: MonitorType = .khz24 {
     didSet {
       crtc.monitorType = monitorType
       bus.monitorType = monitorType
@@ -215,7 +215,7 @@ public final class Machine: @unchecked Sendable {
   /// TVRAM and graphic-off GVRAM accesses; see `MEMORY_WAIT_STATES.md` §2.
   /// Separate from the boot mode (`Pc88Bus.bootModeStandard`), which is
   /// what decides the GVRAM wait table.
-  public var memoryWaitDip: Bool = false {
+  package var memoryWaitDip: Bool = false {
     didSet { bus.memoryWaitDip = memoryWaitDip }
   }
 
@@ -225,7 +225,7 @@ public final class Machine: @unchecked Sendable {
   /// (`CPU_CLOCKS 3993624`) and XM8 `pc8801.cpp:94`. The 0.16% difference
   /// from 8.0/4.0 MHz is inaudible, but every derived period below is
   /// supposed to be hardware-accurate, so start from the hardware number.
-  public var cpuClock: Double {
+  package var cpuClock: Double {
     clock8MHz ? 7_987_248.0 : 3_993_624.0
   }
 
@@ -240,7 +240,7 @@ public final class Machine: @unchecked Sendable {
   /// Rounded at the frame level rather than at the line level so that the
   /// VRTC period — the thing games actually pace off — carries no truncation
   /// error; `tStatesPerLine` absorbs it instead.
-  public var tStatesPerFrame: Int {
+  package var tStatesPerFrame: Int {
     let lines = crtc.dynamicTotalScanlines
     guard lines > 0 else { return 0 }
     return Int((cpuClock * Double(lines) / monitorType.horizontalFrequency).rounded())
@@ -248,7 +248,7 @@ public final class Machine: @unchecked Sendable {
 
   /// VSYNC frequency in Hz, for the host's frame pacer and the FPS readout.
   /// 55.42Hz on a 24kHz monitor with a 25-row screen; 62.42Hz on a 15kHz one.
-  public var frameRate: Double {
+  package var frameRate: Double {
     let lines = crtc.dynamicTotalScanlines
     guard lines > 0 else { return 0 }
     return monitorType.horizontalFrequency / Double(lines)
@@ -263,7 +263,7 @@ public final class Machine: @unchecked Sendable {
   ///
   /// Only honored by the fast path of `run(tStates:)`. Debugger / trace
   /// paths fall back to 1× (rare during normal play).
-  public var cpuOverclock: Int = 1 {
+  package var cpuOverclock: Int = 1 {
     didSet {
       if cpuOverclock < 1 { cpuOverclock = 1 }
       if cpuOverclock > 8 { cpuOverclock = 8 }
@@ -271,7 +271,7 @@ public final class Machine: @unchecked Sendable {
   }
 
   /// T-states per scanline (dynamic based on CRTC mode)
-  public var tStatesPerLine: Int {
+  package var tStatesPerLine: Int {
     tStatesPerFrame / crtc.dynamicTotalScanlines
   }
 
@@ -288,7 +288,7 @@ public final class Machine: @unchecked Sendable {
 
   // MARK: - Init
 
-  public init() {
+  package init() {
     self.cpu = Z80()
     self.bus = Pc88Bus()
     self.interruptBox = InterruptControllerBox()
@@ -355,7 +355,7 @@ public final class Machine: @unchecked Sendable {
   /// The default is a cold/power-on reset. Use `preserveRAM` for the PC-88
   /// front-panel RESET behavior where DRAM/VRAM contents remain available
   /// across the CPU and device reset sequence.
-  public func reset(preserveRAM: Bool = false) {
+  package func reset(preserveRAM: Bool = false) {
     cpu.reset()
     bus.reset(preserveRAM: preserveRAM)
     interruptBox.controller.reset()
@@ -413,18 +413,18 @@ public final class Machine: @unchecked Sendable {
   /// DIPSW2 bit 3 is the boot strap: disk boot (bit3=0) or straight to ROM
   /// (bit3=1). Falling back to a ROM boot when drive 0 is empty avoids the ~30
   /// second IPL timeout.
-  public static let bootStrapBit: UInt8 = 0x08
+  package static let bootStrapBit: UInt8 = 0x08
 
   /// Pure function returning `base` with the boot strap bit applied.
   /// `hasDiskInDrive0 == true` → disk boot (bit3=0)、`false` → ROM boot (bit3=1)。
-  public static func resolvedBootStrap(base: UInt8, hasDiskInDrive0: Bool) -> UInt8 {
+  package static func resolvedBootStrap(base: UInt8, hasDiskInDrive0: Bool) -> UInt8 {
     hasDiskInDrive0 ? (base & ~bootStrapBit) : (base | bootStrapBit)
   }
 
   /// Derives DIPSW2 bit 3 from whether drive 0 is currently occupied and writes
   /// the result to `bus.dipSw2`. With `base` omitted the current `bus.dipSw2` is
   /// the starting point, so only bit 3 changes.
-  public func applyBootStrap(base: UInt8? = nil) {
+  package func applyBootStrap(base: UInt8? = nil) {
     let start = base ?? bus.dipSw2
     bus.dipSw2 = Machine.resolvedBootStrap(base: start,
                                            hasDiskInDrive0: subSystem.drives[0] != nil)
@@ -470,7 +470,7 @@ public final class Machine: @unchecked Sendable {
   /// Execute one CPU instruction and advance all devices.
   /// Returns the number of T-states consumed.
   @discardableResult
-  public func tick() -> Int {
+  package func tick() -> Int {
     let cycles: Int
     bus.debugMainPC = cpu.pc
     bus.currentTState = totalTStates
@@ -548,7 +548,7 @@ public final class Machine: @unchecked Sendable {
   /// Run for approximately the given number of T-states.
   /// Returns actual T-states executed.
   @discardableResult
-  public func run(tStates target: Int) -> Int {
+  package func run(tStates target: Int) -> Int {
     // Debugger path: honour pause state, check PC breakpoints, and
     // enforce step-one-instruction semantics. Tick-based for clarity.
     if let debugger {
@@ -668,14 +668,14 @@ public final class Machine: @unchecked Sendable {
 
   /// Frame counter for freeze detection
   private var diagFrameCount: Int = 0
-  public private(set) var diagFreezeDetected = false
+  package private(set) var diagFreezeDetected = false
   private var diagFreezePC: UInt16 = 0
   private var diagFreezeCount: Int = 0
 
 
   /// Run for one frame (1/60th second worth of T-states).
   @discardableResult
-  public func runFrame() -> Int {
+  package func runFrame() -> Int {
     diagFrameCount += 1
     // Detect freeze: same PC for 3 consecutive checks (every ~1s)
     if diagFrameCount % 60 == 0 {
@@ -697,17 +697,17 @@ public final class Machine: @unchecked Sendable {
   // MARK: - ROM Loading
 
   /// Load N88-BASIC ROM from data.
-  public func loadN88BasicROM(_ data: [UInt8]) {
+  package func loadN88BasicROM(_ data: [UInt8]) {
     bus.n88BasicROM = data
   }
 
   /// Load N-BASIC ROM from data.
-  public func loadNBasicROM(_ data: [UInt8]) {
+  package func loadNBasicROM(_ data: [UInt8]) {
     bus.nBasicROM = data
   }
 
   /// Load N88 extended ROM bank (0-3, 8KB each).
-  public func loadN88ExtROM(bank: Int, data: [UInt8]) {
+  package func loadN88ExtROM(bank: Int, data: [UInt8]) {
     if bus.n88ExtROM == nil {
       bus.n88ExtROM = Array(repeating: Array(repeating: 0x00, count: 0x2000), count: 4)
     }
@@ -717,34 +717,34 @@ public final class Machine: @unchecked Sendable {
   }
 
   /// Load font ROM from data (256 chars × 8 bytes = 2048 bytes).
-  public func loadFontROM(_ data: [UInt8]) {
+  package func loadFontROM(_ data: [UInt8]) {
     fontROM.load(data)
   }
 
   /// Load Kanji ROM Level 1 data (128KB).
-  public func loadKanjiROM1(_ data: [UInt8]) {
+  package func loadKanjiROM1(_ data: [UInt8]) {
     bus.kanjiROM1 = data
   }
 
   /// Load Kanji ROM Level 2 data (128KB).
-  public func loadKanjiROM2(_ data: [UInt8]) {
+  package func loadKanjiROM2(_ data: [UInt8]) {
     bus.kanjiROM2 = data
   }
 
   /// Load DISK.ROM firmware for sub-CPU (8KB).
-  public func loadDiskROM(_ data: [UInt8]) {
+  package func loadDiskROM(_ data: [UInt8]) {
     subSystem.diskROM = data
   }
 
   /// Load rhythm WAV sample data for YM2608 (signed 16-bit PCM).
-  public func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
+  package func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
     sound.loadRhythmSample(index: index, data: data, sampleRate: sampleRate)
   }
 
   /// Install extended RAM (cards × banks × 32KB).
   /// Default: 1 card, 4 banks = 128KB. cards=0 disables extended RAM.
   /// cards=8 enables 1MB linear addressing via port 0xE3 (QUASI88-compatible).
-  public func installExtRAM(cards: Int = 1, banksPerCard: Int = 4) {
+  package func installExtRAM(cards: Int = 1, banksPerCard: Int = 4) {
     if cards <= 0 {
       bus.extRAM = nil
       return
@@ -757,22 +757,22 @@ public final class Machine: @unchecked Sendable {
   // MARK: - Disk Operations
 
   /// Mount a D88 disk image in the specified drive.
-  public func mountDisk(drive: Int, disk: D88Disk) {
+  package func mountDisk(drive: Int, disk: D88Disk) {
     subSystem.mountDisk(drive: drive, disk: disk)
   }
 
   /// Eject disk from the specified drive.
-  public func ejectDisk(drive: Int) {
+  package func ejectDisk(drive: Int) {
     subSystem.ejectDisk(drive: drive)
   }
 
   /// Set the write-protect flag on the disk mounted in the specified drive.
-  public func setWriteProtect(drive: Int, protected: Bool) {
+  package func setWriteProtect(drive: Int, protected: Bool) {
     subSystem.setWriteProtect(drive: drive, protected: protected)
   }
 
   /// Return whether the disk in the specified drive is write-protected.
-  public func isWriteProtected(drive: Int) -> Bool {
+  package func isWriteProtected(drive: Int) -> Bool {
     subSystem.isWriteProtected(drive: drive)
   }
 
@@ -781,16 +781,16 @@ public final class Machine: @unchecked Sendable {
   /// Mount a cassette image. Accepts T88 or raw CMT; the format is
   /// detected from the 24-byte T88 signature.
   @discardableResult
-  public func mountTape(data: Data) -> TapeFormat {
+  package func mountTape(data: Data) -> TapeFormat {
     return cassette.load(data: data)
   }
 
   /// Eject the cassette.
-  public func ejectTape() {
+  package func ejectTape() {
     cassette.eject()
   }
 
-  public func rewindTape() {
+  package func rewindTape() {
     cassette.rewindToStart()
   }
 }

@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 
 /// Differential tests that pin the optimized scanline loops in `ScreenRenderer`
 /// to a naive, obviously-correct reference implementation.

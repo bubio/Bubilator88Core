@@ -15,7 +15,7 @@ import Foundation
 ///   fixed width (4 digits for word registers, 2 digits for I/R).
 /// - `seq` starts at 0 for the oldest entry so index-based alignment
 ///   works when two emulators produce slightly different total counts.
-public enum InstructionTraceJSONL {
+@_spi(Debug) public enum InstructionTraceJSONL {
   public static func render(_ entries: [InstructionTraceEntry]) -> String {
     var out = ""
     out.reserveCapacity(entries.count * 160)

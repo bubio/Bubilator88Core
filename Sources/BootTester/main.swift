@@ -1,5 +1,5 @@
 import Foundation
-import EmulatorCore
+@_spi(Debug) import EmulatorCore
 import Logging
 import Z80
 import FMSynthesis

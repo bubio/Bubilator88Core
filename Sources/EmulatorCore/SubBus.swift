@@ -17,12 +17,12 @@ import Peripherals
 ///   0xFB read:  FDC Data Register
 ///   0xFB write: FDC Data Register
 ///   0xFC-0xFF:  PIO (sub side)
-public final class SubBus: Bus {
+package final class SubBus: Bus {
 
   // MARK: - Memory
 
   /// 32KB backing: [0x0000-0x1FFF] ROM, [0x2000-0x7FFF] initialized memory.
-  public var romram: [UInt8] = Array(repeating: 0x00, count: 0x8000)
+  package var romram: [UInt8] = Array(repeating: 0x00, count: 0x8000)
 
   static let initTable: [UInt8] = [
     // 0x2000
@@ -49,29 +49,29 @@ public final class SubBus: Bus {
   // MARK: - References
 
   /// PIO (for sub-side access on ports 0xFC-0xFF)
-  public var pio: PIO8255?
+  package var pio: PIO8255?
 
   /// FDC
-  public var fdc: UPD765A?
+  package var fdc: UPD765A?
 
   /// Current sub-CPU PC (set by SubSystem before each step)
-  public var currentSubPC: UInt16 = 0
+  package var currentSubPC: UInt16 = 0
 
   /// Motor state per drive (set by port 0xF8 write)
-  public var motorOn: [Bool] = [false, false, false, false]
+  package var motorOn: [Bool] = [false, false, false, false]
 
   /// Drive/side select (port 0xF4 write)
-  public var driveSelect: UInt8 = 0
+  package var driveSelect: UInt8 = 0
 
   // MARK: - Init
 
-  public init() {
+  package init() {
     initializeROMDefaults()
     initializeHigherMemory()
   }
 
   /// Load DISK.ROM (up to 8KB).
-  public func loadROM(_ data: [UInt8]) {
+  package func loadROM(_ data: [UInt8]) {
     initializeROMDefaults()
     let size = min(data.count, 0x2000)
     for i in 0..<size {
@@ -80,7 +80,7 @@ public final class SubBus: Bus {
   }
 
   /// Reset pattern-initialized backing memory.
-  public func reset() {
+  package func reset() {
     initializeHigherMemory()
     motorOn = [false, false, false, false]
     driveSelect = 0
@@ -128,11 +128,11 @@ public final class SubBus: Bus {
 
   // MARK: - Bus Protocol
 
-  public func memRead(_ addr: UInt16) -> UInt8 {
+  package func memRead(_ addr: UInt16) -> UInt8 {
     return romram[Int(addr) & 0x7FFF]
   }
 
-  public func memWrite(_ addr: UInt16, value: UInt8) {
+  package func memWrite(_ addr: UInt16, value: UInt8) {
     let mapped = Int(addr) & 0x7FFF
     // Only RAM area (0x4000-0x7FFF) is writable
     if mapped >= 0x4000 {
@@ -140,7 +140,7 @@ public final class SubBus: Bus {
     }
   }
 
-  public func ioRead(_ port: UInt16) -> UInt8 {
+  package func ioRead(_ port: UInt16) -> UInt8 {
     let p = UInt8(port & 0xFF)
     switch p {
     case 0xF8:
@@ -174,7 +174,7 @@ public final class SubBus: Bus {
     }
   }
 
-  public func ioWrite(_ port: UInt16, value: UInt8) {
+  package func ioWrite(_ port: UInt16, value: UInt8) {
     let p = UInt8(port & 0xFF)
     switch p {
     case 0xF4:

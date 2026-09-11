@@ -5,25 +5,25 @@
 /// Text: 80×25 characters, each 8×8 pixels, overlaid on graphics.
 ///
 /// Output: 640×200×4 bytes (RGBA8888).
-public struct ScreenRenderer {
+package struct ScreenRenderer {
 
-  public static let width = 640
-  public static let height = 200
-  public static let height400 = 400
-  public static let bytesPerPixel = 4
-  public static let bufferSize = width * height * bytesPerPixel
-  public static let bufferSize400 = width * height400 * bytesPerPixel
+  package static let width = 640
+  package static let height = 200
+  package static let height400 = 400
+  package static let bytesPerPixel = 4
+  package static let bufferSize = width * height * bytesPerPixel
+  package static let bufferSize400 = width * height400 * bytesPerPixel
 
   /// Text display dimensions
-  public static let textCols80 = 80
-  public static let textCols40 = 40
-  public static let textRows = 25
-  public static let charWidth = 8
-  public static let charHeight = 8
+  package static let textCols80 = 80
+  package static let textCols40 = 40
+  package static let textRows = 25
+  package static let charWidth = 8
+  package static let charHeight = 8
 
   /// Default 8-color palette (index → RGBA).
   /// Index = (Green << 2) | (Red << 1) | Blue
-  public static let defaultPalette: [(r: UInt8, g: UInt8, b: UInt8)] = [
+  package static let defaultPalette: [(r: UInt8, g: UInt8, b: UInt8)] = [
     (0x00, 0x00, 0x00),  // 0: Black
     (0x00, 0x00, 0xFF),  // 1: Blue
     (0xFF, 0x00, 0x00),  // 2: Red
@@ -37,7 +37,7 @@ public struct ScreenRenderer {
   /// Alpha value stamped on text-layer pixels when `markTextPixels` is on.
   /// Still effectively opaque, so nothing downstream renders differently —
   /// it only exists for the display shader to test against.
-  public static let textPixelAlphaTag: UInt8 = 0xFE
+  package static let textPixelAlphaTag: UInt8 = 0xFE
 
   /// Bit-spread lookup table: byte *j* of `spreadLUT[x]` holds bit (7 - j) of `x`.
   /// One load turns a VRAM byte into eight 0/1 pixel selectors, replacing the
@@ -173,10 +173,10 @@ public struct ScreenRenderer {
     }
   }
 
-  public init() {}
+  package init() {}
 
   /// Convert 3-bit bus palette entry to 8-bit RGB.
-  public static func expandPalette(_ busPalette: [(b: UInt8, r: UInt8, g: UInt8)]) -> [(r: UInt8, g: UInt8, b: UInt8)] {
+  package static func expandPalette(_ busPalette: [(b: UInt8, r: UInt8, g: UInt8)]) -> [(r: UInt8, g: UInt8, b: UInt8)] {
     return busPalette.map { entry in
       let r = UInt8(min(Int(entry.r) * 255 / 7, 255))
       let g = UInt8(min(Int(entry.g) * 255 / 7, 255))
@@ -186,7 +186,7 @@ public struct ScreenRenderer {
   }
 
   /// Render GVRAM planes to RGBA pixel buffer using default palette.
-  public func render(
+  package func render(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     greenVRAM: [UInt8],
@@ -202,7 +202,7 @@ public struct ScreenRenderer {
   }
 
   /// Render GVRAM planes to RGBA pixel buffer with custom palette.
-  public func renderWithPalette(
+  package func renderWithPalette(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     greenVRAM: [UInt8],
@@ -243,7 +243,7 @@ public struct ScreenRenderer {
 
   /// Render 200-line GVRAM into a 400-line buffer by doubling each scanline.
   /// Each 200-line row is written twice (row*2 and row*2+1).
-  public func renderDoubled(
+  package func renderDoubled(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     greenVRAM: [UInt8],
@@ -290,7 +290,7 @@ public struct ScreenRenderer {
 
   /// Render 640x200 attribute graphics into a 400-line buffer by doubling each scanline.
   /// Graphics bits come from ORed GVRAM planes; per-cell color/reverse come from text attributes.
-  public func renderAttributeGraph200(
+  package func renderAttributeGraph200(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     greenVRAM: [UInt8],
@@ -381,7 +381,7 @@ public struct ScreenRenderer {
   /// Render 640x400 attribute graphics.
   /// Blue plane provides the upper 200 lines, red plane the lower 200 lines.
   /// Per-cell color/reverse come from text attributes.
-  public func renderAttributeGraph400(
+  package func renderAttributeGraph400(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     attrData: [UInt8],
@@ -485,7 +485,7 @@ public struct ScreenRenderer {
   /// graphics renderers rewrite the whole buffer with 0xFF every frame, so the
   /// tag never survives into the next one. Off by default: only the on-screen
   /// render path sets it, keeping snapshots and the AI upscaler input untouched.
-  public func renderTextOverlay(
+  package func renderTextOverlay(
     textData: [UInt8],     // Character codes (cols×rows bytes)
     attrData: [UInt8],     // Attribute bytes (cols×rows bytes)
     fontROM: FontROM,

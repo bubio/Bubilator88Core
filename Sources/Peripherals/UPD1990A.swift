@@ -35,7 +35,7 @@ import ucrt
 ///   [3] = BCD day
 ///   [4] = (month << 4) | weekday
 ///   [5] = BCD year in cmd=7 extended read mode
-public final class UPD1990A {
+package final class UPD1990A {
 
   package struct CurrentTimeState {
     var sec: Int
@@ -56,7 +56,7 @@ public final class UPD1990A {
   private var shiftData: UInt64 = 0
 
   /// Calendar Data Output — exposed at port 0x40 bit 4.
-  public var cdo: Bool = false
+  package var cdo: Bool = false
 
   // MARK: - Command State
 
@@ -109,10 +109,10 @@ public final class UPD1990A {
 
   // MARK: - Init
 
-  public init() {}
+  package init() {}
 
   /// Reset to power-on state.
-  public func reset() {
+  package func reset() {
     shiftReg = Array(repeating: 0, count: 7)
     shiftData = 0
     cdo = false
@@ -128,7 +128,7 @@ public final class UPD1990A {
   // MARK: - Port I/O
 
   /// Port 0x10 write: update command bits and data input.
-  public func writeCommand(_ value: UInt8) {
+  package func writeCommand(_ value: UInt8) {
     command = value & 0x07      // bits 2-0: C0, C1, C2
     din = (value & 0x08) != 0   // bit 3: DIN
   }
@@ -136,7 +136,7 @@ public final class UPD1990A {
   /// Port 0x40 write: detect raw port edges.
   /// BubiC/XM8 latch STB on raw bit1 falling edge because the chip sees ~data bit1.
   /// CLK still shifts on raw bit2 rising edge.
-  public func writeControl(_ value: UInt8) {
+  package func writeControl(_ value: UInt8) {
     let risingEdge = ~prevCtrl & value
     let prevStb = (~prevCtrl) & 0x02
     let nextStb = (~value) & 0x02

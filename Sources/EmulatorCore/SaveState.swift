@@ -7,67 +7,67 @@ import Foundation
 
 // MARK: - Writer
 
-public struct SaveStateWriter: Sendable {
+package struct SaveStateWriter: Sendable {
   private var buffer: [UInt8] = []
 
-  public init() {}
+  package init() {}
 
-  public var data: [UInt8] { buffer }
-  public var count: Int { buffer.count }
+  package var data: [UInt8] { buffer }
+  package var count: Int { buffer.count }
 
-  public mutating func writeUInt8(_ v: UInt8) {
+  package mutating func writeUInt8(_ v: UInt8) {
     buffer.append(v)
   }
 
-  public mutating func writeUInt16(_ v: UInt16) {
+  package mutating func writeUInt16(_ v: UInt16) {
     buffer.append(UInt8(v & 0xFF))
     buffer.append(UInt8(v >> 8))
   }
 
-  public mutating func writeUInt32(_ v: UInt32) {
+  package mutating func writeUInt32(_ v: UInt32) {
     buffer.append(UInt8(v & 0xFF))
     buffer.append(UInt8((v >> 8) & 0xFF))
     buffer.append(UInt8((v >> 16) & 0xFF))
     buffer.append(UInt8(v >> 24))
   }
 
-  public mutating func writeUInt64(_ v: UInt64) {
+  package mutating func writeUInt64(_ v: UInt64) {
     for i in 0..<8 {
       buffer.append(UInt8((v >> (i * 8)) & 0xFF))
     }
   }
 
-  public mutating func writeInt(_ v: Int) {
+  package mutating func writeInt(_ v: Int) {
     writeUInt64(UInt64(bitPattern: Int64(v)))
   }
 
-  public mutating func writeInt32(_ v: Int32) {
+  package mutating func writeInt32(_ v: Int32) {
     writeUInt32(UInt32(bitPattern: v))
   }
 
-  public mutating func writeBool(_ v: Bool) {
+  package mutating func writeBool(_ v: Bool) {
     buffer.append(v ? 1 : 0)
   }
 
-  public mutating func writeFloat(_ v: Float) {
+  package mutating func writeFloat(_ v: Float) {
     writeUInt32(v.bitPattern)
   }
 
-  public mutating func writeDouble(_ v: Double) {
+  package mutating func writeDouble(_ v: Double) {
     writeUInt64(v.bitPattern)
   }
 
-  public mutating func writeBytes(_ data: [UInt8]) {
+  package mutating func writeBytes(_ data: [UInt8]) {
     buffer.append(contentsOf: data)
   }
 
-  public mutating func writeBytes(_ data: [UInt8], count: Int) {
+  package mutating func writeBytes(_ data: [UInt8], count: Int) {
     precondition(data.count >= count)
     buffer.append(contentsOf: data[0..<count])
   }
 
   /// Write a length-prefixed byte array (uint32 length + data).
-  public mutating func writeLengthPrefixedBytes(_ data: [UInt8]) {
+  package mutating func writeLengthPrefixedBytes(_ data: [UInt8]) {
     writeUInt32(UInt32(data.count))
     buffer.append(contentsOf: data)
   }
@@ -84,35 +84,35 @@ public enum SaveStateError: Error {
   case invalidData(String)
 }
 
-public struct SaveStateReader: Sendable {
+package struct SaveStateReader: Sendable {
   private let buffer: [UInt8]
   private(set) var position: Int = 0
 
-  public init(_ data: [UInt8]) {
+  package init(_ data: [UInt8]) {
     self.buffer = data
   }
 
-  public init(_ data: Data) {
+  package init(_ data: Data) {
     self.buffer = Array(data)
   }
 
-  public var remaining: Int { buffer.count - position }
+  package var remaining: Int { buffer.count - position }
 
-  public mutating func readUInt8() throws -> UInt8 {
+  package mutating func readUInt8() throws -> UInt8 {
     guard position < buffer.count else { throw SaveStateError.endOfData }
     let v = buffer[position]
     position += 1
     return v
   }
 
-  public mutating func readUInt16() throws -> UInt16 {
+  package mutating func readUInt16() throws -> UInt16 {
     guard position + 2 <= buffer.count else { throw SaveStateError.endOfData }
     let v = UInt16(buffer[position]) | (UInt16(buffer[position + 1]) << 8)
     position += 2
     return v
   }
 
-  public mutating func readUInt32() throws -> UInt32 {
+  package mutating func readUInt32() throws -> UInt32 {
     guard position + 4 <= buffer.count else { throw SaveStateError.endOfData }
     let v = UInt32(buffer[position])
       | (UInt32(buffer[position + 1]) << 8)
@@ -122,7 +122,7 @@ public struct SaveStateReader: Sendable {
     return v
   }
 
-  public mutating func readUInt64() throws -> UInt64 {
+  package mutating func readUInt64() throws -> UInt64 {
     guard position + 8 <= buffer.count else { throw SaveStateError.endOfData }
     var v: UInt64 = 0
     for i in 0..<8 {
@@ -132,27 +132,27 @@ public struct SaveStateReader: Sendable {
     return v
   }
 
-  public mutating func readInt() throws -> Int {
+  package mutating func readInt() throws -> Int {
     Int(Int64(bitPattern: try readUInt64()))
   }
 
-  public mutating func readInt32() throws -> Int32 {
+  package mutating func readInt32() throws -> Int32 {
     Int32(bitPattern: try readUInt32())
   }
 
-  public mutating func readBool() throws -> Bool {
+  package mutating func readBool() throws -> Bool {
     try readUInt8() != 0
   }
 
-  public mutating func readFloat() throws -> Float {
+  package mutating func readFloat() throws -> Float {
     Float(bitPattern: try readUInt32())
   }
 
-  public mutating func readDouble() throws -> Double {
+  package mutating func readDouble() throws -> Double {
     Double(bitPattern: try readUInt64())
   }
 
-  public mutating func readBytes(_ count: Int) throws -> [UInt8] {
+  package mutating func readBytes(_ count: Int) throws -> [UInt8] {
     guard position + count <= buffer.count else { throw SaveStateError.endOfData }
     let result = Array(buffer[position..<(position + count)])
     position += count
@@ -160,12 +160,12 @@ public struct SaveStateReader: Sendable {
   }
 
   /// Read a length-prefixed byte array (uint32 length + data).
-  public mutating func readLengthPrefixedBytes() throws -> [UInt8] {
+  package mutating func readLengthPrefixedBytes() throws -> [UInt8] {
     let count = Int(try readUInt32())
     return try readBytes(count)
   }
 
-  public mutating func skip(_ count: Int) throws {
+  package mutating func skip(_ count: Int) throws {
     guard position + count <= buffer.count else { throw SaveStateError.endOfData }
     position += count
   }

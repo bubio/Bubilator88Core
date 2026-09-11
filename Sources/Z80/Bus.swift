@@ -2,7 +2,7 @@
 ///
 /// I/O ports are 16-bit per Z80 specification.
 /// PC-88 implementation may internally mask to 8-bit.
-public protocol Bus: AnyObject {
+package protocol Bus: AnyObject {
   func memRead(_ addr: UInt16) -> UInt8
   func memWrite(_ addr: UInt16, value: UInt8)
   func ioRead(_ port: UInt16) -> UInt8
@@ -23,5 +23,5 @@ public protocol Bus: AnyObject {
 
 extension Bus {
   @inline(__always)
-  public func opcodeRead(_ addr: UInt16) -> UInt8 { memRead(addr) }
+  package func opcodeRead(_ addr: UInt16) -> UInt8 { memRead(addr) }
 }

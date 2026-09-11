@@ -1,4 +1,4 @@
-import EmulatorCore
+@_spi(Debug) import EmulatorCore
 import Z80
 
 /// Simple Bus implementation for unit testing.

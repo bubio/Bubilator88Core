@@ -88,7 +88,7 @@ public final class ScriptPlayer {
   /// nil means the script never specified one.
   private var desiredClock8MHz: Bool?
 
-  public init(machine: Machine, loader: @escaping FileLoader) {
+  package init(machine: Machine, loader: @escaping FileLoader) {
     self.machine = machine
     self.loader = loader
   }

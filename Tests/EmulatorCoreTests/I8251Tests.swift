@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 import Peripherals
 
 @Suite("I8251 USART Tests")

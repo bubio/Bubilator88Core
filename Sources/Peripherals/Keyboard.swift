@@ -4,38 +4,38 @@
 /// 1 means not pressed (active low).
 ///
 /// Key names and the row layout: `PC88Key`.
-public final class Keyboard {
+package final class Keyboard {
 
   /// 15 rows of keyboard state. 0xFF = no keys pressed (active low).
-  public var matrix: [UInt8] = Array(repeating: 0xFF, count: 15)
+  package var matrix: [UInt8] = Array(repeating: 0xFF, count: 15)
 
-  public init() {}
+  package init() {}
 
-  public func reset() {
+  package func reset() {
     matrix = Array(repeating: 0xFF, count: 15)
   }
 
   /// Read a keyboard row (port 0x00-0x0E).
-  public func readRow(_ row: UInt8) -> UInt8 {
+  package func readRow(_ row: UInt8) -> UInt8 {
     let index = Int(row & 0x0F)
     guard index < 15 else { return 0xFF }
     return matrix[index]
   }
 
   /// Press a key (set bit to 0 = pressed, active low).
-  public func pressKey(row: Int, bit: Int) {
+  package func pressKey(row: Int, bit: Int) {
     guard row < 15, bit < 8 else { return }
     matrix[row] &= ~UInt8(1 << bit)
   }
 
   /// Release a key (set bit to 1 = released, active low).
-  public func releaseKey(row: Int, bit: Int) {
+  package func releaseKey(row: Int, bit: Int) {
     guard row < 15, bit < 8 else { return }
     matrix[row] |= UInt8(1 << bit)
   }
 
   /// Release all keys.
-  public func releaseAll() {
+  package func releaseAll() {
     matrix = Array(repeating: 0xFF, count: 15)
   }
 }

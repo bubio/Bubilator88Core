@@ -14,11 +14,11 @@ import PC88Types
 /// BubiC-8801MA behavior — roughly 1.7× real 1200 bps). DCD is asserted as
 /// long as there is remaining data and the drive is engaged; we do not
 /// model the brief carrier gaps between header and body blocks.
-public final class CassetteDeck {
+package final class CassetteDeck {
 
-  public static let t88Signature: [UInt8] = Array("PC-8801 Tape Image(T88)".utf8)
+  package static let t88Signature: [UInt8] = Array("PC-8801 Tape Image(T88)".utf8)
 
-  public var bytePeriodTStates: Int = 5000
+  package var bytePeriodTStates: Int = 5000
 
   /// T-states that must elapse after the motor engages before the first
   /// byte is injected into the USART. Real hardware needs a sync-run
@@ -27,18 +27,18 @@ public final class CassetteDeck {
   /// 1,000,000 cycles (~125 ms @ 8MHz); without the delay, the first
   /// bytes arrive before BASIC is ready and the sync-pattern scan never
   /// catches on — LOAD appears to hang indefinitely.
-  public var primeDelayTStates: Int = 1_000_000
+  package var primeDelayTStates: Int = 1_000_000
 
-  public private(set) var buffer: [UInt8] = []
-  public private(set) var bufPtr: Int = 0
+  package private(set) var buffer: [UInt8] = []
+  package private(set) var bufPtr: Int = 0
   /// Positions in `buffer` where a data carrier starts. T88 sources
   /// populate this from tag 0x0102/0x0103; raw CMT sources scan for
   /// sync patterns after load.
-  public private(set) var dataCarriers: [Int] = []
+  package private(set) var dataCarriers: [Int] = []
   /// O(1) lookup mirror of `dataCarriers` for the hot path in `tick()`.
   private var dataCarrierSet: Set<Int> = []
 
-  public var motorOn: Bool = false {
+  package var motorOn: Bool = false {
     didSet {
       if !motorOn {
         tickAccum = 0
@@ -46,7 +46,7 @@ public final class CassetteDeck {
       }
     }
   }
-  public var cmtSelected: Bool = false
+  package var cmtSelected: Bool = false
 
   /// Playback state machine. BubiC `EVENT_CMT_SEND` / `EVENT_CMT_DCD`:
   /// each carrier boundary asserts DCD=high for `primeDelayTStates`,
@@ -57,28 +57,28 @@ public final class CassetteDeck {
   private var phase: Phase = .carrierPrime
 
   /// True when a tape image has been loaded (buffer is non-empty).
-  public var isLoaded: Bool { !buffer.isEmpty }
+  package var isLoaded: Bool { !buffer.isEmpty }
 
   /// Playback position as 0.0–1.0 (0 when no tape is loaded).
-  public var progress: Double {
+  package var progress: Double {
     buffer.isEmpty ? 0 : Double(bufPtr) / Double(buffer.count)
   }
 
   private weak var usart: I8251?
   private var tickAccum: Int = 0
 
-  public init(usart: I8251? = nil) {
+  package init(usart: I8251? = nil) {
     self.usart = usart
   }
 
-  public func attach(usart: I8251) {
+  package func attach(usart: I8251) {
     self.usart = usart
   }
 
   // MARK: - Loading
 
   @discardableResult
-  public func load(data: Data) -> TapeFormat {
+  package func load(data: Data) -> TapeFormat {
     if isT88(data) {
       loadT88(data: data)
       return .t88
@@ -88,7 +88,7 @@ public final class CassetteDeck {
     }
   }
 
-  public func loadT88(data: Data) {
+  package func loadT88(data: Data) {
     buffer.removeAll(keepingCapacity: false)
     dataCarriers.removeAll(keepingCapacity: false)
     bufPtr = 0
@@ -124,7 +124,7 @@ public final class CassetteDeck {
     dataCarrierSet = Set(dataCarriers)
   }
 
-  public func loadCMT(data: Data) {
+  package func loadCMT(data: Data) {
     buffer = Array(data)
     dataCarriers = CassetteDeck.scanCarriers(buffer)
     dataCarrierSet = Set(dataCarriers)
@@ -134,14 +134,14 @@ public final class CassetteDeck {
   }
 
   /// Rewind tape to the beginning without unloading.
-  public func rewindToStart() {
+  package func rewindToStart() {
     bufPtr = 0
     tickAccum = 0
     phase = .carrierPrime
   }
 
   /// Eject / unload.
-  public func eject() {
+  package func eject() {
     buffer.removeAll(keepingCapacity: false)
     dataCarriers.removeAll(keepingCapacity: false)
     dataCarrierSet.removeAll()
@@ -164,7 +164,7 @@ public final class CassetteDeck {
   /// Scans a CMT raw stream for sync runs (`0xD3` × ≥10 for BASIC
   /// headers, `0x9C` × ≥6 for machine-language headers) and returns the
   /// byte offsets at which each run begins.
-  public static func scanCarriers(_ bytes: [UInt8]) -> [Int] {
+  package static func scanCarriers(_ bytes: [UInt8]) -> [Int] {
     var result: [Int] = []
     var i = 0
     while i < bytes.count {
@@ -191,7 +191,7 @@ public final class CassetteDeck {
   /// T-states elapsed since the previous call. Does nothing when the
   /// motor is off, CMT is not the selected USART channel, or the tape
   /// is exhausted.
-  public func tick(tStates: Int) {
+  package func tick(tStates: Int) {
     guard motorOn, cmtSelected, let usart = usart else { return }
     tickAccum += tStates
     while true {
@@ -242,7 +242,7 @@ public final class CassetteDeck {
   /// loader to backtrack after a failed header-checksum test so that
   /// the bytes consumed during the test don't mask a valid 0x3A that
   /// happened to be among them.
-  public func seek(to position: Int) {
+  package func seek(to position: Int) {
     bufPtr = max(0, min(position, buffer.count))
   }
 
@@ -252,7 +252,7 @@ public final class CassetteDeck {
   /// high-speed loader triggered from port 0x00 write, which reads
   /// bytes directly out of the tape as fast as Hudson's boot monitor
   /// asks for them.
-  public func readByte() -> UInt8? {
+  package func readByte() -> UInt8? {
     guard bufPtr < buffer.count else { return nil }
     let b = buffer[bufPtr]
     bufPtr += 1
@@ -266,7 +266,7 @@ public final class CassetteDeck {
   /// windows (before the first byte of each block) and after tape
   /// exhaustion; LOW while bytes are actively streaming; LOW when the
   /// drive is idle.
-  public var dcd: Bool {
+  package var dcd: Bool {
     guard motorOn, cmtSelected else { return false }
     switch phase {
     case .carrierPrime: return true
@@ -290,7 +290,7 @@ public final class CassetteDeck {
   ///   bufPtr(i64), tickAccum(i64),
   ///   bufferLen(u32), buffer[bufferLen],
   ///   carrierCount(u32), carriers[carrierCount] (each i64).
-  public func serializeState() -> [UInt8] {
+  package func serializeState() -> [UInt8] {
     var out: [UInt8] = []
     out.reserveCapacity(64 + buffer.count + dataCarriers.count * 8)
     out.append(2)  // version
@@ -308,7 +308,7 @@ public final class CassetteDeck {
     return out
   }
 
-  public func deserializeState(_ data: [UInt8]) {
+  package func deserializeState(_ data: [UInt8]) {
     let version = data.first ?? 0
     switch version {
     case 2:  deserializeV2(data)

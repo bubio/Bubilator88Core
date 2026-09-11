@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 
 @Suite("Debugger Tests")
 struct DebuggerTests {
