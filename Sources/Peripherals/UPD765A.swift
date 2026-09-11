@@ -1,4 +1,5 @@
 import Logging
+import PC88Types
 
 private let fdcLog = Logger(label: "EmulatorCore.UPD765A")
 

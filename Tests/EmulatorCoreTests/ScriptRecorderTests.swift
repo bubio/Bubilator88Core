@@ -4,9 +4,9 @@ import Testing
 @Suite("Script Recorder Tests")
 struct ScriptRecorderTests {
 
-  private let z = Keyboard.z
-  private let a = Keyboard.a
-  private let b = Keyboard.b
+  private let z = PC88Key.z
+  private let a = PC88Key.a
+  private let b = PC88Key.b
 
   /// Helper that feeds events while advancing frameIndex.
   private func rec(setup: [ScriptStep] = []) -> ScriptRecorder { ScriptRecorder(setup: setup) }
@@ -107,11 +107,11 @@ struct ScriptRecorderTests {
       .diskMount(drive: 0, path: "/g.d88", image: 0),
     ]
     let r = rec(setup: setup)
-    r.frameIndex = 300; r.keyDown(Keyboard.space); r.frameIndex = 302; r.keyUp(Keyboard.space)
+    r.frameIndex = 300; r.keyDown(PC88Key.space); r.frameIndex = 302; r.keyUp(PC88Key.space)
     r.frameIndex = 302
     #expect(r.finish() == setup + [
       .wait(frames: 300),
-      .key(Keyboard.space, .tap(hold: 2)),
+      .key(PC88Key.space, .tap(hold: 2)),
     ])
   }
 
@@ -121,7 +121,7 @@ struct ScriptRecorderTests {
     let setup: [ScriptStep] = [.boot(.n88v2), .clock(mhz: 4),
                                .diskMount(drive: 0, path: "/sorpack.d88", image: 0)]
     let r = rec(setup: setup)
-    r.frameIndex = 120; r.keyDown(Keyboard.space); r.frameIndex = 122; r.keyUp(Keyboard.space)
+    r.frameIndex = 120; r.keyDown(PC88Key.space); r.frameIndex = 122; r.keyUp(PC88Key.space)
     r.frameIndex = 200; r.keyDown(z); r.frameIndex = 260; r.keyUp(z)   // long hold
     r.frameIndex = 260
     let steps = r.finish()

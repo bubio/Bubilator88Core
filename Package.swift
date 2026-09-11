@@ -43,10 +43,20 @@ let package = Package(
                 .unsafeFlags(["-O"], .when(configuration: .debug)),
             ]
         ),
+        // Plain values that cross from the machine to its users: which key,
+        // which disk image, which monitor. The one module EmulatorCore
+        // re-exports, so the parts below it can stay hidden.
+        .target(
+            name: "PC88Types",
+            swiftSettings: [
+                .unsafeFlags(["-O"], .when(configuration: .debug)),
+            ]
+        ),
         .target(
             name: "Peripherals",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
+                "PC88Types",
             ],
             swiftSettings: [
                 .unsafeFlags(["-O"], .when(configuration: .debug)),
@@ -59,6 +69,7 @@ let package = Package(
                 "Z80",
                 "FMSynthesis",
                 "Peripherals",
+                "PC88Types",
             ],
             swiftSettings: [
                 .unsafeFlags(["-O"], .when(configuration: .debug)),
@@ -88,7 +99,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EmulatorCoreTests",
-            dependencies: ["EmulatorCore", "Z80", "FMSynthesis", "Peripherals"]
+            dependencies: ["EmulatorCore", "Z80", "FMSynthesis", "Peripherals", "PC88Types"]
         ),
     ]
 )

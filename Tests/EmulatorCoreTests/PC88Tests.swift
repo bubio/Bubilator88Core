@@ -96,12 +96,13 @@ struct PC88Tests {
 
   @Test func keysReachTheMatrix() {
     let pc88 = PC88()
-    pc88.pressKey(Keyboard.a)
-    #expect(pc88.machine.keyboard.matrix[Keyboard.a.row] & (1 << Keyboard.a.bit) == 0)
-    pc88.releaseKey(Keyboard.a)
-    #expect(pc88.machine.keyboard.matrix[Keyboard.a.row] == 0xFF)
-    pc88.pressKey(Keyboard.a)
-    pc88.pressKey(Keyboard.kp0)
+    // The named keys are statics on PC88Key, so the implicit member form works.
+    pc88.pressKey(.a)
+    #expect(pc88.machine.keyboard.matrix[PC88Key.a.row] & (1 << PC88Key.a.bit) == 0)
+    pc88.releaseKey(.a)
+    #expect(pc88.machine.keyboard.matrix[PC88Key.a.row] == 0xFF)
+    pc88.pressKey(.a)
+    pc88.pressKey(.kp0)
     pc88.releaseAllKeys()
     #expect(pc88.machine.keyboard.matrix.allSatisfy { $0 == 0xFF })
   }

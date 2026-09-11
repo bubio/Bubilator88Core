@@ -48,8 +48,8 @@ struct KeyboardTests {
     let kb = Keyboard()
 
     // Press 'A' (row 2, bit 1) and Space (row 9, bit 6)
-    kb.pressKey(row: Keyboard.a.row, bit: Keyboard.a.bit)
-    kb.pressKey(row: Keyboard.space.row, bit: Keyboard.space.bit)
+    kb.pressKey(row: PC88Key.a.row, bit: PC88Key.a.bit)
+    kb.pressKey(row: PC88Key.space.row, bit: PC88Key.space.bit)
 
     #expect(kb.readRow(0x02) == 0xFD)  // A pressed
     #expect(kb.readRow(0x09) == 0xBF)  // Space pressed
@@ -81,11 +81,11 @@ struct KeyboardTests {
   }
 
   @Test func keyConstants() {
-    #expect(Keyboard.space == Keyboard.Key(9, 6))
-    #expect(Keyboard.a == Keyboard.Key(2, 1))
-    #expect(Keyboard.esc == Keyboard.Key(9, 7))
-    #expect(Keyboard.ctrl == Keyboard.Key(8, 7))
-    #expect(Keyboard.shift == Keyboard.Key(8, 6))
+    #expect(PC88Key.space == PC88Key(9, 6))
+    #expect(PC88Key.a == PC88Key(2, 1))
+    #expect(PC88Key.esc == PC88Key(9, 7))
+    #expect(PC88Key.ctrl == PC88Key(8, 7))
+    #expect(PC88Key.shift == PC88Key(8, 6))
   }
 
   @Test func wiredToBus() {

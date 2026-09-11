@@ -61,31 +61,31 @@ struct ScriptParserTests {
   // MARK: - key
 
   @Test func keyDownUp() throws {
-    let ret = Keyboard.Key(1, 7)
+    let ret = PC88Key(1, 7)
     #expect(try ScriptParser.parse("key RETURN down") == [.key(ret, .down)])
     #expect(try ScriptParser.parse("key return up") == [.key(ret, .up)])
   }
 
   @Test func keyTapDefaultAndExplicitHold() throws {
-    let sp = Keyboard.Key(9, 6)
+    let sp = PC88Key(9, 6)
     #expect(try ScriptParser.parse("key SPACE tap") == [.key(sp, .tap(hold: 2))])
     #expect(try ScriptParser.parse("key space tap 5") == [.key(sp, .tap(hold: 5))])
   }
 
   @Test func keyNamesResolveToMatrix() throws {
-    #expect(try ScriptParser.parse("key A tap") == [.key(Keyboard.Key(2, 1), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key z tap") == [.key(Keyboard.Key(5, 2), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key 0 tap") == [.key(Keyboard.Key(6, 0), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key 9 tap") == [.key(Keyboard.Key(7, 1), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key f1 tap") == [.key(Keyboard.Key(9, 1), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key f10 tap") == [.key(Keyboard.Key(12, 4), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key kp0 tap") == [.key(Keyboard.Key(0, 0), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key shift down") == [.key(Keyboard.Key(8, 6), .down)])
+    #expect(try ScriptParser.parse("key A tap") == [.key(PC88Key(2, 1), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key z tap") == [.key(PC88Key(5, 2), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key 0 tap") == [.key(PC88Key(6, 0), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key 9 tap") == [.key(PC88Key(7, 1), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key f1 tap") == [.key(PC88Key(9, 1), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key f10 tap") == [.key(PC88Key(12, 4), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key kp0 tap") == [.key(PC88Key(0, 0), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key shift down") == [.key(PC88Key(8, 6), .down)])
   }
 
   @Test func keyRowBitNotation() throws {
-    #expect(try ScriptParser.parse("key 2-1 tap") == [.key(Keyboard.Key(2, 1), .tap(hold: 2))])
-    #expect(try ScriptParser.parse("key 0x0a-3 tap") == [.key(Keyboard.Key(10, 3), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key 2-1 tap") == [.key(PC88Key(2, 1), .tap(hold: 2))])
+    #expect(try ScriptParser.parse("key 0x0a-3 tap") == [.key(PC88Key(10, 3), .tap(hold: 2))])
   }
 
   @Test func keyBadThrows() {
@@ -232,7 +232,7 @@ struct ScriptParserTests {
       .clock(mhz: 8),
       .diskMount(drive: 0, path: "Ys.d88", image: 0),
       .wait(frames: 90),
-      .key(Keyboard.Key(1, 7), .tap(hold: 2)),
+      .key(PC88Key(1, 7), .tap(hold: 2)),
       .wait(frames: 90),
       .diskSelect(drive: 0, image: 1),
       .wait(frames: 300),

@@ -15,10 +15,10 @@ public enum ScriptWriter {
     return out
   }
 
-  /// The canonical key name for a `Keyboard.Key`, the inverse of
+  /// The canonical key name for a `PC88Key`, the inverse of
   /// `ScriptParser.key(named:)`. Keys without a name fall back to row-bit
   /// notation, `"\(row)-\(bit)"`.
-  public static func keyName(for key: Keyboard.Key) -> String {
+  public static func keyName(for key: PC88Key) -> String {
     if let name = canonicalNames[key] { return name }
     return "\(key.row)-\(key.bit)"
   }
@@ -61,7 +61,7 @@ public enum ScriptWriter {
     return out
   }
 
-  private static func keyLine(_ key: Keyboard.Key, _ action: KeyAction) -> String {
+  private static func keyLine(_ key: PC88Key, _ action: KeyAction) -> String {
     let name = keyName(for: key)
     switch action {
     case .down:           return "key \(name) down"
@@ -78,16 +78,16 @@ public enum ScriptWriter {
 
   // MARK: - Canonical reverse key-name table
 
-  /// `Keyboard.Key` to its canonical name. `ScriptParser.keyNameTable` is not
+  /// `PC88Key` to its canonical name. `ScriptParser.keyNameTable` is not
   /// injective — esc/escape, and return/enter/kpreturn/kpenter, map to the same
   /// key — so colliding keys get an explicit canonical name seeded up front and
   /// the rest are reversed one-to-one. Every alias parses back to the same key,
   /// so the round-trip holds whichever name is chosen; these match
   /// docs/develop/BOOTTESTER.md for readability.
-  private static let canonicalNames: [Keyboard.Key: String] = {
-    var rev: [Keyboard.Key: String] = [
-      Keyboard.kpReturn: "return",
-      Keyboard.esc: "esc",
+  private static let canonicalNames: [PC88Key: String] = {
+    var rev: [PC88Key: String] = [
+      PC88Key.kpReturn: "return",
+      PC88Key.esc: "esc",
     ]
     for (name, key) in ScriptParser.keyNameTable where rev[key] == nil {
       rev[key] = name

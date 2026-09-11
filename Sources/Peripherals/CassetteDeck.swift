@@ -1,6 +1,7 @@
 #if canImport(Foundation)
 import Foundation
 #endif
+import PC88Types
 
 /// Cassette tape playback deck (CMT).
 ///
@@ -76,10 +77,8 @@ public final class CassetteDeck {
 
   // MARK: - Loading
 
-  public enum Format { case t88, cmt }
-
   @discardableResult
-  public func load(data: Data) -> Format {
+  public func load(data: Data) -> TapeFormat {
     if isT88(data) {
       loadT88(data: data)
       return .t88

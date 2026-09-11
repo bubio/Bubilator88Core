@@ -1,3 +1,5 @@
+import PC88Types
+
 /// uPD3301 CRTC behavioral model.
 ///
 /// Manages scanline timing, VRTC (vertical retrace) flag,

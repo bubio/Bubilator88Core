@@ -33,7 +33,7 @@ struct ScriptPlayerTests {
     return (player, m)
   }
 
-  private func pressed(_ m: Machine, _ key: Keyboard.Key) -> Bool {
+  private func pressed(_ m: Machine, _ key: PC88Key) -> Bool {
     (m.keyboard.matrix[key.row] & UInt8(1 << key.bit)) == 0
   }
 
@@ -122,7 +122,7 @@ struct ScriptPlayerTests {
 
   @Test func keyDownPersistsAcrossWaits() throws {
     let (p, m) = makePlayer()
-    let a = Keyboard.Key(2, 1)
+    let a = PC88Key(2, 1)
     try p.run([.key(a, .down), .wait(frames: 10)])
     // `down` is never auto-released, so it stays held after the run ends
     #expect(pressed(m, a))
@@ -130,14 +130,14 @@ struct ScriptPlayerTests {
 
   @Test func keyUpReleases() throws {
     let (p, m) = makePlayer()
-    let a = Keyboard.Key(2, 1)
+    let a = PC88Key(2, 1)
     try p.run([.key(a, .down), .key(a, .up), .wait(frames: 5)])
     #expect(!pressed(m, a))
   }
 
   @Test func tapHoldTiming() {
     let (p, m) = makePlayer()
-    let ret = Keyboard.Key(1, 7)
+    let ret = PC88Key(1, 7)
     p.applyKey(ret, .tap(hold: 3))
     #expect(pressed(m, ret))     // just pressed
     p.advance(2)
@@ -149,7 +149,7 @@ struct ScriptPlayerTests {
   @Test func tapHoldZeroClampedToOneFrame() {
     // §6: always held for at least one frame; hold 0 rounds up to 1.
     let (p, m) = makePlayer()
-    let ret = Keyboard.Key(1, 7)
+    let ret = PC88Key(1, 7)
     p.applyKey(ret, .tap(hold: 0))
     #expect(pressed(m, ret))     // still held right after the press, not released immediately
     p.advance(1)
@@ -158,7 +158,7 @@ struct ScriptPlayerTests {
 
   @Test func tapReleasedByFinish() throws {
     let (p, m) = makePlayer()
-    let sp = Keyboard.Key(9, 6)
+    let sp = PC88Key(9, 6)
     // hold is 100 but there is only wait 1, so finish releases it when run ends
     try p.run([.key(sp, .tap(hold: 100)), .wait(frames: 1)])
     #expect(!pressed(m, sp))
@@ -166,7 +166,7 @@ struct ScriptPlayerTests {
 
   @Test func explicitDownAfterTapStaysHeld() throws {
     let (p, m) = makePlayer()
-    let a = Keyboard.Key(2, 1)
+    let a = PC88Key(2, 1)
     try p.run([.key(a, .tap(hold: 2)), .key(a, .down), .wait(frames: 10)])
     // `down` cancels the pending tap release, so finish leaves it held
     #expect(pressed(m, a))
@@ -324,7 +324,7 @@ struct ScriptPlayerTests {
 
   @Test func liveTapHoldTiming() throws {
     let (p, m) = makePlayer()
-    let ret = Keyboard.Key(1, 7)
+    let ret = PC88Key(1, 7)
     // With no leading wait, beginLive presses the tap immediately.
     try p.beginLive([.key(ret, .tap(hold: 3)), .wait(frames: 5)])
     #expect(pressed(m, ret))             // just pressed
@@ -338,7 +338,7 @@ struct ScriptPlayerTests {
 
   @Test func liveWaitSchedulesKey() throws {
     let (p, m) = makePlayer()
-    let sp = Keyboard.Key(9, 6)
+    let sp = PC88Key(9, 6)
     try p.beginLive([.wait(frames: 3), .key(sp, .down)])
     #expect(!pressed(m, sp))             // not yet, still in the leading wait
     _ = try p.liveTick()                 // wait 3→2
@@ -368,7 +368,7 @@ struct ScriptPlayerTests {
 
   @Test func liveCancelReleasesHeldKeys() throws {
     let (p, m) = makePlayer()
-    let a = Keyboard.Key(2, 1)
+    let a = PC88Key(2, 1)
     try p.beginLive([.key(a, .down), .wait(frames: 10)])
     #expect(pressed(m, a))
     p.cancelLive()

@@ -28,9 +28,9 @@ public final class ScriptRecorder {
   private var actions: [PointAction] = []
 
   // Start frame and ordering of held keys, used to pair down with up.
-  private var downKeys: Set<Keyboard.Key> = []
-  private var downFrame: [Keyboard.Key: Int] = [:]
-  private var downSeq: [Keyboard.Key: Int] = [:]
+  private var downKeys: Set<PC88Key> = []
+  private var downFrame: [PC88Key: Int] = [:]
+  private var downSeq: [PC88Key: Int] = [:]
 
   /// A point-in-time action: the frame, a sequence number for stable sorting,
   /// and the step itself.
@@ -48,7 +48,7 @@ public final class ScriptRecorder {
   // MARK: - Event intake (called by host on the main thread)
 
   /// A real key press. OS auto-repeat — the same key already held — is ignored.
-  public func keyDown(_ key: Keyboard.Key) {
+  public func keyDown(_ key: PC88Key) {
     guard !downKeys.contains(key) else { return }
     downKeys.insert(key)
     downFrame[key] = frameIndex
@@ -56,7 +56,7 @@ public final class ScriptRecorder {
   }
 
   /// A real key release. Keys that are not held are ignored.
-  public func keyUp(_ key: Keyboard.Key) {
+  public func keyUp(_ key: PC88Key) {
     guard downKeys.contains(key) else { return }
     downKeys.remove(key)
     let fd = downFrame.removeValue(forKey: key) ?? frameIndex
@@ -107,7 +107,7 @@ public final class ScriptRecorder {
 
   // MARK: - Internals
 
-  private func emitInterval(key: Keyboard.Key, fd: Int, fu: Int, sd: Int) {
+  private func emitInterval(key: PC88Key, fd: Int, fu: Int, sd: Int) {
     let span = fu - fd
     if span <= Self.tapFoldThreshold {
       // Fold to a tap even for a same-frame release (span 0). The parser

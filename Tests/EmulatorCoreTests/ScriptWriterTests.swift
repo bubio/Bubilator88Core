@@ -7,21 +7,21 @@ struct ScriptWriterTests {
   // MARK: - keyName(for:)
 
   @Test func keyNameCanonicalNames() {
-    #expect(ScriptWriter.keyName(for: Keyboard.space) == "space")
-    #expect(ScriptWriter.keyName(for: Keyboard.z) == "z")
-    #expect(ScriptWriter.keyName(for: Keyboard.key0) == "0")
-    #expect(ScriptWriter.keyName(for: Keyboard.kp4) == "kp4")
-    #expect(ScriptWriter.keyName(for: Keyboard.f1) == "f1")
-    #expect(ScriptWriter.keyName(for: Keyboard.up) == "up")
-    #expect(ScriptWriter.keyName(for: Keyboard.shift) == "shift")
+    #expect(ScriptWriter.keyName(for: PC88Key.space) == "space")
+    #expect(ScriptWriter.keyName(for: PC88Key.z) == "z")
+    #expect(ScriptWriter.keyName(for: PC88Key.key0) == "0")
+    #expect(ScriptWriter.keyName(for: PC88Key.kp4) == "kp4")
+    #expect(ScriptWriter.keyName(for: PC88Key.f1) == "f1")
+    #expect(ScriptWriter.keyName(for: PC88Key.up) == "up")
+    #expect(ScriptWriter.keyName(for: PC88Key.shift) == "shift")
     // Colliding keys resolve to the canonical name
-    #expect(ScriptWriter.keyName(for: Keyboard.esc) == "esc")
-    #expect(ScriptWriter.keyName(for: Keyboard.kpReturn) == "return")
+    #expect(ScriptWriter.keyName(for: PC88Key.esc) == "esc")
+    #expect(ScriptWriter.keyName(for: PC88Key.kpReturn) == "return")
   }
 
   @Test func keyNameRowBitFallback() {
     // Keys absent from the table, e.g. row 14 bit 7, use row-bit notation
-    let key = Keyboard.Key(14, 7)
+    let key = PC88Key(14, 7)
     #expect(ScriptWriter.keyName(for: key) == "14-7")
     // And the parser reads that row-bit notation back
     #expect(ScriptParser.key(named: "14-7") == key)
@@ -43,10 +43,10 @@ struct ScriptWriterTests {
     #expect(ScriptWriter.write([.dipsw2(0x08)]) == "dipsw2 0x08\n")  // zero-padded to two digits
     #expect(ScriptWriter.write([.wait(frames: 90)]) == "wait 90\n")
     #expect(ScriptWriter.write([.wait(frames: 0)]) == "wait 0\n")
-    #expect(ScriptWriter.write([.key(Keyboard.space, .down)]) == "key space down\n")
-    #expect(ScriptWriter.write([.key(Keyboard.space, .up)]) == "key space up\n")
-    #expect(ScriptWriter.write([.key(Keyboard.z, .tap(hold: 2))]) == "key z tap\n")  // the default hold is omitted
-    #expect(ScriptWriter.write([.key(Keyboard.z, .tap(hold: 12))]) == "key z tap 12\n")
+    #expect(ScriptWriter.write([.key(PC88Key.space, .down)]) == "key space down\n")
+    #expect(ScriptWriter.write([.key(PC88Key.space, .up)]) == "key space up\n")
+    #expect(ScriptWriter.write([.key(PC88Key.z, .tap(hold: 2))]) == "key z tap\n")  // the default hold is omitted
+    #expect(ScriptWriter.write([.key(PC88Key.z, .tap(hold: 12))]) == "key z tap 12\n")
     #expect(ScriptWriter.write([.diskMount(drive: 0, path: "/a b.d88", image: 0)]) == "disk 0 \"/a b.d88\"\n")
     #expect(ScriptWriter.write([.diskMount(drive: 1, path: "/x.d88", image: 3)]) == "disk 1 \"/x.d88\" image 3\n")
     #expect(ScriptWriter.write([.diskSwap(drive: 1, path: "/y.d88", image: 0)]) == "disk swap 1 \"/y.d88\"\n")
@@ -66,7 +66,7 @@ struct ScriptWriterTests {
       .boot(.n88v2),
       .clock(mhz: 4),
       .wait(frames: 60),
-      .key(Keyboard.space, .tap(hold: 2)),
+      .key(PC88Key.space, .tap(hold: 2)),
     ])
     #expect(text == "boot n88-v2\nclock 4\nwait 60\nkey space tap\n")
   }
@@ -93,13 +93,13 @@ struct ScriptWriterTests {
   @Test func roundTripTimeline() throws {
     try roundTrip([
       .wait(frames: 300),
-      .key(Keyboard.space, .tap(hold: 2)),
+      .key(PC88Key.space, .tap(hold: 2)),
       .wait(frames: 60),
-      .key(Keyboard.z, .down),
+      .key(PC88Key.z, .down),
       .wait(frames: 30),
-      .key(Keyboard.z, .up),
+      .key(PC88Key.z, .up),
       .wait(frames: 12),
-      .key(Keyboard.kp4, .tap(hold: 6)),
+      .key(PC88Key.kp4, .tap(hold: 6)),
     ])
   }
 
@@ -123,7 +123,7 @@ struct ScriptWriterTests {
 
   @Test func roundTripRowBitKey() throws {
     // Keys outside the table round-trip too
-    try roundTrip([.key(Keyboard.Key(14, 7), .down)])
+    try roundTrip([.key(PC88Key(14, 7), .down)])
   }
 
   @Test func roundTripPathWithQuotesAndBackslashes() throws {
