@@ -9,24 +9,22 @@
 //
 // Design:
 //   * An opaque handle (`UnsafeMutableRawPointer`) wraps a `B88Context` that
-//     owns the `Machine`, a `ScreenRenderer`, and a reusable RGBA buffer.
-//   * The frame compositing logic (palette resolution + plane/text overlay) is
-//     ported here from `EmulatorViewModel+Rendering.swift`. That logic was
-//     already platform-agnostic (only `ScreenRenderer` + bus/CRTC reads), so
-//     the host receives finished RGBA and never re-implements palette math —
-//     this is what keeps macOS and Windows pixel-identical.
+//     owns a `PC88` and a reusable RGBA buffer.
+//   * Frames come from `PC88.render`, the same compositing the macOS app
+//     uses, so the host receives finished RGBA and never re-implements
+//     palette math — this is what keeps macOS and Windows pixel-identical.
 //
 // Export note: on Windows, SwiftPM dynamic libraries may need the `@_cdecl`
 // symbols listed in a module-definition (.def) file or exported via
 // `-Xlinker /EXPORT:`. See docs/WINDOWS_PORT.md for the build recipe.
 
-import EmulatorCore
+@_spi(Debug) import EmulatorCore
 import Foundation
 
 /// Owns one emulated machine plus its render scratch state.
 public final class B88Context {
-  let machine = Machine()
-  let renderer = ScreenRenderer()
+  let pc88 = PC88()
+  var machine: Machine { pc88.machine }
   /// Reusable 640×400 RGBA buffer; rendered into, then copied to the host.
   var pixelBuffer = [UInt8](repeating: 0, count: ScreenRenderer.bufferSize400)
   /// Last save-state blob produced by `b88_save_state`, stashed so the host
@@ -35,11 +33,11 @@ public final class B88Context {
   var saveStateBlob: [UInt8] = []
 
   /// Per-drive FDD sound event counters, sampled + cleared by
-  /// `b88_fdd_sound_events`. Distinct from `SubSystem.diskAccess` (which the
-  /// LED indicator uses) because the host needs to tell a seek step
+  /// `b88_fdd_sound_events`. Distinct from `PC88.takeDiskActivity()` (which
+  /// the LED indicator uses) because the host needs to tell a seek step
   /// (mechanical click) apart from a read/write access (buzz) to play the
-  /// matching synthesized sound — mirrors the macOS `EmulatorViewModel.init()`
-  /// wrapping of `fdc.onSeekStep`/`onDiskAccess`.
+  /// matching synthesized sound. The macOS app plays straight from
+  /// `PC88.onFDDEvent`; the C ABI polls, so the events are counted here.
   ///
   /// `fddSeekCount` is a COUNT, not a boolean: the host only samples once per
   /// rendered frame (~16.7ms), but a multi-track seek can fire `onSeekStep`
@@ -55,15 +53,12 @@ public final class B88Context {
   var fddAccessPulse: [Bool] = [false, false]
 
   init() {
-    let originalOnSeekStep = machine.subSystem.fdc.onSeekStep
-    machine.subSystem.fdc.onSeekStep = { [weak self] drive, track in
-      originalOnSeekStep?(drive, track)
-      if let self, drive < 2 { self.fddSeekCount[drive] += 1 }
-    }
-    let originalOnDiskAccess = machine.subSystem.fdc.onDiskAccess
-    machine.subSystem.fdc.onDiskAccess = { [weak self] drive in
-      originalOnDiskAccess?(drive)
-      if let self, drive < 2 { self.fddAccessPulse[drive] = true }
+    pc88.onFDDEvent = { [weak self] drive, event in
+      guard let self, drive < 2 else { return }
+      switch event {
+      case .seekStep: self.fddSeekCount[drive] += 1
+      case .access:   self.fddAccessPulse[drive] = true
+      }
     }
   }
 }
@@ -397,7 +392,11 @@ public func b88_render_rgba(_ handle: UnsafeMutableRawPointer?,
                             _ outLen: Int32,
                             _ blinkCursor: Int32) -> Int32 {
   guard let c = context(handle), let outPtr else { return 0 }
-  renderFrame(into: c, blinkCursor: blinkCursor != 0)
+  // markTextPixels stays off: it tags text pixels with alpha 0xFE so the macOS
+  // display shader can exempt text from scanline dimming, and the D3D11
+  // shader does not implement that yet — parity gap, tracked in
+  // windows/README.md.
+  c.pc88.render(into: &c.pixelBuffer, blinkCursor: blinkCursor != 0)
   let n = min(Int(outLen), c.pixelBuffer.count)
   guard n > 0 else { return 0 }
   c.pixelBuffer.withUnsafeBufferPointer { src in
@@ -461,10 +460,9 @@ public func b88_disk_access(_ handle: UnsafeMutableRawPointer?,
                             _ out0: UnsafeMutablePointer<Int32>?,
                             _ out1: UnsafeMutablePointer<Int32>?) {
   guard let c = context(handle) else { return }
-  let access = c.machine.subSystem.diskAccess
+  let access = c.pc88.takeDiskActivity()
   out0?.pointee = (access.count > 0 && access[0]) ? 1 : 0
   out1?.pointee = (access.count > 1 && access[1]) ? 1 : 0
-  c.machine.subSystem.diskAccess = [false, false]
 }
 
 /// Read and clear the per-drive FDD *sound* events: seek-step count (mechanical
@@ -486,168 +484,4 @@ public func b88_fdd_sound_events(_ handle: UnsafeMutableRawPointer?,
   access1?.pointee = c.fddAccessPulse[1] ? 1 : 0
   c.fddSeekCount = [0, 0]
   c.fddAccessPulse = [false, false]
-}
-
-// MARK: - Frame compositing (ported from EmulatorViewModel+Rendering.swift)
-//
-// Pure logic — `ScreenRenderer` + bus/CRTC reads only, no platform APIs. Kept
-// identical to the macOS path so both shells produce pixel-identical output.
-
-private func renderFrame(into c: B88Context, blinkCursor: Bool) {
-  let machine = c.machine
-  let renderer = c.renderer
-
-  let graphicsPalette = effectiveRenderPalette(
-    busPalette: machine.bus.palette,
-    graphicsColorMode: machine.bus.graphicsColorMode,
-    graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
-    analogPalette: machine.bus.analogPalette,
-    borderColor: machine.bus.borderColor
-  )
-  let textPalette = effectiveTextPalette(
-    busPalette: machine.bus.palette,
-    graphicsColorMode: machine.bus.graphicsColorMode,
-    analogPalette: machine.bus.analogPalette,
-    borderColor: machine.bus.borderColor
-  )
-  let planes = machine.bus.renderGVRAMPlanes()
-  let is400 = machine.bus.is400LineMode
-  let textData = machine.bus.readTextVRAM()
-  let attrData = machine.bus.readTextAttributes()
-  let crtcLines = Int(machine.crtc.linesPerScreen)
-  let attributeGraphAttrData = attributeGraphAttributes(
-    from: attrData,
-    textDisplayMode: machine.bus.textDisplayMode,
-    textRows: crtcLines,
-    reverseDisplay: machine.crtc.reverseDisplay
-  )
-
-  if machine.bus.graphicsColorMode {
-    renderer.renderDoubled(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      greenVRAM: planes.green,
-      palette: graphicsPalette,
-      into: &c.pixelBuffer
-    )
-  } else if is400 {
-    renderer.renderAttributeGraph400(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      attrData: attributeGraphAttrData,
-      palette: graphicsPalette,
-      columns80: machine.bus.columns80,
-      textRows: crtcLines,
-      graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
-      into: &c.pixelBuffer
-    )
-  } else {
-    renderer.renderAttributeGraph200(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      greenVRAM: planes.green,
-      attrData: attributeGraphAttrData,
-      palette: graphicsPalette,
-      columns80: machine.bus.columns80,
-      textRows: crtcLines,
-      graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
-      into: &c.pixelBuffer
-    )
-  }
-
-  let cursorVisible = blinkCursor
-    ? (machine.crtc.cursorEnabled && !machine.crtc.blinkCursorOff)
-    : machine.crtc.cursorEnabled
-
-  renderer.renderTextOverlay(
-    textData: textData,
-    attrData: attrData,
-    fontROM: machine.fontROM,
-    palette: textPalette,
-    displayEnabled: machine.bus.textDisplayEnabled,
-    columns80: machine.bus.columns80,
-    colorMode: machine.bus.colorMode,
-    attributeGraphMode: machine.bus.graphicsDisplayEnabled && !machine.bus.graphicsColorMode,
-    textRows: crtcLines,
-    cursorX: machine.crtc.cursorX,
-    cursorY: machine.crtc.cursorY,
-    cursorVisible: cursorVisible,
-    cursorBlock: (machine.crtc.cursorMode & 0x02) != 0,
-    // Always true: the pixel buffer is 640x400 regardless of display mode
-    // (200-line output is line-doubled into it), so text is drawn at the
-    // 400-line cell height to match. Nothing to do with the monitor type.
-    // (This parameter was called `hireso` when the Windows port was written.)
-    is400Line: true,
-    skipLine: machine.crtc.skipLine,
-    // markTextPixels tags text pixels with alpha 0xFE so the macOS display
-    // shader can exempt text from scanline dimming. The D3D11 shader does
-    // not implement that yet, so leave it off — parity gap, tracked in
-    // windows/README.md.
-    markTextPixels: false,
-    into: &c.pixelBuffer
-  )
-}
-
-// MARK: Palette helpers (ported verbatim, semantics must match macOS)
-
-private func port52BackgroundColor(_ value: UInt8) -> (r: UInt8, g: UInt8, b: UInt8) {
-  (
-    r: (value & 0x20) != 0 ? 0xFF : 0x00,
-    g: (value & 0x40) != 0 ? 0xFF : 0x00,
-    b: (value & 0x10) != 0 ? 0xFF : 0x00
-  )
-}
-
-private func attributeGraphAttributes(
-  from attrData: [UInt8],
-  textDisplayMode: Pc88Bus.TextDisplayMode,
-  textRows: Int,
-  reverseDisplay: Bool
-) -> [UInt8] {
-  guard textDisplayMode == .disabled else { return attrData }
-  let defaultAttr: UInt8 = 0xE0 | (reverseDisplay ? 0x01 : 0x00)
-  return Array(
-    repeating: defaultAttr,
-    count: max(textRows, 1) * ScreenRenderer.textCols80
-  )
-}
-
-private func effectiveRenderPalette(
-  busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
-  graphicsColorMode: Bool,
-  graphicsDisplayEnabled: Bool,
-  analogPalette: Bool,
-  borderColor: UInt8
-) -> [(r: UInt8, g: UInt8, b: UInt8)] {
-  let programmablePalette = ScreenRenderer.expandPalette(busPalette)
-  let backgroundColor = port52BackgroundColor(borderColor)
-  var palette = (graphicsColorMode || analogPalette)
-    ? programmablePalette
-    : ScreenRenderer.defaultPalette
-  if !graphicsColorMode {
-    palette[0] = backgroundColor
-  }
-  if graphicsColorMode && !graphicsDisplayEnabled {
-    palette[0] = ScreenRenderer.defaultPalette[0]
-  }
-  return palette
-}
-
-private func effectiveTextPalette(
-  busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
-  graphicsColorMode: Bool,
-  analogPalette: Bool,
-  borderColor: UInt8
-) -> [(r: UInt8, g: UInt8, b: UInt8)] {
-  let programmablePalette = ScreenRenderer.expandPalette(busPalette)
-  let backgroundColor = port52BackgroundColor(borderColor)
-  var palette = analogPalette && !graphicsColorMode
-    ? programmablePalette
-    : ScreenRenderer.defaultPalette
-  if graphicsColorMode {
-    palette[0] = programmablePalette[0]
-  } else {
-    palette[0] = backgroundColor
-  }
-  return palette
 }

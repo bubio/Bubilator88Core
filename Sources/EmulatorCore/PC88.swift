@@ -24,8 +24,23 @@ public final class PC88: @unchecked Sendable {
   /// everything else should go through `PC88`.
   @_spi(Debug) public let machine: Machine
 
+  private let compositor = FrameCompositor()
+
   public init() {
     machine = Machine()
+    // Chain onto the FDC hooks rather than replace them: SubSystem already
+    // uses them to set the disk activity flags `takeDiskActivity()` reads.
+    let fdc = machine.subSystem.fdc
+    let seekStep = fdc.onSeekStep
+    fdc.onSeekStep = { [weak self] drive, track in
+      seekStep?(drive, track)
+      self?.onFDDEvent?(drive, .seekStep)
+    }
+    let diskAccess = fdc.onDiskAccess
+    fdc.onDiskAccess = { [weak self] drive in
+      diskAccess?(drive)
+      self?.onFDDEvent?(drive, .access)
+    }
   }
 
   // MARK: - Lifecycle
@@ -188,6 +203,27 @@ public final class PC88: @unchecked Sendable {
     machine.isWriteProtected(drive: drive)
   }
 
+  /// What the floppy drive mechanism just did, for drive sound effects.
+  public enum FDDEvent: Sendable {
+    /// The head stepped one track. A multi-track seek fires one per track.
+    case seekStep
+    /// A sector was read, written or formatted.
+    case access
+  }
+
+  /// Called for every drive mechanism event, synchronously on the thread
+  /// running `runFrame()`, so several can arrive within one frame. Keep it
+  /// cheap; hand the work off if it is not.
+  public var onFDDEvent: ((_ drive: Int, _ event: FDDEvent) -> Void)?
+
+  /// Whether drive 0 and drive 1 have been active (seek or access) since the
+  /// last call, for access lamps. Clears the flags.
+  public func takeDiskActivity() -> [Bool] {
+    let activity = machine.subSystem.diskAccess
+    machine.subSystem.diskAccess = [false, false]
+    return activity
+  }
+
   // MARK: - Tape
 
   /// Load a cassette image, T88 or raw CMT. Returns the format detected.
@@ -252,6 +288,30 @@ public final class PC88: @unchecked Sendable {
   }
 
   // MARK: - Display
+
+  /// Composite the current screen into `pixelBuffer`, which must hold
+  /// `ScreenRenderer.bufferSize400` bytes: 640×400 RGBA, with 200-line modes
+  /// line-doubled into it.
+  ///
+  /// - Parameters:
+  ///   - blinkCursor: honour the cursor blink phase. Pass false while the
+  ///     machine is paused, so a frozen frame does not keep blinking.
+  ///   - markTextPixels: tag text-layer pixels with
+  ///     `ScreenRenderer.textPixelAlphaTag` in the alpha channel, so a display
+  ///     shader can tell them apart (e.g. to exempt them from scanlines).
+  public func render(into pixelBuffer: inout [UInt8], blinkCursor: Bool,
+                     markTextPixels: Bool = false) {
+    compositor.render(machine, into: &pixelBuffer, blinkCursor: blinkCursor,
+                      markTextPixels: markTextPixels)
+  }
+
+  /// `render(into:blinkCursor:markTextPixels:)` with the debugger's switch
+  /// for hiding the text layer.
+  @_spi(Debug) public func render(into pixelBuffer: inout [UInt8], blinkCursor: Bool,
+                                  textLayerEnabled: Bool, markTextPixels: Bool = false) {
+    compositor.render(machine, into: &pixelBuffer, blinkCursor: blinkCursor,
+                      textLayerEnabled: textLayerEnabled, markTextPixels: markTextPixels)
+  }
 
   /// True in 400-line monochrome mode. The frame is then 640×400 rather than
   /// 640×200 line-doubled, which the host needs to know to scale it.
