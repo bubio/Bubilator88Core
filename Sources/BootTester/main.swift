@@ -202,7 +202,7 @@ enum BootTestKeyAction {
 
 struct BootTestKeyFrameEvent {
   let frame: Int
-  let key: Keyboard.Key
+  let key: PC88Key
   let action: BootTestKeyAction
   let keyName: String
 }
@@ -210,9 +210,9 @@ struct BootTestKeyFrameEvent {
 // The key-name table lives in ScriptParser only, shared by BOOTTEST_KEY_EVENTS
 // and timeline scripts. parseBootTestKey below just delegates to it.
 
-/// Resolves a key name or row-bit notation to a Keyboard.Key, delegating to the
+/// Resolves a key name or row-bit notation to a PC88Key, delegating to the
 /// same shared table (ScriptParser) that timeline scripts use.
-func parseBootTestKey(_ token: String) -> Keyboard.Key? {
+func parseBootTestKey(_ token: String) -> PC88Key? {
   ScriptParser.key(named: token)
 }
 
@@ -626,8 +626,8 @@ print(String(format: "  DISK.ROM[0..3]: %02X %02X %02X %02X",
              m.subSystem.subBus.romram[2], m.subSystem.subBus.romram[3]))
 
 // PC-8801 keyboard matrix:
-//   "0" = row 6, bit 0 (Keyboard.key0)
-//   Return = row 1, bit 7 (Keyboard.kpReturn)
+//   "0" = row 6, bit 0 (PC88Key.key0)
+//   Return = row 1, bit 7 (PC88Key.kpReturn)
 var readyCount = 0
 var firstREADYFrame = -1
 var howManyFilesFrame = -1
@@ -1006,7 +1006,7 @@ if let loadStatePath {
   for frame in 0..<diskBootFrames {
     if let (dx, dy) = mouseMove { sm.mouse.injectMovement(dx: dx, dy: dy) }
     let frameEvents = loadStateKeyEvents[frame] ?? []
-    var tappedKeys: [Keyboard.Key] = []
+    var tappedKeys: [PC88Key] = []
     for event in frameEvents {
       switch event.action {
       case .press:
@@ -1482,7 +1482,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         print("  Main CPU trace enabled at frame \(frame)")
       }
       let frameEvents = scriptedKeyEventsByFrame[frame] ?? []
-      var tappedKeys: [Keyboard.Key] = []
+      var tappedKeys: [PC88Key] = []
       for event in frameEvents {
         switch event.action {
         case .press:

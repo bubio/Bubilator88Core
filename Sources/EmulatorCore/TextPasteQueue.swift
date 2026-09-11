@@ -21,8 +21,8 @@ public final class TextPasteQueue {
     public let down: Bool
   }
 
-  private static let shiftKey = Keyboard.shift
-  private static let kanaKey = Keyboard.kana
+  private static let shiftKey = PC88Key.shift
+  private static let kanaKey = PC88Key.kana
 
   /// Ticks per queued character (≈ 200ms @ 60fps).
   private static let ticksPerChar = 12
@@ -157,14 +157,14 @@ public final class TextPasteQueue {
   /// inverting `table`'s kana range (SJIS 0xA1–0xDF → U+FF61–FF9F) so the
   /// legend printed on the software keyboard is guaranteed to match what the
   /// emulator actually types when that key is pressed with KANA held.
-  public static let kanaLegend: [Keyboard.Key: KanaLegend] = {
-    var base: [Keyboard.Key: String] = [:]
-    var shifted: [Keyboard.Key: String] = [:]
+  public static let kanaLegend: [PC88Key: KanaLegend] = {
+    var base: [PC88Key: String] = [:]
+    var shifted: [PC88Key: String] = [:]
     // Kana bytes 0xA1–0xDF live at table[byte - 0x40]; 0xA0 slot is blank.
     for byte in 0xA1...0xDF {
       let code = table[byte - 0x40]
       guard code & 0x1000 != 0 else { continue }  // KANA-modified only
-      let key = Keyboard.Key((Int(code) >> 4) & 0x0F, Int(code) & 0x07)
+      let key = PC88Key((Int(code) >> 4) & 0x0F, Int(code) & 0x07)
       let scalar = Unicode.Scalar(0xFF61 + (byte - 0xA1))!
       let ch = String(Character(scalar))
       if code & 0x0100 != 0 {
@@ -173,7 +173,7 @@ public final class TextPasteQueue {
         base[key] = ch
       }
     }
-    var result: [Keyboard.Key: KanaLegend] = [:]
+    var result: [PC88Key: KanaLegend] = [:]
     let keys = Set(base.keys).union(shifted.keys)
     for key in keys {
       // A key with only a shifted kana still shows it as its base legend.

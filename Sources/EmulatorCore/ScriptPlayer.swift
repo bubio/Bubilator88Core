@@ -70,11 +70,11 @@ public final class ScriptPlayer {
   }
 
   /// Scheduled automatic releases for `tap`, holding the remaining frame count.
-  private var pendingReleases: [Keyboard.Key: Int] = [:]
+  private var pendingReleases: [PC88Key: Int] = [:]
 
   /// Keys held down by an explicit `down`, which are not auto-released.
   /// Tracked so that cancelling live playback does not strand them in the matrix.
-  private var heldDownKeys: Set<Keyboard.Key> = []
+  private var heldDownKeys: Set<PC88Key> = []
 
   /// Whether the setup → timeline transition has been finalized. Re-armed by reset.
   private var setupFinalized = false
@@ -297,7 +297,7 @@ public final class ScriptPlayer {
 
   // MARK: - Keyboard
 
-  func applyKey(_ key: Keyboard.Key, _ action: KeyAction) {  // internal so timing can be unit tested
+  func applyKey(_ key: PC88Key, _ action: KeyAction) {  // internal so timing can be unit tested
     switch action {
     case .down:
       machine.keyboard.pressKey(row: key.row, bit: key.bit)

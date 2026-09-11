@@ -160,9 +160,9 @@ struct TextPasteQueueTests {
 
   @Test func kanaLegendInvertsTable() {
     // ｱ = SJIS 0xB1 → table[0x71] → row 6 bit 3 + KANA (see kanaMapping()).
-    #expect(TextPasteQueue.kanaLegend[Keyboard.Key(6, 3)]?.base == "ｱ")
+    #expect(TextPasteQueue.kanaLegend[PC88Key(6, 3)]?.base == "ｱ")
     // ｶ = SJIS 0xB6 → table[0x76] = 0x1044 → row 4 bit 4 + KANA.
-    #expect(TextPasteQueue.kanaLegend[Keyboard.Key(4, 4)]?.base == "ｶ")
+    #expect(TextPasteQueue.kanaLegend[PC88Key(4, 4)]?.base == "ｶ")
     // Every legend character is half-width kana.
     for (_, legend) in TextPasteQueue.kanaLegend {
       for scalar in (legend.base + (legend.shifted ?? "")).unicodeScalars {

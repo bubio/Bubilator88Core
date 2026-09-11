@@ -3,7 +3,7 @@
 // Read this file first. Everything a host needs to drive a PC-8801 — boot it,
 // feed it ROMs, disks, tapes and keys, run it a frame at a time, save and
 // restore it — is reachable from `PC88`. The value types that cross this
-// boundary (`D88Disk`, `BootMode`, `MonitorType`, `Keyboard.Key`, …) live in
+// boundary (`D88Disk`, `BootMode`, `MonitorType`, `PC88Key`, …) live in
 // their own files but are public.
 //
 // `Machine` is the implementation: a container of components wired together
@@ -13,6 +13,7 @@
 // `Machine` directly. See docs/develop/EMULATOR_CORE_SPLIT.md §7.
 
 import Foundation
+@_exported import PC88Types
 
 /// A PC-8801-FA.
 ///
@@ -267,7 +268,7 @@ public final class PC88: @unchecked Sendable {
 
   /// Load a cassette image, T88 or raw CMT. Returns the format detected.
   @discardableResult
-  public func mountTape(data: Data) -> CassetteDeck.Format {
+  public func mountTape(data: Data) -> TapeFormat {
     machine.mountTape(data: data)
   }
 
@@ -290,11 +291,11 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Keyboard
 
-  public func pressKey(_ key: Keyboard.Key) {
+  public func pressKey(_ key: PC88Key) {
     machine.keyboard.pressKey(row: key.row, bit: key.bit)
   }
 
-  public func releaseKey(_ key: Keyboard.Key) {
+  public func releaseKey(_ key: PC88Key) {
     machine.keyboard.releaseKey(row: key.row, bit: key.bit)
   }
 

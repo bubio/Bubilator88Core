@@ -781,7 +781,7 @@ public final class Machine: @unchecked Sendable {
   /// Mount a cassette image. Accepts T88 or raw CMT; the format is
   /// detected from the 24-byte T88 signature.
   @discardableResult
-  public func mountTape(data: Data) -> CassetteDeck.Format {
+  public func mountTape(data: Data) -> TapeFormat {
     return cassette.load(data: data)
   }
 

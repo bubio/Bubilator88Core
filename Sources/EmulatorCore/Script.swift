@@ -59,7 +59,7 @@ public enum ScriptStep: Equatable, Sendable {
 
   // --- timeline ---
   case wait(frames: Int)
-  case key(Keyboard.Key, KeyAction)
+  case key(PC88Key, KeyAction)
   case diskSwap(drive: Int, path: String, image: Int)   // swap in a different file
   case diskSelect(drive: Int, image: Int)               // switch image within the same file
   case diskEject(drive: Int)
@@ -369,21 +369,21 @@ public enum ScriptParser {
   // MARK: Key name resolution
 
   /// Resolves a key name (case-insensitive) or `row-bit` notation to a
-  /// Keyboard.Key, or nil if it cannot be resolved. This is the shared entry
+  /// PC88Key, or nil if it cannot be resolved. This is the shared entry
   /// point, also used from outside by BootTester.
-  public static func key(named token: String) -> Keyboard.Key? {
+  public static func key(named token: String) -> PC88Key? {
     let name = token.lowercased()
     if let key = keyNameTable[name] { return key }
     return parseRowBit(name)  // row-bit notation, e.g. "2-1" or "0x0a-3"
   }
 
   /// Parser-internal: turns a failed lookup into an error carrying the line number.
-  static func resolveKey(_ token: String, line: Int) throws -> Keyboard.Key {
+  static func resolveKey(_ token: String, line: Int) throws -> PC88Key {
     if let key = key(named: token) { return key }
     throw ScriptError(line: line, format: "Unknown key name: %@", arguments: [token])
   }
 
-  private static func parseRowBit(_ token: String) -> Keyboard.Key? {
+  private static func parseRowBit(_ token: String) -> PC88Key? {
     let parts = token.split(separator: "-", maxSplits: 1)
     guard parts.count == 2 else { return nil }
     func num(_ s: Substring) -> Int? {
@@ -393,66 +393,66 @@ public enum ScriptParser {
     }
     guard let row = num(parts[0]), let bit = num(parts[1]),
           row >= 0, row < 15, bit >= 0, bit < 8 else { return nil }
-    return Keyboard.Key(row, bit)
+    return PC88Key(row, bit)
   }
 }
 
 // MARK: - Key name table
 
 extension ScriptParser {
-  /// String to Keyboard.Key. The single key-name table shared by timeline
+  /// String to PC88Key. The single key-name table shared by timeline
   /// scripts and BootTester's BOOTTEST_KEY_EVENTS; the Keyboard constants are
   /// the source of truth.
-  static let keyNameTable: [String: Keyboard.Key] = [
+  static let keyNameTable: [String: PC88Key] = [
     // Return / control
-    "return": Keyboard.kpReturn, "enter": Keyboard.kpReturn,
-    "space": Keyboard.space,
-    "esc": Keyboard.esc, "escape": Keyboard.esc,
-    "stop": Keyboard.stop, "tab": Keyboard.tab,
-    "help": Keyboard.help, "copy": Keyboard.copy,
+    "return": PC88Key.kpReturn, "enter": PC88Key.kpReturn,
+    "space": PC88Key.space,
+    "esc": PC88Key.esc, "escape": PC88Key.esc,
+    "stop": PC88Key.stop, "tab": PC88Key.tab,
+    "help": PC88Key.help, "copy": PC88Key.copy,
     // Modifiers
-    "shift": Keyboard.shift, "ctrl": Keyboard.ctrl,
-    "grph": Keyboard.grph, "kana": Keyboard.kana,
+    "shift": PC88Key.shift, "ctrl": PC88Key.ctrl,
+    "grph": PC88Key.grph, "kana": PC88Key.kana,
     // Arrows
-    "up": Keyboard.up, "down": Keyboard.down,
-    "left": Keyboard.left, "right": Keyboard.right,
+    "up": PC88Key.up, "down": PC88Key.down,
+    "left": PC88Key.left, "right": PC88Key.right,
     // Function keys
-    "f1": Keyboard.f1, "f2": Keyboard.f2, "f3": Keyboard.f3, "f4": Keyboard.f4,
-    "f5": Keyboard.f5, "f6": Keyboard.f6, "f7": Keyboard.f7, "f8": Keyboard.f8,
-    "f9": Keyboard.f9, "f10": Keyboard.f10,
+    "f1": PC88Key.f1, "f2": PC88Key.f2, "f3": PC88Key.f3, "f4": PC88Key.f4,
+    "f5": PC88Key.f5, "f6": PC88Key.f6, "f7": PC88Key.f7, "f8": PC88Key.f8,
+    "f9": PC88Key.f9, "f10": PC88Key.f10,
     // Digits
-    "0": Keyboard.key0, "1": Keyboard.key1, "2": Keyboard.key2, "3": Keyboard.key3,
-    "4": Keyboard.key4, "5": Keyboard.key5, "6": Keyboard.key6, "7": Keyboard.key7,
-    "8": Keyboard.key8, "9": Keyboard.key9,
+    "0": PC88Key.key0, "1": PC88Key.key1, "2": PC88Key.key2, "3": PC88Key.key3,
+    "4": PC88Key.key4, "5": PC88Key.key5, "6": PC88Key.key6, "7": PC88Key.key7,
+    "8": PC88Key.key8, "9": PC88Key.key9,
     // Letters
-    "a": Keyboard.a, "b": Keyboard.b, "c": Keyboard.c, "d": Keyboard.d,
-    "e": Keyboard.e, "f": Keyboard.f, "g": Keyboard.g, "h": Keyboard.h,
-    "i": Keyboard.i, "j": Keyboard.j, "k": Keyboard.k, "l": Keyboard.l,
-    "m": Keyboard.m, "n": Keyboard.n, "o": Keyboard.o, "p": Keyboard.p,
-    "q": Keyboard.q, "r": Keyboard.r, "s": Keyboard.s, "t": Keyboard.t,
-    "u": Keyboard.u, "v": Keyboard.v, "w": Keyboard.w, "x": Keyboard.x,
-    "y": Keyboard.y, "z": Keyboard.z,
+    "a": PC88Key.a, "b": PC88Key.b, "c": PC88Key.c, "d": PC88Key.d,
+    "e": PC88Key.e, "f": PC88Key.f, "g": PC88Key.g, "h": PC88Key.h,
+    "i": PC88Key.i, "j": PC88Key.j, "k": PC88Key.k, "l": PC88Key.l,
+    "m": PC88Key.m, "n": PC88Key.n, "o": PC88Key.o, "p": PC88Key.p,
+    "q": PC88Key.q, "r": PC88Key.r, "s": PC88Key.s, "t": PC88Key.t,
+    "u": PC88Key.u, "v": PC88Key.v, "w": PC88Key.w, "x": PC88Key.x,
+    "y": PC88Key.y, "z": PC88Key.z,
     // Symbols
-    "at": Keyboard.at,
-    "leftbracket": Keyboard.leftBracket, "rightbracket": Keyboard.rightBracket,
-    "yen": Keyboard.yen, "caret": Keyboard.caret, "minus": Keyboard.minus,
-    "colon": Keyboard.colon, "semicolon": Keyboard.semicolon,
-    "comma": Keyboard.comma, "period": Keyboard.period,
-    "slash": Keyboard.slash, "underscore": Keyboard.underscore,
+    "at": PC88Key.at,
+    "leftbracket": PC88Key.leftBracket, "rightbracket": PC88Key.rightBracket,
+    "yen": PC88Key.yen, "caret": PC88Key.caret, "minus": PC88Key.minus,
+    "colon": PC88Key.colon, "semicolon": PC88Key.semicolon,
+    "comma": PC88Key.comma, "period": PC88Key.period,
+    "slash": PC88Key.slash, "underscore": PC88Key.underscore,
     // Numeric keypad
-    "kp0": Keyboard.kp0, "kp1": Keyboard.kp1, "kp2": Keyboard.kp2, "kp3": Keyboard.kp3,
-    "kp4": Keyboard.kp4, "kp5": Keyboard.kp5, "kp6": Keyboard.kp6, "kp7": Keyboard.kp7,
-    "kp8": Keyboard.kp8, "kp9": Keyboard.kp9,
-    "kpreturn": Keyboard.kpReturn, "kpenter": Keyboard.kpReturn,
-    "kpplus": Keyboard.kpPlus, "kpminus": Keyboard.kpMinus,
-    "kpmultiply": Keyboard.kpMultiply, "kpdivide": Keyboard.kpDivide,
-    "kpequal": Keyboard.kpEqual, "kpcomma": Keyboard.kpComma,
-    "kpperiod": Keyboard.kpPeriod,
+    "kp0": PC88Key.kp0, "kp1": PC88Key.kp1, "kp2": PC88Key.kp2, "kp3": PC88Key.kp3,
+    "kp4": PC88Key.kp4, "kp5": PC88Key.kp5, "kp6": PC88Key.kp6, "kp7": PC88Key.kp7,
+    "kp8": PC88Key.kp8, "kp9": PC88Key.kp9,
+    "kpreturn": PC88Key.kpReturn, "kpenter": PC88Key.kpReturn,
+    "kpplus": PC88Key.kpPlus, "kpminus": PC88Key.kpMinus,
+    "kpmultiply": PC88Key.kpMultiply, "kpdivide": PC88Key.kpDivide,
+    "kpequal": PC88Key.kpEqual, "kpcomma": PC88Key.kpComma,
+    "kpperiod": PC88Key.kpPeriod,
     // Editing / paging / conversion
-    "clr": Keyboard.clr, "del": Keyboard.del, "bs": Keyboard.bs,
-    "ins": Keyboard.ins, "del2": Keyboard.del2, "capslock": Keyboard.capsLock,
-    "rollup": Keyboard.rollUp, "rolldown": Keyboard.rollDown,
-    "henkan": Keyboard.henkan, "kettei": Keyboard.kettei,
-    "pc": Keyboard.pc, "zenkaku": Keyboard.zenkaku,
+    "clr": PC88Key.clr, "del": PC88Key.del, "bs": PC88Key.bs,
+    "ins": PC88Key.ins, "del2": PC88Key.del2, "capslock": PC88Key.capsLock,
+    "rollup": PC88Key.rollUp, "rolldown": PC88Key.rollDown,
+    "henkan": PC88Key.henkan, "kettei": PC88Key.kettei,
+    "pc": PC88Key.pc, "zenkaku": PC88Key.zenkaku,
   ]
 }

@@ -382,12 +382,12 @@ public func b88_run_frame(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 
 @_cdecl("b88_press_key")
 public func b88_press_key(_ handle: UnsafeMutableRawPointer?, _ row: Int32, _ bit: Int32) {
-  context(handle)?.pc88.pressKey(Keyboard.Key(Int(row), Int(bit)))
+  context(handle)?.pc88.pressKey(PC88Key(Int(row), Int(bit)))
 }
 
 @_cdecl("b88_release_key")
 public func b88_release_key(_ handle: UnsafeMutableRawPointer?, _ row: Int32, _ bit: Int32) {
-  context(handle)?.pc88.releaseKey(Keyboard.Key(Int(row), Int(bit)))
+  context(handle)?.pc88.releaseKey(PC88Key(Int(row), Int(bit)))
 }
 
 // MARK: - Video
