@@ -147,4 +147,34 @@ struct PC88Tests {
     try restored.loadSaveState(state)
     #expect(restored.machine.bus.mainRAM[0x9000] == 0x5A)
   }
+
+  @Test func renderFillsTheWholeFrame() {
+    let pc88 = PC88()
+    pc88.reset()
+    var frame = [UInt8](repeating: 0x5A, count: ScreenRenderer.bufferSize400)
+    pc88.render(into: &frame, blinkCursor: false)
+    // Every pixel written: all alpha bytes opaque.
+    #expect(stride(from: 3, to: frame.count, by: 4).allSatisfy { frame[$0] == 0xFF })
+
+    var withTextLayer = [UInt8](repeating: 0, count: ScreenRenderer.bufferSize400)
+    pc88.render(into: &withTextLayer, blinkCursor: false, textLayerEnabled: true)
+    #expect(withTextLayer == frame)
+  }
+
+  @Test func fddEventsReachTheHostAndKeepTheActivityLamp() {
+    let pc88 = PC88()
+    var events: [(Int, PC88.FDDEvent)] = []
+    pc88.onFDDEvent = { drive, event in events.append((drive, event)) }
+
+    let fdc = pc88.machine.subSystem.fdc
+    fdc.onSeekStep?(1, 5)
+    fdc.onSeekStep?(1, 6)
+    fdc.onDiskAccess?(0)
+    #expect(events.map(\.0) == [1, 1, 0])
+    #expect(events.map(\.1) == [.seekStep, .seekStep, .access])
+
+    // SubSystem's own hooks still ran underneath.
+    #expect(pc88.takeDiskActivity() == [true, true])
+    #expect(pc88.takeDiskActivity() == [false, false])
+  }
 }
