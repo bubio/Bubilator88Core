@@ -315,95 +315,15 @@ func formatWatchContext(_ machine: Machine) -> String {
   return fields.joined(separator: " ")
 }
 
-func bootTestAttributeGraphAttributes(
-  from attrData: [UInt8],
-  textDisplayMode: Pc88Bus.TextDisplayMode,
-  textRows: Int,
-  reverseDisplay: Bool
-) -> [UInt8] {
-  guard textDisplayMode == .disabled else { return attrData }
-  let defaultAttr: UInt8 = 0xE0 | (reverseDisplay ? 0x01 : 0x00)
-  return Array(
-    repeating: defaultAttr,
-    count: max(textRows, 1) * ScreenRenderer.textCols80
-  )
-}
-
+/// The same compositing the app and the C ABI use (`PC88.render`), so the
+/// regression PPMs are the colours a user actually sees. Until 2026-09 this
+/// was a separate copy with a single palette, which skipped the port 0x52
+/// background, the palette-0 blackout while graphics are off, and the fixed
+/// digital text palette.
 func renderCurrentFrame(machine: Machine) -> [UInt8] {
-  let renderer = ScreenRenderer()
-  let palette = ScreenRenderer.expandPalette(machine.bus.palette)
-  let planes = machine.bus.renderGVRAMPlanes()
-  let is400 = machine.bus.is400LineMode
-  let textData = machine.bus.readTextVRAM()
-  let attrData = machine.bus.readTextAttributes()
-  let attributeGraphAttrData = bootTestAttributeGraphAttributes(
-    from: attrData,
-    textDisplayMode: machine.bus.textDisplayMode,
-    textRows: Int(machine.crtc.linesPerScreen),
-    reverseDisplay: machine.crtc.reverseDisplay
-  )
-  let crtcLines = Int(machine.crtc.linesPerScreen)
   var pixelBuffer = Array(repeating: UInt8(0), count: ScreenRenderer.bufferSize400)
-
-  if machine.bus.graphicsColorMode {
-    renderer.renderDoubled(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      greenVRAM: planes.green,
-      palette: palette,
-      into: &pixelBuffer
-    )
-  } else if is400 {
-    renderer.renderAttributeGraph400(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      attrData: attributeGraphAttrData,
-      palette: palette,
-      columns80: machine.bus.columns80,
-      textRows: crtcLines,
-      graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
-      into: &pixelBuffer
-    )
-  } else {
-    renderer.renderAttributeGraph200(
-      blueVRAM: planes.blue,
-      redVRAM: planes.red,
-      greenVRAM: planes.green,
-      attrData: attributeGraphAttrData,
-      palette: palette,
-      columns80: machine.bus.columns80,
-      textRows: crtcLines,
-      graphicsDisplayEnabled: machine.bus.graphicsDisplayEnabled,
-      into: &pixelBuffer
-    )
-  }
-
-  renderer.renderTextOverlay(
-    textData: textData,
-    attrData: attrData,
-    fontROM: machine.fontROM,
-    palette: palette,
-    displayEnabled: machine.bus.textDisplayEnabled,
-    columns80: machine.bus.columns80,
-    colorMode: machine.bus.colorMode,
-    // Fix exective.d88 menu white-out: in attribute-graphics mode,
-    // reverse cells must punch glyphs with palette 0 and let the
-    // graphics renderer invert the cell. Matches the app-side fix
-    // (commit 4ad0578b, EmulatorViewModel+Rendering.swift).
-    attributeGraphMode: machine.bus.graphicsDisplayEnabled && !machine.bus.graphicsColorMode,
-    textRows: crtcLines,
-    cursorX: machine.crtc.cursorX,
-    cursorY: machine.crtc.cursorY,
-    cursorVisible: machine.crtc.cursorEnabled,
-    cursorBlock: (machine.crtc.cursorMode & 0x02) != 0,
-    // Always true: the pixel buffer is 640×400 regardless of display mode
-    // (200-line output is line-doubled into it), so text is drawn at the
-    // 400-line cell height to match. Nothing to do with the monitor type.
-    is400Line: true,
-    skipLine: machine.crtc.skipLine,
-    into: &pixelBuffer
-  )
-
+  // No blink: a screenshot must not depend on where the blink phase fell.
+  FrameCompositor().render(machine, into: &pixelBuffer, blinkCursor: false)
   return pixelBuffer
 }
 
@@ -928,6 +848,14 @@ if ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil {
 // Save state load mode (BOOTTEST_LOAD_STATE)
 // Loads a .b88s save state file and runs frames from there.
 // ============================================================
+/// Wall-clock budget for a disk boot run before it is aborted as hung.
+/// The regression scripts raise it: their longest scenario (FRDemo) runs
+/// about 25s in a debug build, too close to the old fixed 30s.
+let maxWallSeconds: Double = {
+  let raw = ProcessInfo.processInfo.environment["BOOTTEST_MAX_WALL_SECONDS"] ?? ""
+  return Double(raw) ?? 30
+}()
+
 let loadStatePath: String? = {
   let raw = ProcessInfo.processInfo.environment["BOOTTEST_LOAD_STATE"] ?? ""
   return raw.isEmpty ? nil : raw
@@ -1868,9 +1796,10 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         print("    FDC total interrupts: \(dm.subSystem.fdcInterruptDeliveredCount)")
         print("    FDC pcn: [\(dm.subSystem.fdc.pcn[0]), \(dm.subSystem.fdc.pcn[1])]")
       }
-      // Safety: abort if single frame takes > 30s
-      if elapsed > 30.0 {
-        print("  ABORT: total elapsed \(elapsed)s > 30s at frame \(frame)")
+      // Safety: abort a run that has taken too long in wall-clock time
+      // (BOOTTEST_MAX_WALL_SECONDS, default 30s) — a hung boot, usually.
+      if elapsed > maxWallSeconds {
+        print("  ABORT: total elapsed \(elapsed)s > \(maxWallSeconds)s at frame \(frame)")
         print(String(format: "    subPC=%04X subIFF=%d subHalt=%d fdcPending=%d",
                      dm.subSystem.subCpu.pc, dm.subSystem.subCpu.iff1 ? 1 : 0,
                      dm.subSystem.subCpu.halted ? 1 : 0,

@@ -3,7 +3,8 @@
 // Resolves the palettes from the bus, picks the graphics renderer for the
 // current mode, and lays the text layer over it. This used to be written out
 // twice, in the macOS app (EmulatorViewModel+Rendering.swift) and in CApi for
-// the Windows shell; both now call `PC88.render`, which lands here.
+// the Windows shell, and BootTester had a third that differed; the app and
+// CApi now call `PC88.render`, which lands here, and BootTester calls it too.
 
 /// Composites the graphics and text layers of a `Machine` into a 640×400
 /// RGBA buffer. Stateless apart from the `ScreenRenderer` it reuses.

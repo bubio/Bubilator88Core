@@ -172,7 +172,7 @@ struct Mode400LineTests {
   // MARK: - ScreenRenderer: 400-line render
 
   // 400-line mode is rendered by `renderAttributeGraph400` (see the dispatch
-  // in EmulatorViewModel.renderCurrentFrame and BootTester). The plain
+  // in FrameCompositor.render). The plain
   // monochrome renderer it replaced produced identical output for the default
   // attribute 0xE0 — white foreground, no reverse — which is what these tests
   // pin down, along with the blue=upper / red=lower plane split.
