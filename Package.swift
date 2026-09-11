@@ -2,6 +2,17 @@
 
 import PackageDescription
 
+// The core runs about ten times slower at -Onone, too slow to play in a Debug
+// build, so it is optimised in every configuration.
+//
+// SwiftPM refuses unsafe flags in a dependency pinned by version. Release tags
+// therefore point at a commit of their own where this is empty, made by
+// scripts/tag-release.sh; main keeps the flag. Nothing else in this file may
+// use unsafeFlags on the EmulatorCore product's targets, or tagging breaks.
+let alwaysOptimize: [SwiftSetting] = [
+    .unsafeFlags(["-O"], .when(configuration: .debug)),
+]
+
 let package = Package(
     name: "EmulatorCore",
     platforms: [
@@ -27,9 +38,7 @@ let package = Package(
     targets: [
         .target(
             name: "Z80",
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ]
+            swiftSettings: alwaysOptimize
         ),
         .target(
             name: "FMSynthesis",
@@ -39,18 +48,14 @@ let package = Package(
                 "fmgen-readme.txt",
                 "fmgen-changes.md",
             ],
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ]
+            swiftSettings: alwaysOptimize
         ),
         // Plain values that cross from the machine to its users: which key,
         // which disk image, which monitor. The one module EmulatorCore
         // re-exports, so the parts below it can stay hidden.
         .target(
             name: "PC88Types",
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ]
+            swiftSettings: alwaysOptimize
         ),
         .target(
             name: "Peripherals",
@@ -58,9 +63,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 "PC88Types",
             ],
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ]
+            swiftSettings: alwaysOptimize
         ),
         .target(
             name: "EmulatorCore",
@@ -71,21 +74,19 @@ let package = Package(
                 "Peripherals",
                 "PC88Types",
             ],
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ]
+            swiftSettings: alwaysOptimize
         ),
         .target(
             name: "CApi",
             dependencies: [
                 "EmulatorCore",
             ],
-            swiftSettings: [
-                .unsafeFlags(["-O"], .when(configuration: .debug)),
-            ],
+            swiftSettings: alwaysOptimize,
             // Windows: export the @_cdecl symbols from the DLL via a .def file
             // (Swift's @_cdecl does not emit __declspec(dllexport)). No-op on
-            // macOS, so the existing static-link build is unaffected.
+            // macOS, so the existing static-link build is unaffected. Kept on
+            // release tags: SwiftPM checks only the products a dependent uses,
+            // and the DLL is built here, not by dependents.
             linkerSettings: [
                 .unsafeFlags(
                     ["-Xlinker", "/DEF:Sources/CApi/Bubilator88C.def"],

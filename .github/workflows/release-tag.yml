@@ -1,0 +1,73 @@
+name: Release Tag
+
+# コアのリリースタグを打つ。中身は scripts/tag-release.sh を呼ぶだけ。
+#
+# タグは main の上ではなく「alwaysOptimize (unsafeFlags) を空にした専用コミット」に打つ。
+# SwiftPM / Xcode は unsafeFlags を含むパッケージをバージョン指定の依存として
+# 拒否するため。main は Debug でも -O のまま (-Onone は約 10 倍遅い)。
+#
+# このファイルは分割前のモノレポでは Packages/EmulatorCore/.github/ にあり、
+# GitHub からは見えない。コアリポジトリへ切り出すと直下に来て有効になる。
+#
+# 注意: GITHUB_TOKEN で push したタグは他のワークフローを起動しない。
+# タグをきっかけに何か走らせたくなったら、このジョブの後段に書くこと。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "バージョン (例: 1.2.0。先頭に v は付けない)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  tag:
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select latest Xcode 26
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=/Applications/Xcode.app
+          fi
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          swift --version
+
+      - name: Test the base commit
+        run: swift test
+
+      - name: Tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ./scripts/tag-release.sh "$VERSION"
+
+      # タグのコミットは -O が無い以外 main と同じ。依存側と同じ条件
+      # (Debug・unsafeFlags なし) でビルドが通ることだけ確かめてから push する。
+      - name: Build the tagged commit
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git checkout -q "refs/tags/$VERSION"
+          ! grep -n '"-O"' Package.swift
+          swift build --product EmulatorCore
+          git checkout -q -
+
+      - name: Push the tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: git push origin "refs/tags/$VERSION"
