@@ -96,7 +96,12 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Configuration
 
-  /// DIP switch 1, raw (port 0x30). Takes effect at the next reset.
+  /// DIP switch 1 as port 0x30 reads it: SW1-1 to SW1-5 in bits 1-5 and the
+  /// N88/N mode switch in bit 0. Takes effect at the next reset.
+  ///
+  /// SW1-6 and SW1-8 are not in this byte — they never appear on port 0x30 —
+  /// so they are set through `memoryWaitDip` and `monitorType` instead.
+  /// SW1-7 (CMD SING) is not emulated.
   public var dipSw1: UInt8 {
     get { machine.bus.dipSw1 }
     set { machine.bus.dipSw1 = newValue }
@@ -142,13 +147,16 @@ public final class PC88: @unchecked Sendable {
     set { machine.clock8MHz = newValue }
   }
 
-  /// The attached monitor (DIP switch 1 bit 8). Takes effect at the next reset.
+  /// The attached monitor (SW1-8). Not on port 0x30; software sees it as
+  /// port 0x40 bit 1 (SHG), and it sets the line time. Takes effect at the
+  /// next reset.
   public var monitorType: MonitorType {
     get { machine.monitorType }
     set { machine.monitorType = newValue }
   }
 
-  /// Memory wait (DIP switch 1 bit 6).
+  /// Memory wait (SW1-6): one extra wait state on main RAM, TVRAM and
+  /// graphic-off GVRAM accesses. Not readable by software.
   public var memoryWaitDip: Bool {
     get { machine.memoryWaitDip }
     set { machine.memoryWaitDip = newValue }
