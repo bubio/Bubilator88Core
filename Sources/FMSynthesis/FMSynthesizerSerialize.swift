@@ -147,7 +147,7 @@ extension FMSynthesizer {
   // MARK: - Public serialize/deserialize
 
   /// Serialize all FMSynthesizer state to a byte array.
-  public func serializeState() -> [UInt8] {
+  package func serializeState() -> [UInt8] {
     var buf: [UInt8] = []
     buf.reserveCapacity(8192)
 
@@ -185,7 +185,7 @@ extension FMSynthesizer {
   /// Deserialize FMSynthesizer state from a byte array.
   /// Returns true on success.
   @discardableResult
-  public func deserializeState(_ data: [UInt8]) -> Bool {
+  package func deserializeState(_ data: [UInt8]) -> Bool {
     var pos = 0
 
     guard data.count >= 32 else { return false }

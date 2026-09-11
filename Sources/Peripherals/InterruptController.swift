@@ -4,10 +4,10 @@
 /// Level 0 (RXRDY) is highest, Level 7 (INT7) is lowest.
 ///
 /// Vector offset for IM2 dispatch: level * 2
-public struct InterruptController {
+package struct InterruptController {
 
   /// Interrupt source levels
-  public enum Level: Int, CaseIterable, Sendable {
+  package enum Level: Int, CaseIterable, Sendable {
     case rxrdy = 0   // RS-232C receive ready
     case vrtc  = 1   // Vertical retrace (VSYNC)
     case rtc   = 2   // Real-time clock (1/600s)
@@ -21,37 +21,37 @@ public struct InterruptController {
   // MARK: - State
 
   /// Bitmask of pending interrupt levels (bit N = level N pending)
-  public var pendingLevels: UInt8 = 0
+  package var pendingLevels: UInt8 = 0
 
   /// Level threshold (0-7). Only levels <= threshold can fire.
   /// Port 0xE4 bit 0-2.
-  public var levelThreshold: UInt8 = 7
+  package var levelThreshold: UInt8 = 7
 
   /// SGS mode — priority mode toggle. Port 0xE4 bit 3.
   /// When true, auto-updates threshold on acknowledge.
-  public var sgsMode: Bool = false
+  package var sgsMode: Bool = false
 
   /// Per-source masks (true = masked/disabled)
   /// Default: all masked (QUASI88: all sources disabled at power-on)
-  public var maskRTC: Bool = true      // Port 0xE6 bit 0
-  public var maskVRTC: Bool = true     // Port 0xE6 bit 1
-  public var maskRXRDY: Bool = true    // Port 0xE6 bit 2
-  public var maskSound: Bool = true    // Port 0x32 bit 7
+  package var maskRTC: Bool = true      // Port 0xE6 bit 0
+  package var maskVRTC: Bool = true     // Port 0xE6 bit 1
+  package var maskRXRDY: Bool = true    // Port 0xE6 bit 2
+  package var maskSound: Bool = true    // Port 0x32 bit 7
 
-  public init() {}
+  package init() {}
 
   // MARK: - Request / Clear
 
   /// Request an interrupt at the given level.
   /// Masked sources are ignored (QUASI88: flag not set when source disabled).
-  public mutating func request(level: Level) {
+  package mutating func request(level: Level) {
     guard !isMasked(level: level.rawValue) else { return }
     pendingLevels |= (1 << level.rawValue)
   }
 
   /// Request an interrupt at the given level (by raw value).
   /// Masked sources are ignored (QUASI88: flag not set when source disabled).
-  public mutating func request(level: Int) {
+  package mutating func request(level: Int) {
     guard level >= 0 && level <= 7 else { return }
     guard !isMasked(level: level) else { return }
     pendingLevels |= (1 << level)
@@ -60,14 +60,14 @@ public struct InterruptController {
   /// Clear a pending interrupt (on acknowledge).
   /// QUASI88: intr_level = 0 on every acknowledge (intr.c:762)
   /// Blocks all further interrupts until ISR writes to port 0xE4.
-  public mutating func acknowledge(level: Int) {
+  package mutating func acknowledge(level: Int) {
     guard level >= 0 && level <= 7 else { return }
     pendingLevels &= ~(1 << level)
     levelThreshold = 0
   }
 
   /// Clear all pending interrupts.
-  public mutating func clearAll() {
+  package mutating func clearAll() {
     pendingLevels = 0
   }
 
@@ -75,7 +75,7 @@ public struct InterruptController {
   /// Used when the source device's request line goes inactive before the
   /// CPU has had a chance to acknowledge (e.g. I8251 RxRDY dropping when
   /// the CPU reads the receive data port before the IRQ is serviced).
-  public mutating func clearPending(level: Level) {
+  package mutating func clearPending(level: Level) {
     pendingLevels &= ~(1 << level.rawValue)
   }
 
@@ -84,7 +84,7 @@ public struct InterruptController {
   /// Resolve the highest-priority active (unmasked, within threshold) interrupt.
   /// Returns (level, vectorOffset) or nil if no interrupt is active.
   /// QUASI88: intr_level == 0 → reject all; level N needs intr_level >= N+1 (N < levelThreshold).
-  public func resolve() -> (level: Int, vectorOffset: UInt8)? {
+  package func resolve() -> (level: Int, vectorOffset: UInt8)? {
     guard levelThreshold > 0 else { return nil }
     // Scan from highest priority (level 0) to lowest (level 7)
     for levelNum in 0...7 {
@@ -102,7 +102,7 @@ public struct InterruptController {
 
   /// Write to port 0xE4: interrupt control register.
   /// bit 0-2: level threshold, bit 3: SGS mode
-  public mutating func writeControlPort(_ value: UInt8) {
+  package mutating func writeControlPort(_ value: UInt8) {
     sgsMode = (value & 0x08) != 0
     if sgsMode {
       levelThreshold = 7   // QUASI88: intr_level = 7 when priority bit set
@@ -115,7 +115,7 @@ public struct InterruptController {
   /// bit 0: RTC enable, bit 1: VRTC enable, bit 2: RXRDY enable
   /// 1 = enabled, 0 = disabled (masked).
   /// Disabling a source also clears its pending flag (QUASI88 confirmed).
-  public mutating func writeMaskPort(_ value: UInt8) {
+  package mutating func writeMaskPort(_ value: UInt8) {
     maskRTC = (value & 0x01) == 0
     maskVRTC = (value & 0x02) == 0
     maskRXRDY = (value & 0x04) == 0
@@ -129,7 +129,7 @@ public struct InterruptController {
   /// Reset to initial state.
   /// QUASI88: all interrupt sources disabled at power-on
   /// (intr_rtc_enable=0, intr_vsync_enable=0, SINTM=1).
-  public mutating func reset() {
+  package mutating func reset() {
     pendingLevels = 0
     levelThreshold = 7
     sgsMode = false

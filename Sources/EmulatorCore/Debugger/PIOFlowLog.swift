@@ -16,7 +16,7 @@ import Foundation
 /// - `seq` starts at 0 for the oldest entry so index-based alignment
 ///   works when the two emulators produce slightly different total
 ///   counts.
-public enum PIOFlowJSONL {
+@_spi(Debug) public enum PIOFlowJSONL {
   public static func render(_ entries: [PIOFlowEntry]) -> String {
     var out = ""
     out.reserveCapacity(entries.count * 80)
@@ -45,7 +45,7 @@ public enum PIOFlowJSONL {
 /// along with the CPU context it happened in. Used to reconstruct
 /// the cross-CPU data flow for games whose load routines depend on
 /// specific hand-shake orderings (RIGLAS, Wizardry, etc.).
-public struct PIOFlowEntry: Sendable, Hashable {
+@_spi(Debug) public struct PIOFlowEntry: Sendable, Hashable {
 
   public enum Side: String, Sendable, Hashable {
     case main

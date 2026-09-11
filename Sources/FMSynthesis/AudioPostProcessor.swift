@@ -151,26 +151,26 @@ struct SchroederReverb {
 
 /// Optional "CD mix" output stage. Disabled by default; see the file header
 /// for why these are presented as taste rather than hardware accuracy.
-public struct AudioPostProcessor {
+package struct AudioPostProcessor {
 
   /// Fitted parameters. See file header for provenance.
-  public struct Parameters: Sendable, Equatable {
+  package struct Parameters: Sendable, Equatable {
     /// Output low-pass corner. 0 disables the low-pass.
-    public var lowpassHz: Float = 5400
+    package var lowpassHz: Float = 5400
     /// Reverb decay to −60 dB, in seconds.
-    public var reverbRT60: Float = 1.2
+    package var reverbRT60: Float = 1.2
     /// Reverb pre-delay in milliseconds.
-    public var reverbPredelayMs: Float = 25
+    package var reverbPredelayMs: Float = 25
     /// Reverb in-loop damping corner.
-    public var reverbDampingHz: Float = 7000
+    package var reverbDampingHz: Float = 7000
     /// High-pass on the reverb send, keeping bass out of the tail.
-    public var reverbSendHighpassHz: Float = 150
+    package var reverbSendHighpassHz: Float = 150
     /// Wet level in dB relative to dry.
-    public var reverbWetDb: Float = -9
+    package var reverbWetDb: Float = -9
 
-    public init() {}
+    package init() {}
 
-    public static let cdMix = Parameters()
+    package static let cdMix = Parameters()
   }
 
   private var lowpassL: OnePoleFilter
@@ -184,7 +184,7 @@ public struct AudioPostProcessor {
   private let lowpassEnabled: Bool
   private let wetGain: Float
 
-  public init(parameters: Parameters = .cdMix, sampleRate: Float = 44100) {
+  package init(parameters: Parameters = .cdMix, sampleRate: Float = 44100) {
     lowpassEnabled = parameters.lowpassHz > 0
     // Cutoff is unused when disabled, but the filter still needs a valid one.
     let lpHz = lowpassEnabled ? parameters.lowpassHz : sampleRate / 2
@@ -209,7 +209,7 @@ public struct AudioPostProcessor {
   /// Pass `reverb: false` to run the low-pass alone — used by the immersive
   /// path, where each source is rendered to its own spatial node and a shared
   /// reverb bus has nowhere to sit.
-  public mutating func process(left: Float, right: Float, reverb: Bool = true) -> (Float, Float) {
+  package mutating func process(left: Float, right: Float, reverb: Bool = true) -> (Float, Float) {
     var l = left
     var r = right
     if lowpassEnabled {
@@ -230,7 +230,7 @@ public struct AudioPostProcessor {
   }
 
   /// Clear all delay lines. Call on chip reset and after loading a save state.
-  public mutating func reset() {
+  package mutating func reset() {
     lowpassL.reset(); lowpassR.reset(); sendHighpass.reset()
     for i in predelay.indices { predelay[i] = 0 }
     predelayPos = 0

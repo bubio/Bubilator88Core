@@ -10,7 +10,7 @@ import Foundation
 extension UPD765A {
 
   /// Serialize all UPD765A state to a byte array.
-  public func serializeState() -> [UInt8] {
+  package func serializeState() -> [UInt8] {
     var buf: [UInt8] = []
     buf.reserveCapacity(1024)
 
@@ -128,7 +128,7 @@ extension UPD765A {
 
   /// Deserialize all UPD765A state from a byte array.
   @discardableResult
-  public func deserializeState(_ data: [UInt8]) -> Bool {
+  package func deserializeState(_ data: [UInt8]) -> Bool {
     var pos = 0
     guard data.count >= 16 else { return false }
 

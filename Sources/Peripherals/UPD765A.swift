@@ -19,11 +19,11 @@ private let fdcLog = Logger(label: "EmulatorCore.UPD765A")
 ///
 /// Operates in NON-DMA mode (interrupt-driven byte transfer) as used by
 /// the PC-8801 sub-CPU firmware.
-public final class UPD765A {
+package final class UPD765A {
 
   // MARK: - Phase Model
 
-  public enum Phase {
+  package enum Phase {
     case idle
     case command   // C_PHASE: receiving command bytes
     case execution // E_PHASE: performing disk operation
@@ -80,13 +80,13 @@ public final class UPD765A {
 
   // MARK: - State
 
-  public package(set) var phase: Phase = .idle
+  package var phase: Phase = .idle
 
   /// Current command being processed
   package var command: Command = .invalid
 
   /// Current command name (for diagnostics)
-  public var currentCommandName: String {
+  package var currentCommandName: String {
     switch command {
     case .readData: return "ReadData"
     case .readDeletedData: return "ReadDelData"
@@ -109,8 +109,8 @@ public final class UPD765A {
   package var cmdBytesExpected: Int = 0
 
   /// Result bytes to send during R_PHASE
-  public package(set) var resultBytes: [UInt8] = []
-  public package(set) var resultIndex: Int = 0
+  package var resultBytes: [UInt8] = []
+  package var resultIndex: Int = 0
 
   /// Data buffer for sector read/write during E_PHASE
   package var dataBuffer: [UInt8] = []
@@ -140,7 +140,7 @@ public final class UPD765A {
   package var st3: UInt8 = 0
 
   /// Per-drive state
-  public var pcn: [UInt8] = [0, 0, 0, 0]  // Present cylinder number
+  package var pcn: [UInt8] = [0, 0, 0, 0]  // Present cylinder number
   package var physicalCylinder: [UInt8] = [0, 0, 0, 0]
   package var doubleStep: [Bool] = [false, false, false, false]
 
@@ -169,7 +169,7 @@ public final class UPD765A {
   package var seekAbnormal: [Bool] = [false, false, false, false]
 
   /// True if any drive has an active seek in progress (needs tick() advancement).
-  public var isSeeking: Bool {
+  package var isSeeking: Bool {
     seekMoving[0] || seekMoving[1] || seekMoving[2] || seekMoving[3]
   }
   package var seekTarget: [UInt8] = [0, 0, 0, 0]  // Target cylinder
@@ -185,35 +185,35 @@ public final class UPD765A {
   /// Causes the next Sense Drive Status to return without TS (Two-Sided) bit,
   /// signaling to software that the disk was changed. Cleared after one SDS query.
   /// (QUASI88: disk_ex_drv)
-  public var diskExchanged: [Bool] = [false, false, false, false]
+  package var diskExchanged: [Bool] = [false, false, false, false]
 
   /// Terminal Count signal
-  public var tc: Bool = false
+  package var tc: Bool = false
 
   /// Interrupt pending
-  public var interruptPending: Bool = false
+  package var interruptPending: Bool = false
 
   /// FDC interrupt → sub CPU INT
-  public var onInterrupt: (() -> Void)?
+  package var onInterrupt: (() -> Void)?
 
   /// Access to disk drives (via closure since D88Disk is a struct)
-  public var drives: (() -> [D88Disk?])?
+  package var drives: (() -> [D88Disk?])?
 
   /// Write sector back to disk (via closure)
-  public var writeSector: ((_ drive: Int, _ track: Int, _ c: UInt8, _ h: UInt8, _ r: UInt8, _ data: [UInt8]) -> Bool)?
+  package var writeSector: ((_ drive: Int, _ track: Int, _ c: UInt8, _ h: UInt8, _ r: UInt8, _ data: [UInt8]) -> Bool)?
 
   /// Format a track on disk (via closure)
-  public var formatTrack: ((_ drive: Int, _ track: Int, _ sectorIDs: [(c: UInt8, h: UInt8, r: UInt8, n: UInt8)], _ fillByte: UInt8) -> Bool)?
+  package var formatTrack: ((_ drive: Int, _ track: Int, _ sectorIDs: [(c: UInt8, h: UInt8, r: UInt8, n: UInt8)], _ fillByte: UInt8) -> Bool)?
 
   /// Disk access indicator callback (drive number)
-  public var onDiskAccess: ((_ drive: Int) -> Void)?
+  package var onDiskAccess: ((_ drive: Int) -> Void)?
 
   /// Seek step callback — called each time the head moves one track (drive, currentTrack)
-  public var onSeekStep: ((_ drive: Int, _ track: UInt8) -> Void)?
+  package var onSeekStep: ((_ drive: Int, _ track: UInt8) -> Void)?
 
   /// Diagnostic: called on every readData() during execution phase.
   /// Parameters: (byte, wasReady, dataIndex, sectorIndex, bufferCount, seekMovingAny)
-  public var onReadDataByte: ((_ byte: UInt8, _ wasReady: Bool, _ dataIndex: Int, _ sectorIndex: Int, _ bufferCount: Int, _ seekMovingAny: Bool) -> Void)?
+  package var onReadDataByte: ((_ byte: UInt8, _ wasReady: Bool, _ dataIndex: Int, _ sectorIndex: Int, _ bufferCount: Int, _ seekMovingAny: Bool) -> Void)?
 
   /// Rotating ReadID sector index per drive.
   /// Real hardware returns a different sector ID on each ReadID call because
@@ -300,27 +300,27 @@ public final class UPD765A {
   // MARK: - Command Log (debugging)
 
   /// Log entry for FDC command tracing.
-  public struct CommandLogEntry {
-    public let command: String
-    public let params: [UInt8]       // Raw command parameter bytes
-    public let st0: UInt8
-    public let st1: UInt8
-    public let st2: UInt8
-    public let dataSize: Int         // Bytes transferred in E_PHASE
-    public let resultCHRN: (c: UInt8, h: UInt8, r: UInt8, n: UInt8)
+  package struct CommandLogEntry {
+    package let command: String
+    package let params: [UInt8]       // Raw command parameter bytes
+    package let st0: UInt8
+    package let st1: UInt8
+    package let st2: UInt8
+    package let dataSize: Int         // Bytes transferred in E_PHASE
+    package let resultCHRN: (c: UInt8, h: UInt8, r: UInt8, n: UInt8)
   }
 
   /// Recent FDC commands (capped at commandLogMax).
-  public var commandLog: [CommandLogEntry] = []
+  package var commandLog: [CommandLogEntry] = []
 
   /// Maximum command log entries.
-  public var commandLogMax: Int = 200
+  package var commandLogMax: Int = 200
 
   // MARK: - Init
 
-  public init() {}
+  package init() {}
 
-  public func reset() {
+  package func reset() {
     phase = .idle
     command = .invalid
     cmdBytes = []
@@ -361,7 +361,7 @@ public final class UPD765A {
   // MARK: - I/O Interface
 
   /// Read Main Status Register (port 0xFA).
-  public func readStatus() -> UInt8 {
+  package func readStatus() -> UInt8 {
     var status: UInt8 = 0
 
     switch phase {
@@ -421,7 +421,7 @@ public final class UPD765A {
   }
 
   /// Read Data Register (port 0xFB, FDC → CPU).
-  public func readData() -> UInt8 {
+  package func readData() -> UInt8 {
     switch phase {
     case .execution:
       guard readByteReady, dataIndex < dataBuffer.count else {
@@ -498,7 +498,7 @@ public final class UPD765A {
   }
 
   /// Write Data Register (port 0xFB, CPU → FDC).
-  public func writeData(_ value: UInt8) {
+  package func writeData(_ value: UInt8) {
     switch phase {
     case .idle:
       startCommand(value)
@@ -544,7 +544,7 @@ public final class UPD765A {
   package var dataBufferExpectedSize: Int = 0
 
   /// Process Terminal Count signal (port 0xF8 read by sub CPU).
-  public func terminalCount() {
+  package func terminalCount() {
     tc = true
     if phase == .execution {
       finishExecution()
@@ -570,7 +570,7 @@ public final class UPD765A {
   /// Port 0xF4 TD bits match M88M:
   /// - TDx=0: 48TPI logical cylinders double-step on a 96TPI mechanism.
   /// - TDx=1: 96TPI direct stepping.
-  public func setDriveControl(_ value: UInt8) {
+  package func setDriveControl(_ value: UInt8) {
     for drive in 0..<2 {
       doubleStep[drive] = (value & UInt8(0x04 << drive)) == 0
       physicalCylinder[drive] = physicalCylinderForLogical(pcn[drive], drive: drive)
@@ -580,7 +580,7 @@ public final class UPD765A {
   // MARK: - Timing
 
   /// Advance FDC by T-states. Handles seek timing.
-  public func tick(tStates: Int) {
+  package func tick(tStates: Int) {
     if phase == .execution &&
       (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
       !readByteReady &&

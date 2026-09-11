@@ -12,7 +12,7 @@ import Peripherals
   return String(repeating: "0", count: max(0, 4 - s.count)) + s
 }
 
-public struct TextDMADebugSnapshot: Sendable {
+@_spi(Debug) public struct TextDMADebugSnapshot: Sendable {
   public struct DMAState: Sendable {
     public let enabled: Bool
     public let mode: UInt8

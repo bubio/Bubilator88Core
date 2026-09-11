@@ -8,44 +8,44 @@
 /// The implementation follows the fmgen/BubiC `I8255` behavior closely enough
 /// for the PC-8801 disk handshake, while keeping a few diagnostic fields used
 /// by the existing tests and freeze dumps.
-public final class PIO8255 {
+package final class PIO8255 {
 
   // MARK: - Types
 
-  public enum Side: Int, Sendable {
+  package enum Side: Int, Sendable {
     case main = 0
     case sub = 1
 
     var opposite: Side { self == .main ? .sub : .main }
   }
 
-  public enum PortABIndex: Int {
+  package enum PortABIndex: Int {
     case portA = 0
     case portB = 1
 
     var opposite: PortABIndex { self == .portA ? .portB : .portA }
   }
 
-  public enum PortCHalf: Int {
+  package enum PortCHalf: Int {
     case ch = 0
     case cl = 1
   }
 
-  public enum PortType {
+  package enum PortType {
     case read
     case write
   }
 
-  public struct PortABState {
-    public var type: PortType = .read
-    public var exist: Bool = false
-    public var data: UInt8 = 0x00
+  package struct PortABState {
+    package var type: PortType = .read
+    package var exist: Bool = false
+    package var data: UInt8 = 0x00
   }
 
-  public struct PortCState {
-    public var type: PortType = .read
-    public var contFlag: Bool = true
-    public var data: UInt8 = 0x00
+  package struct PortCState {
+    package var type: PortType = .read
+    package var contFlag: Bool = true
+    package var data: UInt8 = 0x00
   }
 
   package enum PortID: Int {
@@ -62,21 +62,21 @@ public final class PIO8255 {
     package var first: Bool = true
   }
 
-  public struct DebugPortState {
-    public let wreg: UInt8
-    public let rreg: UInt8
-    public let rmask: UInt8
-    public let mode: UInt8
+  package struct DebugPortState {
+    package let wreg: UInt8
+    package let rreg: UInt8
+    package let rmask: UInt8
+    package let mode: UInt8
   }
 
   /// One PIO data-flow event, fired via ``onPIOAccess`` when the
   /// debugger is attached. `port` uses the low-level numeric index
   /// (0=A, 1=B, 2=C) so this type stays self-contained.
-  public struct PIOAccess: Sendable, Hashable {
-    public let side: Side
-    public let port: UInt8
-    public let isWrite: Bool
-    public let value: UInt8
+  package struct PIOAccess: Sendable, Hashable {
+    package let side: Side
+    package let port: UInt8
+    package let isWrite: Bool
+    package let value: UInt8
   }
 
   // MARK: - 8255 handshake bits
@@ -102,13 +102,13 @@ public final class PIO8255 {
   )
 
   /// Port A/B state: [2 sides][2 ports]
-  public var portAB: [[PortABState]] = [
+  package var portAB: [[PortABState]] = [
     [PortABState(), PortABState()],
     [PortABState(), PortABState()]
   ]
 
   /// Port C state: [2 sides][2 halves (CH, CL)]
-  public var portC: [[PortCState]] = [
+  package var portC: [[PortCState]] = [
     [PortCState(), PortCState()],
     [PortCState(), PortCState()]
   ]
@@ -119,29 +119,29 @@ public final class PIO8255 {
   ]
 
   /// Callback fired when Port C polling is detected by the scheduler heuristic.
-  public var onCPUSwitch: (() -> Void)?
+  package var onCPUSwitch: (() -> Void)?
 
   /// Optional debugger hook invoked on every Port A/B/C access.
   /// `nil` by default so the hot path pays a single pointer compare.
-  public var onPIOAccess: ((PIOAccess) -> Void)?
+  package var onPIOAccess: ((PIOAccess) -> Void)?
 
   /// Optional debugger hook invoked on every control-register
   /// write (port 0xFF — mode set or BSR). Parameters: (side, data).
   /// These modify port C state via the BSR path and are essential
   /// for cross-emulator handshake debugging.
-  public var onPIOControlWrite: ((Side, UInt8) -> Void)?
+  package var onPIOControlWrite: ((Side, UInt8) -> Void)?
 
 
   /// Matches the reference setup used by the PC-8801 PIO pair.
-  public var clearPortsByCommandRegister: Bool = true
+  package var clearPortsByCommandRegister: Bool = true
 
   // MARK: - Init
 
-  public init() {
+  package init() {
     reset()
   }
 
-  public func reset() {
+  package func reset() {
     for side in 0..<2 {
       for port in 0..<3 {
         ports[side][port] = RawPortState()
@@ -157,7 +157,7 @@ public final class PIO8255 {
   // MARK: - Public API
 
   /// Read from Port A or B using 8255 semantics.
-  public func readAB(side: Side, port: PortABIndex) -> UInt8 {
+  package func readAB(side: Side, port: PortABIndex) -> UInt8 {
     let sideIndex = side.rawValue
     let portIndex = port.rawValue
     let isInput = ports[sideIndex][portIndex].rmask == 0xFF
@@ -173,7 +173,7 @@ public final class PIO8255 {
   }
 
   /// Write to Port A or B using 8255 semantics.
-  public func writeAB(side: Side, port: PortABIndex, data: UInt8) {
+  package func writeAB(side: Side, port: PortABIndex, data: UInt8) {
     pendingAB[side.rawValue][port.rawValue] = true
     writePort(side: side.rawValue, port: port.rawValue, data: data)
     syncPublicState()
@@ -181,7 +181,7 @@ public final class PIO8255 {
   }
 
   /// Read Port C using 8255 semantics.
-  public func readC(side: Side) -> UInt8 {
+  package func readC(side: Side) -> UInt8 {
     let sideIndex = side.rawValue
     let value = readPort(side: sideIndex, port: PortID.portC.rawValue)
 
@@ -197,7 +197,7 @@ public final class PIO8255 {
   }
 
   /// Write Port C data register (port 0xFE).
-  public func writePortC(side: Side, data: UInt8) {
+  package func writePortC(side: Side, data: UInt8) {
     writePort(side: side.rawValue, port: PortID.portC.rawValue, data: data)
     syncPublicState()
     onPIOAccess?(PIOAccess(side: side, port: 2, isWrite: true, value: data))
@@ -205,28 +205,28 @@ public final class PIO8255 {
 
   /// Write Port C using 8255 BSR (Bit Set/Reset) command format.
   /// This corresponds to port 0xFF with bit 7 cleared.
-  public func writeC(side: Side, data: UInt8) {
+  package func writeC(side: Side, data: UInt8) {
     writeControl(side: side, data: data)
   }
 
   /// Direct write alias kept for older tests.
-  public func writeCDirect(side: Side, data: UInt8) {
+  package func writeCDirect(side: Side, data: UInt8) {
     writePortC(side: side, data: data)
   }
 
   /// Write control register (port 0xFF).
-  public func writeControl(side: Side, data: UInt8) {
+  package func writeControl(side: Side, data: UInt8) {
     writeControlInternal(side: side.rawValue, data: data)
     syncPublicState()
     onPIOControlWrite?(side, data)
   }
 
   /// Mode-set helper kept for older call sites.
-  public func setMode(side: Side, data: UInt8) {
+  package func setMode(side: Side, data: UInt8) {
     writeControl(side: side, data: data)
   }
 
-  public func debugPortState(side: Side, port: Int) -> DebugPortState {
+  package func debugPortState(side: Side, port: Int) -> DebugPortState {
     let state = ports[side.rawValue][port]
     return DebugPortState(wreg: state.wreg, rreg: state.rreg, rmask: state.rmask, mode: state.mode)
   }

@@ -16,26 +16,26 @@ private let subLog = Logger(label: "EmulatorCore.SubSystem")
 ///   delivery on HALT and advancing FDC timing during idle waits.
 ///
 /// Fallback: if DISK.ROM is not loaded, legacy command-level emulation is used.
-public final class SubSystem {
+package final class SubSystem {
 
   // MARK: - Sub-CPU Components
 
   /// Z80 sub-CPU (4MHz)
-  public let subCpu: Z80
+  package let subCpu: Z80
 
   /// Sub-CPU bus (ROM/RAM/FDC/PIO)
-  public let subBus: SubBus
+  package let subBus: SubBus
 
   /// Cross-wired PIO pair
-  public let pio: PIO8255
+  package let pio: PIO8255
 
   /// uPD765A FDC
-  public let fdc: UPD765A
+  package let fdc: UPD765A
 
   // MARK: - Drive State
 
   /// Mounted disk images (2 drives).
-  public var drives: [D88Disk?] = [nil, nil]
+  package var drives: [D88Disk?] = [nil, nil]
 
   /// Swap delay. When `mountDisk` targets a drive that already holds a disk,
   /// the new disk is parked here and `drives[i]` is set to nil for a while, to
@@ -57,24 +57,24 @@ public final class SubSystem {
   /// D88Disk because D88Disk is a struct: putting a closure inside it changed
   /// BootTester's behaviour, through value-type copies and the code generated
   /// for the closure call.
-  public var onDiskWritten: ((Int) -> Void)?
+  package var onDiskWritten: ((Int) -> Void)?
 
   // MARK: - Access Indicators
 
   /// Disk access indicator per drive.
-  public var diskAccess: [Bool] = [false, false]
+  package var diskAccess: [Bool] = [false, false]
 
   /// Total T-states executed by sub-CPU (for debugging).
-  public var subCpuTStates: UInt64 = 0
+  package var subCpuTStates: UInt64 = 0
 
   /// Number of FDC interrupts delivered to sub-CPU (for debugging).
-  public var fdcInterruptDeliveredCount: Int = 0
+  package var fdcInterruptDeliveredCount: Int = 0
 
 
   // MARK: - Interrupt Callback
 
   /// Callback that raises INT3 on the main CPU.
-  public var onInterrupt: (() -> Void)?
+  package var onInterrupt: (() -> Void)?
 
   // MARK: - Debugger hooks
 
@@ -82,18 +82,18 @@ public final class SubSystem {
   /// Return `false` to abort the run loop (e.g. sub-PC breakpoint hit).
   /// `nil` means "no debugger attached — always proceed" and keeps the
   /// hot path a single pointer comparison away from normal execution.
-  public var subCPUStepHook: ((UInt16) -> Bool)?
+  package var subCPUStepHook: ((UInt16) -> Bool)?
 
   /// Called immediately before each sub-CPU instruction, after the
   /// breakpoint check has passed. Used by the debugger to record
   /// pre-execution trace entries without touching the hot path when
   /// no debugger is attached.
-  public var onSubPreStep: (() -> Void)?
+  package var onSubPreStep: (() -> Void)?
 
   // MARK: - Legacy Mode
 
   /// True when DISK.ROM is not loaded — use command-level fallback.
-  public internal(set) var useLegacyMode: Bool = true
+  package internal(set) var useLegacyMode: Bool = true
 
   // Legacy state (only used when useLegacyMode == true)
   package var legacyPortA: UInt8 = 0x00
@@ -118,7 +118,7 @@ public final class SubSystem {
 
   // MARK: - Init
 
-  public init() {
+  package init() {
     self.subCpu = Z80()
     self.subBus = SubBus()
     self.pio = PIO8255()
@@ -159,14 +159,14 @@ public final class SubSystem {
   }
 
   /// Load DISK.ROM firmware. Switches to Z80 sub-CPU mode.
-  public func loadDiskROM(_ data: [UInt8]) {
+  package func loadDiskROM(_ data: [UInt8]) {
     subBus.loadROM(data)
     useLegacyMode = false
     subLog.debug("SubSystem: DISK.ROM loaded (\(data.count) bytes), Z80 sub-CPU mode")
   }
 
   /// Reset to power-on state.
-  public func reset() {
+  package func reset() {
     subCpu.reset()
     subBus.reset()
     pio.reset()
@@ -227,7 +227,7 @@ public final class SubSystem {
   // MARK: - PIO Port I/O (Main CPU side)
 
   /// Read PIO port (main CPU reading from sub-CPU).
-  public func pioRead(port: UInt8) -> UInt8 {
+  package func pioRead(port: UInt8) -> UInt8 {
 
 
     if useLegacyMode {
@@ -249,7 +249,7 @@ public final class SubSystem {
   }
 
   /// Write PIO port (main CPU writing to sub-CPU).
-  public func pioWrite(port: UInt8, value: UInt8) {
+  package func pioWrite(port: UInt8, value: UInt8) {
 
 
     if useLegacyMode {
@@ -276,14 +276,14 @@ public final class SubSystem {
   /// Run the sub-CPU for the given T-state budget without forcing a Port C poll switch.
   /// Returns T-states consumed.
   @discardableResult
-  public func runSubCPU(maxTStates: Int) -> Int {
+  package func runSubCPU(maxTStates: Int) -> Int {
     runSubCPUInternal(maxTStates: maxTStates, stopOnPortCPoll: false)
   }
 
   /// Run sub-CPU until it reads Port C (polling → CPU switch) or maxTStates.
   /// Returns T-states consumed.
   @discardableResult
-  public func runSubCPUUntilSwitch(maxTStates: Int = 100_000) -> Int {
+  package func runSubCPUUntilSwitch(maxTStates: Int = 100_000) -> Int {
     runSubCPUInternal(maxTStates: maxTStates, stopOnPortCPoll: true)
   }
 
@@ -372,7 +372,7 @@ public final class SubSystem {
   // MARK: - Disk Operations
 
   /// Mount a D88 disk image in the specified drive.
-  public func mountDisk(drive: Int, disk: D88Disk) {
+  package func mountDisk(drive: Int, disk: D88Disk) {
     guard drive >= 0 && drive < 2 else { return }
     if drives[drive] != nil {
       // Swapping over an existing disk: report "no disk" for as long as the
@@ -386,7 +386,7 @@ public final class SubSystem {
   }
 
   /// Eject disk from the specified drive.
-  public func ejectDisk(drive: Int) {
+  package func ejectDisk(drive: Int) {
     guard drive >= 0 && drive < 2 else { return }
     drives[drive] = nil
     pendingMount[drive] = nil
@@ -408,19 +408,19 @@ public final class SubSystem {
 
   /// Toggle or set the write-protect flag on the currently mounted disk.
   /// No-op if no disk is mounted on the drive.
-  public func setWriteProtect(drive: Int, protected: Bool) {
+  package func setWriteProtect(drive: Int, protected: Bool) {
     guard drive >= 0 && drive < 2 else { return }
     drives[drive]?.writeProtected = protected
   }
 
   /// Return the write-protect flag for the mounted disk (false if empty).
-  public func isWriteProtected(drive: Int) -> Bool {
+  package func isWriteProtected(drive: Int) -> Bool {
     guard drive >= 0 && drive < 2 else { return false }
     return drives[drive]?.writeProtected ?? false
   }
 
   /// Check if a drive has a disk mounted.
-  public func hasDisk(drive: Int) -> Bool {
+  package func hasDisk(drive: Int) -> Bool {
     guard drive >= 0 && drive < 2 else { return false }
     return drives[drive] != nil
   }
@@ -428,7 +428,7 @@ public final class SubSystem {
   // MARK: - Timing
 
   /// Advance sub-system by T-states (for FDC seek timing).
-  public func tick(tStates: Int) {
+  package func tick(tStates: Int) {
     if !useLegacyMode {
       fdc.tick(tStates: tStates)
     }
@@ -439,7 +439,7 @@ public final class SubSystem {
   // =================================================================
 
   /// Legacy Port C read (combined cross-wired value).
-  public var legacyPortCValue: UInt8 {
+  package var legacyPortCValue: UInt8 {
     return (legacyMainPortCH << 4) | (legacySubPortCH & 0x0F)
   }
 
@@ -727,19 +727,19 @@ public final class SubSystem {
   // MARK: - Legacy Compatibility Properties
 
   /// Port B value (for tests checking legacy behavior).
-  public var portB: UInt8 {
+  package var portB: UInt8 {
     if useLegacyMode { return legacyPortB }
     return pio.portAB[PIO8255.Side.main.rawValue][PIO8255.PortABIndex.portB.rawValue].data
   }
 
   /// Port C combined value (for tests).
-  public var portC: UInt8 {
+  package var portC: UInt8 {
     if useLegacyMode { return legacyPortCValue }
     return pio.readC(side: .main)
   }
 
   /// Current track per drive (for tests).
-  public var currentTrack: [Int] {
+  package var currentTrack: [Int] {
     get {
       if useLegacyMode { return legacyCurrentTrack }
       return [Int(fdc.pcn[0]), Int(fdc.pcn[1])]
@@ -756,7 +756,7 @@ public final class SubSystem {
   }
 
   /// Motor on flags (for tests).
-  public var motorOn: [Bool] {
+  package var motorOn: [Bool] {
     get {
       if useLegacyMode { return legacyMotorOn }
       return [subBus.motorOn[0], subBus.motorOn[1]]
@@ -773,13 +773,13 @@ public final class SubSystem {
   }
 
   /// Total number of sub-CPU commands received (for debugging).
-  public var commandCount: Int = 0
+  package var commandCount: Int = 0
 
   /// Last command received (for debugging).
-  public var lastCommand: UInt8 = 0xFF
+  package var lastCommand: UInt8 = 0xFF
 
   // Legacy diskROM property (kept for Machine.loadDiskROM compatibility)
-  public var diskROM: [UInt8]? {
+  package var diskROM: [UInt8]? {
     get { return nil }
     set {
       if let data = newValue {

@@ -8,7 +8,7 @@ import Foundation
 extension YM2608 {
 
   /// Serialize all YM2608 state to a byte array.
-  public func serializeState() -> [UInt8] {
+  package func serializeState() -> [UInt8] {
     var buf: [UInt8] = []
     buf.reserveCapacity(0x42000)  // ~256KB for ADPCM RAM + overhead
 
@@ -122,7 +122,7 @@ extension YM2608 {
   /// Deserialize all YM2608 state from a byte array.
   /// Returns true on success.
   @discardableResult
-  public func deserializeState(_ data: [UInt8]) -> Bool {
+  package func deserializeState(_ data: [UInt8]) -> Bool {
     var pos = 0
 
     guard data.count >= 512 + 256 else { return false }

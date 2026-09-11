@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 
 /// The palette and attribute helpers `FrameCompositor` composites with.
 /// Moved from the app's EmulatorViewModelTests / RenderingHelperTests along

@@ -31,7 +31,7 @@ import Observation
 /// either: (a) place it inside the locked region or (b) be immutable
 /// and Sendable.**
 @Observable
-public final class Debugger: @unchecked Sendable {
+@_spi(Debug) public final class Debugger: @unchecked Sendable {
 
   /// SAFETY: guards every mutable property below. Held only for the
   /// duration of the surrounding method; never while invoking

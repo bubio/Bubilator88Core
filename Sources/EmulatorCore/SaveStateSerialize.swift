@@ -11,7 +11,7 @@ import Peripherals
 // MARK: - Z80
 
 extension Z80 {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     w.writeUInt16(af)
     w.writeUInt16(bc)
     w.writeUInt16(de)
@@ -33,7 +33,7 @@ extension Z80 {
     w.writeBool(eiPending)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     af = try r.readUInt16()
     bc = try r.readUInt16()
     de = try r.readUInt16()
@@ -59,7 +59,7 @@ extension Z80 {
 // MARK: - Pc88Bus
 
 extension Pc88Bus {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // Main RAM (65536 bytes, fixed size)
     w.writeBytes(mainRAM)
 
@@ -139,7 +139,7 @@ extension Pc88Bus {
     }
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     // Main RAM
     mainRAM = try r.readBytes(65536)
 
@@ -228,7 +228,7 @@ extension Pc88Bus {
 // MARK: - CRTC
 
 extension CRTC {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     w.writeInt(scanline)
     w.writeBool(vrtcFlag)
     w.writeInt(tStateAccumulator)
@@ -269,7 +269,7 @@ extension CRTC {
     w.writeBool(dmaUnderrun)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     scanline = try r.readInt()
     vrtcFlag = try r.readBool()
     tStateAccumulator = try r.readInt()
@@ -322,7 +322,7 @@ extension CRTC {
 // MARK: - InterruptController
 
 extension InterruptController {
-  public mutating func writeSaveState(to w: inout SaveStateWriter) {
+  package mutating func writeSaveState(to w: inout SaveStateWriter) {
     w.writeUInt8(pendingLevels)
     w.writeUInt8(levelThreshold)
     w.writeBool(sgsMode)
@@ -332,7 +332,7 @@ extension InterruptController {
     w.writeBool(maskSound)
   }
 
-  public mutating func readSaveState(from r: inout SaveStateReader) throws {
+  package mutating func readSaveState(from r: inout SaveStateReader) throws {
     pendingLevels = try r.readUInt8()
     levelThreshold = try r.readUInt8()
     sgsMode = try r.readBool()
@@ -346,7 +346,7 @@ extension InterruptController {
 // MARK: - DMAController
 
 extension DMAController {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // 4 channels (fixed size)
     for i in 0..<4 {
       w.writeUInt16(channels[i].address)
@@ -358,7 +358,7 @@ extension DMAController {
     w.writeBool(flipFlop)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     for i in 0..<4 {
       channels[i].address = try r.readUInt16()
       channels[i].count = try r.readUInt16()
@@ -385,7 +385,7 @@ extension DMAController {
 // MARK: - PIO8255
 
 extension PIO8255 {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // Raw port state: 2 sides x 3 ports (fixed)
     for side in 0..<2 {
       for port in 0..<3 {
@@ -425,7 +425,7 @@ extension PIO8255 {
     w.writeBool(clearPortsByCommandRegister)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     for side in 0..<2 {
       for port in 0..<3 {
         ports[side][port].wreg = try r.readUInt8()
@@ -467,7 +467,7 @@ extension PIO8255 {
 // MARK: - UPD1990A
 
 extension UPD1990A {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // Shift register (7 bytes, fixed)
     for i in 0..<7 { w.writeUInt8(shiftReg[i]) }
     w.writeBool(cdo)
@@ -476,7 +476,7 @@ extension UPD1990A {
     w.writeUInt8(prevCtrl)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     for i in 0..<7 { shiftReg[i] = try r.readUInt8() }
     cdo = try r.readBool()
     command = try r.readUInt8()
@@ -488,12 +488,12 @@ extension UPD1990A {
 // MARK: - Keyboard
 
 extension Keyboard {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // 15 rows (fixed size)
     for i in 0..<15 { w.writeUInt8(matrix[i]) }
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     for i in 0..<15 { matrix[i] = try r.readUInt8() }
   }
 }
@@ -501,7 +501,7 @@ extension Keyboard {
 // MARK: - SubBus
 
 extension SubBus {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // romram (32KB, fixed)
     w.writeBytes(romram)
 
@@ -515,7 +515,7 @@ extension SubBus {
     w.writeUInt16(currentSubPC)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     romram = try r.readBytes(0x8000)
     for i in 0..<4 { motorOn[i] = try r.readBool() }
     driveSelect = try r.readUInt8()
@@ -526,7 +526,7 @@ extension SubBus {
 // MARK: - SubSystem
 
 extension SubSystem {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // Sub-CPU
     subCpu.writeSaveState(to: &w)
 
@@ -594,7 +594,7 @@ extension SubSystem {
     w.writeInt(fdcInterruptDeliveredCount)
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     // Sub-CPU
     try subCpu.readSaveState(from: &r)
 
@@ -660,7 +660,7 @@ extension SubSystem {
 // MARK: - Machine
 
 extension Machine {
-  public func writeSaveState(to w: inout SaveStateWriter) {
+  package func writeSaveState(to w: inout SaveStateWriter) {
     // CPU
     cpu.writeSaveState(to: &w)
 
@@ -706,7 +706,7 @@ extension Machine {
   /// URLs) inside the state file without EmulatorCore depending upward.
   /// Unknown tags are ignored by `loadSaveState`, so adding one does not
   /// require a format version bump.
-  public func createSaveState(thumbnail: [UInt8]? = nil,
+  package func createSaveState(thumbnail: [UInt8]? = nil,
                               extraSections: [(tag: UInt32, data: [UInt8])] = []) -> [UInt8] {
     var w = SaveStateWriter()
     writeSaveState(to: &w)
@@ -747,7 +747,7 @@ extension Machine {
   }
 
   /// Load a complete save state file, restoring all components and disk images.
-  public func loadSaveState(_ data: [UInt8]) throws {
+  package func loadSaveState(_ data: [UInt8]) throws {
     let sections = try SaveStateFile.parse(data)
 
     guard let mainData = sections[SaveStateFile.fourCC("MAIN")] else {
@@ -788,7 +788,7 @@ extension Machine {
     }
   }
 
-  public func readSaveState(from r: inout SaveStateReader) throws {
+  package func readSaveState(from r: inout SaveStateReader) throws {
     // CPU
     try cpu.readSaveState(from: &r)
 

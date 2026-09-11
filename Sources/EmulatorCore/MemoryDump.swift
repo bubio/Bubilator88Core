@@ -9,7 +9,7 @@ import Foundation
 /// comparison for graphics/timing bug investigations.
 ///
 /// See `docs/MEMORY_DUMP_FORMAT.md` for the directory layout specification.
-public enum MemoryDump {
+@_spi(Debug) public enum MemoryDump {
 
   public struct Error: Swift.Error, CustomStringConvertible {
     public let description: String
@@ -23,8 +23,17 @@ public enum MemoryDump {
   /// standard emulator/timestamp lines.
   ///
   /// Returns the URLs of every file written (for status/log display).
-  @discardableResult
+  @_spi(Debug) @discardableResult
   public static func write(
+    pc88: PC88,
+    to directory: URL,
+    metadata: [String: String] = [:]
+  ) throws -> [URL] {
+    try write(machine: pc88.machine, to: directory, metadata: metadata)
+  }
+
+  @discardableResult
+  package static func write(
     machine: Machine,
     to directory: URL,
     metadata: [String: String] = [:]

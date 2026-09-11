@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 @testable import FMSynthesis
 
 @Suite("YM2608 Tests")

@@ -11,20 +11,20 @@
 ///
 /// FM synthesis delegated to FMSynthesizer (fmgen port).
 /// SSG: 3 channels (PSG-compatible).
-public final class YM2608 {
+package final class YM2608 {
 
-  public struct DebugOutputMask: OptionSet, Sendable {
-    public let rawValue: UInt8
+  package struct DebugOutputMask: OptionSet, Sendable {
+    package let rawValue: UInt8
 
-    public init(rawValue: UInt8) {
+    package init(rawValue: UInt8) {
       self.rawValue = rawValue
     }
 
-    public static let fm = DebugOutputMask(rawValue: 1 << 0)
-    public static let ssg = DebugOutputMask(rawValue: 1 << 1)
-    public static let adpcm = DebugOutputMask(rawValue: 1 << 2)
-    public static let rhythm = DebugOutputMask(rawValue: 1 << 3)
-    public static let all: DebugOutputMask = [.fm, .ssg, .adpcm, .rhythm]
+    package static let fm = DebugOutputMask(rawValue: 1 << 0)
+    package static let ssg = DebugOutputMask(rawValue: 1 << 1)
+    package static let adpcm = DebugOutputMask(rawValue: 1 << 2)
+    package static let rhythm = DebugOutputMask(rawValue: 1 << 3)
+    package static let all: DebugOutputMask = [.fm, .ssg, .adpcm, .rhythm]
   }
 
   /// Per-channel mute mask for debug use.
@@ -32,19 +32,19 @@ public final class YM2608 {
   /// Applied once per channel before the audio contribution is added to the mix.
   /// The hot-path cost is one branch per channel — well within branch-predictor
   /// range. Intentionally NOT persisted to `UserDefaults`; resets on restart.
-  public struct DebugChannelMask: Sendable, Hashable {
+  package struct DebugChannelMask: Sendable, Hashable {
     /// 1 bit per FM channel (bits 0-5). 1 = unmuted, 0 = muted.
-    public var fm: UInt8 = 0x3F
+    package var fm: UInt8 = 0x3F
     /// 1 bit per SSG channel (bits 0-2). 1 = unmuted, 0 = muted.
-    public var ssg: UInt8 = 0x07
+    package var ssg: UInt8 = 0x07
     /// 1 bit per Rhythm instrument (bits 0-5). 1 = unmuted, 0 = muted.
-    public var rhythm: UInt8 = 0x3F
+    package var rhythm: UInt8 = 0x3F
     /// ADPCM mute flag.
-    public var adpcm: Bool = true
+    package var adpcm: Bool = true
 
-    public static let all = DebugChannelMask()
+    package static let all = DebugChannelMask()
 
-    public init(fm: UInt8 = 0x3F, ssg: UInt8 = 0x07, rhythm: UInt8 = 0x3F, adpcm: Bool = true) {
+    package init(fm: UInt8 = 0x3F, ssg: UInt8 = 0x07, rhythm: UInt8 = 0x3F, adpcm: Bool = true) {
       self.fm = fm; self.ssg = ssg; self.rhythm = rhythm; self.adpcm = adpcm
     }
   }
@@ -52,48 +52,48 @@ public final class YM2608 {
   // MARK: - Register Banks
 
   /// SSG + FM ch1-3 registers (256 entries)
-  public package(set) var registers: [UInt8] = Array(repeating: 0x00, count: 256)
+  package var registers: [UInt8] = Array(repeating: 0x00, count: 256)
 
   /// ADPCM + FM ch4-6 registers (256 entries)
-  public package(set) var extRegisters: [UInt8] = Array(repeating: 0x00, count: 256)
+  package var extRegisters: [UInt8] = Array(repeating: 0x00, count: 256)
 
   /// Currently selected address for port 0x44/0x45
-  public package(set) var selectedAddr: UInt8 = 0
+  package var selectedAddr: UInt8 = 0
 
   /// Currently selected address for port 0x46/0x47
-  public package(set) var selectedExtAddr: UInt8 = 0
+  package var selectedExtAddr: UInt8 = 0
 
   // MARK: - Timer State
 
   /// Timer A period (10-bit, registers 0x24-0x25)
-  public package(set) var timerAValue: UInt16 = 0
+  package var timerAValue: UInt16 = 0
 
   /// Timer B period (8-bit, register 0x26)
-  public package(set) var timerBValue: UInt8 = 0
+  package var timerBValue: UInt8 = 0
 
   /// Timer A counter (counts up toward overflow)
-  public package(set) var timerACounter: Int = 0
+  package var timerACounter: Int = 0
 
   /// Timer B counter
-  public package(set) var timerBCounter: Int = 0
+  package var timerBCounter: Int = 0
 
   /// Timer A running
-  public package(set) var timerAEnabled: Bool = false
+  package var timerAEnabled: Bool = false
 
   /// Timer B running
-  public package(set) var timerBEnabled: Bool = false
+  package var timerBEnabled: Bool = false
 
   /// Timer A overflow flag
-  public var timerAOverflow: Bool = false
+  package var timerAOverflow: Bool = false
 
   /// Timer B overflow flag
-  public var timerBOverflow: Bool = false
+  package var timerBOverflow: Bool = false
 
   /// Timer A interrupt enable
-  public package(set) var timerAIRQEnable: Bool = false
+  package var timerAIRQEnable: Bool = false
 
   /// Timer B interrupt enable
-  public package(set) var timerBIRQEnable: Bool = false
+  package var timerBIRQEnable: Bool = false
 
   /// Status mask for extended status register (fmgen stmask).
   /// Controls which ADPCM status bits are visible in readExtStatus().
@@ -107,7 +107,7 @@ public final class YM2608 {
   package var irqAsserted: Bool = false
 
   /// Current IRQ output level after timer/ADPCM masking.
-  public var irqLineActive: Bool { irqAsserted }
+  package var irqLineActive: Bool { irqAsserted }
 
   /// OPNA status busy flag hold time after each data-port write.
   package var busyStatusCounter: Int = 0
@@ -118,7 +118,7 @@ public final class YM2608 {
   /// OPNA clock is always 3,993,624 Hz (master / 8).
   /// In 8MHz mode, CPU clock = 2× OPNA clock, so OPNA timers
   /// need 2× the T-states per tick.
-  public var clock8MHz: Bool = true {
+  package var clock8MHz: Bool = true {
     didSet {
       cpuClockHz = clock8MHz ? Self.cpuClockHz8MHz : Self.cpuClockHz4MHz
     }
@@ -136,7 +136,7 @@ public final class YM2608 {
   var timerBTStatesPerTick: Int { 1152 * clockRatio }
 
   /// FM sample period: 72 OPNA clocks × clockRatio CPU T-states
-  public var fmTStatesPerSample: Int { 72 * clockRatio }
+  package var fmTStatesPerSample: Int { 72 * clockRatio }
 
   /// SSG clock divider: OPNA/4 prescaler × /4 internal = 16 OPNA clocks × clockRatio
   var ssgDivider: Int { 16 * clockRatio }
@@ -144,10 +144,10 @@ public final class YM2608 {
   // MARK: - FM Synthesizer
 
   /// fmgen-based FM synthesis engine
-  public let fmSynth: FMSynthesizer = FMSynthesizer()
+  package let fmSynth: FMSynthesizer = FMSynthesizer()
 
   /// FM sample counter (FM runs at OPNA clock / 72)
-  public package(set) var fmSampleCounter: Int = 0
+  package var fmSampleCounter: Int = 0
 
   /// Cached F-Number values for channels 1-6, combined as fmgen expects.
   package var fmFNumMain: [UInt32] = Array(repeating: 0, count: 6)
@@ -158,49 +158,49 @@ public final class YM2608 {
   // MARK: - SSG (PSG) State
 
   /// SSG channel tone periods (12-bit, channels A/B/C)
-  public package(set) var ssgTonePeriod: [UInt16] = [0, 0, 0]
+  package var ssgTonePeriod: [UInt16] = [0, 0, 0]
 
   /// SSG channel tone counters
-  public package(set) var ssgToneCounter: [Int] = [0, 0, 0]
+  package var ssgToneCounter: [Int] = [0, 0, 0]
 
   /// SSG channel tone output state (true = high)
-  public package(set) var ssgToneOutput: [Bool] = [true, true, true]
+  package var ssgToneOutput: [Bool] = [true, true, true]
 
   /// SSG channel volumes (4-bit, 0-15). Bit 4 = envelope mode.
-  public package(set) var ssgVolume: [UInt8] = [0, 0, 0]
+  package var ssgVolume: [UInt8] = [0, 0, 0]
 
   /// SSG noise period (5-bit)
-  public package(set) var ssgNoisePeriod: UInt8 = 0
+  package var ssgNoisePeriod: UInt8 = 0
 
   /// SSG noise counter
-  public package(set) var ssgNoiseCounter: Int = 0
+  package var ssgNoiseCounter: Int = 0
 
   /// SSG noise LFSR (17-bit)
-  public package(set) var ssgNoiseLFSR: UInt32 = 14321
+  package var ssgNoiseLFSR: UInt32 = 14321
 
   /// SSG noise output
-  public package(set) var ssgNoiseOutput: Bool = true
+  package var ssgNoiseOutput: Bool = true
 
   /// SSG mixer register (R7): tone/noise enable per channel
-  public package(set) var ssgMixer: UInt8 = 0xFF  // All disabled by default
+  package var ssgMixer: UInt8 = 0xFF  // All disabled by default
 
   /// SSG envelope period (16-bit)
-  public package(set) var ssgEnvPeriod: UInt16 = 0
+  package var ssgEnvPeriod: UInt16 = 0
 
   /// SSG envelope counter
-  public package(set) var ssgEnvCounter: Int = 0
+  package var ssgEnvCounter: Int = 0
 
   /// SSG envelope shape
-  public package(set) var ssgEnvShape: UInt8 = 0
+  package var ssgEnvShape: UInt8 = 0
 
   /// SSG envelope position (0-63, 32 steps per half-cycle for 32-level volume)
-  public var ssgEnvPosition: Int = 0  // written from tests
+  package var ssgEnvPosition: Int = 0  // written from tests
 
   /// SSG envelope holding
-  public package(set) var ssgEnvHolding: Bool = false
+  package var ssgEnvHolding: Bool = false
 
   /// SSG clock divider (static, used as default only)
-  public static let ssgClockDividerDefault = 32
+  package static let ssgClockDividerDefault = 32
 
   private static let ssgToneShift = 24
   private static let ssgEnvShift = 22
@@ -236,31 +236,31 @@ public final class YM2608 {
   // MARK: - ADPCM State
 
   /// ADPCM start address (register 0x02-0x03, raw 16-bit register pair)
-  public var adpcmStartAddr: UInt32 = 0
+  package var adpcmStartAddr: UInt32 = 0
 
   /// ADPCM stop address (register 0x04-0x05, in 32-byte units)
-  public var adpcmStopAddr: UInt32 = 0
+  package var adpcmStopAddr: UInt32 = 0
 
   /// ADPCM playback active
-  public var adpcmPlaying: Bool = false
+  package var adpcmPlaying: Bool = false
 
   /// ADPCM decoded sample (fmgen adpcmx, range -32768 to 32767)
-  public var adpcmAccum: Int = 0
+  package var adpcmAccum: Int = 0
 
   /// ADPCM step size (fmgen adpcmd, range 127-24576)
-  public var adpcmStepSize: Int = 127
+  package var adpcmStepSize: Int = 127
 
   /// ADPCM delta-N (playback rate register 0x09-0x0A)
-  public var adpcmDeltaN: UInt16 = 0
+  package var adpcmDeltaN: UInt16 = 0
 
   /// ADPCM total level (register 0x0B): 0=silence, 255=max volume (fmgen adpcmlevel)
-  public var adpcmTotalLevel: UInt8 = 0
+  package var adpcmTotalLevel: UInt8 = 0
 
   /// ADPCM rate accumulator for variable-rate playback
-  public var adpcmRateAccum: UInt32 = 0
+  package var adpcmRateAccum: UInt32 = 0
 
   /// ADPCM output sample (in fmgen integer domain, ±32636 max)
-  public var adpcmOutputSample: Float = 0
+  package var adpcmOutputSample: Float = 0
 
   /// ADPCM playback phase (fmgen adplc, 13-bit domain).
   package var adpcmPlaybackCounter: Int = 0
@@ -292,7 +292,7 @@ public final class YM2608 {
   package var adpcmLimitAddr: UInt32 = 0x3FFFFF
 
   /// ADPCM RAM (256KB, for ADPCM-B data storage)
-  public var adpcmRAM: [UInt8] = Array(repeating: 0, count: 0x40000)
+  package var adpcmRAM: [UInt8] = Array(repeating: 0, count: 0x40000)
 
   /// ADPCM RAM read pipeline (fmgen adpcmreadbuf, low and high byte). Reg 0x08
   /// reads in memory-read mode return `adpcmReadBuffer`, shift the prefetched
@@ -319,21 +319,21 @@ public final class YM2608 {
 
   /// Audio sample buffer (interleaved stereo, Float32, -1.0 to 1.0).
   /// Format: [L, R, L, R, ...]. Accumulated during tick(), consumed by audio output.
-  public var audioBuffer: [Float] = []
+  package var audioBuffer: [Float] = []
 
   // MARK: - Immersive Audio Output
 
   /// When true, per-channel stereo buffers are populated alongside audioBuffer.
-  public var immersiveOutputEnabled: Bool = false
+  package var immersiveOutputEnabled: Bool = false
 
   /// Per-channel stereo audio buffers (interleaved [L, R, L, R, ...], Float32).
   /// Only populated when immersiveOutputEnabled is true.
   /// Original L/R panning from hardware registers is preserved.
   /// BEEP is included in fmSpatialBuffer.
-  public var fmSpatialBuffer: [Float] = []
-  public var ssgSpatialBuffer: [Float] = []
-  public var adpcmSpatialBuffer: [Float] = []
-  public var rhythmSpatialBuffer: [Float] = []
+  package var fmSpatialBuffer: [Float] = []
+  package var ssgSpatialBuffer: [Float] = []
+  package var adpcmSpatialBuffer: [Float] = []
+  package var rhythmSpatialBuffer: [Float] = []
 
   // MARK: - CD Mix Post Processing
 
@@ -343,7 +343,7 @@ public final class YM2608 {
   ///
   /// The delay lines are not part of the save state; toggling or loading a
   /// state clears them.
-  public var cdMixEnabled: Bool = false {
+  package var cdMixEnabled: Bool = false {
     didSet {
       guard cdMixEnabled != oldValue else { return }
       // This setter runs on the main actor (the settings UI), but the delay
@@ -374,12 +374,12 @@ public final class YM2608 {
   }
 
   /// Debug-only output mask. Mutes final mix sources without affecting chip state.
-  public var debugOutputMask: DebugOutputMask = .all
+  package var debugOutputMask: DebugOutputMask = .all
 
   /// Per-channel mute mask (debug only). Applied to individual FM/SSG/Rhythm/ADPCM
   /// channels. Survives `reset()` so the user's mute selection is not lost when
   /// the machine is reset from the debug window.
-  public var debugChannelMask: DebugChannelMask = .all {
+  package var debugChannelMask: DebugChannelMask = .all {
     didSet {
       fmSynth.channelMask = debugChannelMask.fm
       fmSynth.rhythmMask  = debugChannelMask.rhythm
@@ -390,24 +390,24 @@ public final class YM2608 {
 
   /// 6-bit FM channel key-on mask (bit i = channel i has at least one operator active).
   /// Updated on FM key-on/key-off register writes; never touched by the sample-gen loop.
-  public private(set) var fmKeyOnMask: UInt8 = 0
+  package private(set) var fmKeyOnMask: UInt8 = 0
 
   /// Current rhythm instrument key-on state (6 bits).
   /// Mirrors FMSynthesizer.rhythmKey, which auto-clears bits as samples complete.
-  public var rhythmKeyOn: UInt8 { fmSynth.rhythmKey }
+  package var rhythmKeyOn: UInt8 { fmSynth.rhythmKey }
 
   /// Pseudo-stereo: applies Haas effect to mono FM/SSG output for stereo widening.
   /// Only effective when no FM channel has been panned (i.e. YM2203-compatible output).
-  public var pseudoStereoEnabled: Bool = false
+  package var pseudoStereoEnabled: Bool = false
 
   /// Set to true when any FM channel's pan register (0xB4) is written with non-center value.
   /// Once set, pseudo-stereo is suppressed for FM until reset.
-  public private(set) var fmPanDetected: Bool = false
+  package private(set) var fmPanDetected: Bool = false
   package var chorusFM = ChorusEffect()                    // L=dry, R=delayed
   package var chorusSSG = ChorusEffect(delayLeft: true)    // L=delayed, R=dry
 
   /// Audio sample rate for output (default 44100 Hz)
-  public static let sampleRate = 44100
+  package static let sampleRate = 44100
 
   /// CPU clock rate (Hz) — used for drift-free audio sample timing.
   /// OPNA clock = 3,993,624 Hz; CPU = OPNA × clockRatio.
@@ -416,11 +416,11 @@ public final class YM2608 {
 
   /// Current CPU clock rate for audio sample timing.
   /// AudioOutput adjusts this adaptively to match hardware playback rate.
-  public var cpuClockHz: Int = cpuClockHz8MHz
+  package var cpuClockHz: Int = cpuClockHz8MHz
 
   /// Base CPU clock rate (before adaptive adjustment)
-  public static let baseCpuClockHz8MHz = cpuClockHz8MHz
-  public static let baseCpuClockHz4MHz = cpuClockHz4MHz
+  package static let baseCpuClockHz8MHz = cpuClockHz8MHz
+  package static let baseCpuClockHz4MHz = cpuClockHz4MHz
 
   /// YM2608 keeps the busy flag high for about 10us after data writes.
   private static let busyUsec = 10
@@ -432,10 +432,10 @@ public final class YM2608 {
   // MARK: - BEEP
 
   /// BEEP on flag (port 0x40 bit 5: 2400Hz square wave)
-  public var beepOn: Bool = false
+  package var beepOn: Bool = false
 
   /// CMD SING flag (port 0x40 bit 7: DC level for N-BASIC BEEP command)
-  public var singSignal: Bool = false
+  package var singSignal: Bool = false
 
   /// BEEP 2400Hz oscillator phase (0.0 ..< 1.0)
   package var beepPhase: Double = 0.0
@@ -449,14 +449,14 @@ public final class YM2608 {
   // MARK: - Interrupt Callback
 
   /// Called when timer overflow generates interrupt.
-  public var onTimerIRQ: (() -> Void)?
+  package var onTimerIRQ: (() -> Void)?
 
   // MARK: - Init
 
-  public init() {}
+  package init() {}
 
   /// Reset to power-on state.
-  public func reset() {
+  package func reset() {
     registers = Array(repeating: 0x00, count: 256)
     registers[0x0E] = 0xFF  // Port A (joystick) - no buttons pressed
     registers[0x0F] = 0xFF  // Port B - no buttons pressed
@@ -550,7 +550,7 @@ public final class YM2608 {
   // MARK: - Timing
 
   /// Advance timers and synthesis by the given number of T-states.
-  public func tick(tStates: Int) {
+  package func tick(tStates: Int) {
     if busyStatusCounter > 0 {
       busyStatusCounter = max(0, busyStatusCounter - tStates)
     }
@@ -1027,7 +1027,7 @@ public final class YM2608 {
   }
 
   /// SSG 16-step volume table (legacy, kept for reference).
-  public static let ssgVolumeTable: [Float] = [
+  package static let ssgVolumeTable: [Float] = [
     0.0,            // 0  (silence)
     0.00781250,     // 1  pow(2, -7.0)
     0.01104854,     // 2  pow(2, -6.5)
@@ -1050,7 +1050,7 @@ public final class YM2608 {
   /// Step factor: 2^(1/4) ≈ 1.189207115 per level (~1.5 dB/step).
   /// Fixed volume (0-15) maps to odd indices [1,3,5,...,31] (same 3 dB/step as 16-step).
   /// Envelope uses all 32 levels for smooth transitions.
-  public static let ssgVolumeTable32: [Float] = {
+  package static let ssgVolumeTable32: [Float] = {
     var table = [Float](repeating: 0, count: 32)
     // Entry 31 = max (1.0), each step divides by 2^(1/4)
     var level: Float = 1.0
@@ -1152,7 +1152,7 @@ public final class YM2608 {
   // MARK: - Port I/O
 
   /// Read port 0x44: status register
-  public func readStatus() -> UInt8 {
+  package func readStatus() -> UInt8 {
     var status: UInt8 = 0
     if timerAOverflow { status |= 0x01 }
     if timerBOverflow { status |= 0x02 }
@@ -1162,10 +1162,10 @@ public final class YM2608 {
 
   /// When true, report Sound Board ID as YM2203 (OPN) instead of YM2608 (OPNA).
   /// Programs that check register 0xFF will see 0x00 and skip OPNA-specific features.
-  public var forceOPNMode: Bool = false
+  package var forceOPNMode: Bool = false
 
   /// Read port 0x45: data read
-  public func readData() -> UInt8 {
+  package func readData() -> UInt8 {
     // Register 0xFF: Sound Board ID (QUASI88/BubiC confirmed)
     // 0x00 = YM2203 (OPN), 0x01 = YM2608 (OPNA)
     if selectedAddr == 0xFF {
@@ -1181,7 +1181,7 @@ public final class YM2608 {
   /// Read port 0x46: extended status (fmgen ReadStatusEx)
   /// Bit layout: [5]=PCMBSY, [3]=BRDY (forced on), [2]=EOS, [1]=TimerB, [0]=TimerA
   /// BRDY is always forced on (status | 0x08) then masked by statusMask.
-  public func readExtStatus() -> UInt8 {
+  package func readExtStatus() -> UInt8 {
     // YM2203 has no second register bank on 0x46/0x47; return open bus.
     if forceOPNMode { return 0xFF }
     var status: UInt8 = 0
@@ -1193,7 +1193,7 @@ public final class YM2608 {
   }
 
   /// Read port 0x47: extended data read
-  public func readExtData() -> UInt8 {
+  package func readExtData() -> UInt8 {
     if forceOPNMode { return 0xFF }
     if selectedExtAddr == 0x08, (adpcmControl1 & 0x60) == 0x20 {
       return readADPCMRAMByte()
@@ -1246,24 +1246,24 @@ public final class YM2608 {
   }
 
   /// Write port 0x44: address select (SSG + FM ch1-3)
-  public func writeAddr(_ value: UInt8) {
+  package func writeAddr(_ value: UInt8) {
     selectedAddr = value
   }
 
   /// Write port 0x45: data write (SSG + FM ch1-3)
-  public func writeData(_ value: UInt8) {
+  package func writeData(_ value: UInt8) {
     registers[Int(selectedAddr)] = value
     armBusyStatus()
     handleRegisterWrite(addr: selectedAddr, value: value)
   }
 
   /// Write port 0x46: address select (ADPCM + FM ch4-6)
-  public func writeExtAddr(_ value: UInt8) {
+  package func writeExtAddr(_ value: UInt8) {
     selectedExtAddr = value
   }
 
   /// Write port 0x47: data write (ADPCM + FM ch4-6)
-  public func writeExtData(_ value: UInt8) {
+  package func writeExtData(_ value: UInt8) {
     extRegisters[Int(selectedExtAddr)] = value
     armBusyStatus()
     handleExtRegisterWrite(addr: selectedExtAddr, value: value)
@@ -1696,7 +1696,7 @@ public final class YM2608 {
 
   /// Load rhythm WAV sample (signed 16-bit PCM, mono).
   /// Index: 0=BD, 1=SD, 2=TOP, 3=HH, 4=TOM, 5=RIM
-  public func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
+  package func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
     fmSynth.loadRhythmSample(index: index, data: data, sampleRate: sampleRate)
   }
 }

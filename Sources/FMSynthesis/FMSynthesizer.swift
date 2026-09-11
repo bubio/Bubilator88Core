@@ -832,7 +832,7 @@ let amWaveformTable: [Int] = {
 
 // MARK: - FMSynthesizer
 
-public final class FMSynthesizer {
+package final class FMSynthesizer {
   var ch = [FMCh](repeating: FMCh(), count: 6)
 
   // Chip state
@@ -861,7 +861,7 @@ public final class FMSynthesizer {
   var chipClock: Int
   var outputRate: Int = 44100
 
-  public init(clock: Int = 3_993_624) {
+  package init(clock: Int = 3_993_624) {
     chipClock = clock
     setRatio(clock: clock, rate: outputRate)
   }
@@ -904,7 +904,7 @@ public final class FMSynthesizer {
   }
 
   /// Generate one FM sample from all 6 channels. Returns (left, right) in raw amplitude.
-  public func generateSample() -> (Int, Int) {
+  package func generateSample() -> (Int, Int) {
     let lfoState: (pml: Int, aml: Int)?
     if lfoEnabled {
       lfoState = lfo()
@@ -948,7 +948,7 @@ public final class FMSynthesizer {
   }
 
   /// Mix rhythm samples into buffer. Returns (left, right) contribution.
-  public func generateRhythm() -> (Int, Int) {
+  package func generateRhythm() -> (Int, Int) {
     guard rhythmKey & 0x3F != 0 else { return (0, 0) }
     var outL = 0
     var outR = 0
@@ -987,7 +987,7 @@ public final class FMSynthesizer {
   }
 
   /// Load rhythm WAV sample (signed 16-bit PCM, mono).
-  public func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
+  package func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {
     guard index >= 0 && index < 6 else { return }
     rhythm[index].sample = data
     rhythm[index].step = sampleRate * FM.rhythmFixedPointScale / outputRate
@@ -995,7 +995,7 @@ public final class FMSynthesizer {
     rhythm[index].pos = rhythm[index].size  // stopped initially
   }
 
-  public func reset() {
+  package func reset() {
     for i in 0..<6 { ch[i].reset() }
     lfoCount = 0; lfoDCount = 0; lfoEnabled = false
     extendedChannelsEnabled = false
@@ -1009,7 +1009,7 @@ public final class FMSynthesizer {
 
 /// Haas-effect pseudo-stereo widener for mono output.
 /// One channel is dry, the other is delayed.
-public struct ChorusEffect: Sendable {
+package struct ChorusEffect: Sendable {
   private static let bufferSize = 256
   private static let bufferMask = bufferSize - 1
 
@@ -1022,13 +1022,13 @@ public struct ChorusEffect: Sendable {
   /// - Parameters:
   ///   - fmRate: sample rate (default ~55467 Hz)
   ///   - delayLeft: if true, L is delayed and R is dry
-  public init(fmRate: Int = 55467, delayLeft: Bool = false) {
+  package init(fmRate: Int = 55467, delayLeft: Bool = false) {
     buffer = [Int](repeating: 0, count: Self.bufferSize)
     delay = fmRate * 4 / 1000   // ~4ms
     self.delayLeft = delayLeft
   }
 
-  public mutating func process(monoSample: Int) -> (left: Int, right: Int) {
+  package mutating func process(monoSample: Int) -> (left: Int, right: Int) {
     buffer[writePos] = monoSample
     writePos = (writePos + 1) & Self.bufferMask
 
@@ -1041,7 +1041,7 @@ public struct ChorusEffect: Sendable {
     }
   }
 
-  public mutating func reset() {
+  package mutating func reset() {
     for i in 0..<Self.bufferSize {
       buffer[i] = 0
     }

@@ -6,26 +6,26 @@
 /// Other ranges: symbols, graphics characters
 ///
 /// If no font ROM file is loaded, a built-in minimal ASCII font is used.
-public final class FontROM {
+package final class FontROM {
 
   /// Font data: 256 characters × 8 bytes per character = 2048 bytes.
-  public var data: [UInt8]
+  package var data: [UInt8]
 
   /// Semi-graphic pattern table (256 chars × 8 rows).
   /// Each 8×8 cell is divided into a 2-column × 4-row grid.
   /// Character code bits control which blocks are filled.
-  public let sgPattern: [UInt8]  // 2048 bytes
+  package let sgPattern: [UInt8]  // 2048 bytes
 
   /// Whether an external font ROM was loaded
-  public var isLoaded: Bool = false
+  package var isLoaded: Bool = false
 
-  public init() {
+  package init() {
     self.data = FontROM.builtInFont()
     self.sgPattern = FontROM.generateSGPattern()
   }
 
   /// Load font ROM from raw data (2048 bytes expected).
-  public func load(_ romData: [UInt8]) {
+  package func load(_ romData: [UInt8]) {
     if romData.count >= 2048 {
       data = Array(romData.prefix(2048))
       isLoaded = true
@@ -34,7 +34,7 @@ public final class FontROM {
 
   /// Get the glyph pattern for a character code.
   /// Returns 8 bytes (one per row, MSB = leftmost pixel).
-  public func glyph(for code: UInt8) -> [UInt8] {
+  package func glyph(for code: UInt8) -> [UInt8] {
     let offset = Int(code) * 8
     guard offset + 8 <= data.count else {
       return Array(repeating: 0, count: 8)
@@ -44,7 +44,7 @@ public final class FontROM {
 
   /// Get a single row of a glyph (0-7). No allocation.
   @inline(__always)
-  public func glyphRow(code: UInt8, row: Int) -> UInt8 {
+  package func glyphRow(code: UInt8, row: Int) -> UInt8 {
     let offset = Int(code) * 8 + row
     guard offset < data.count else { return 0 }
     return data[offset]
@@ -52,7 +52,7 @@ public final class FontROM {
 
   /// Get a single row of a semi-graphic glyph (0-7). No allocation.
   @inline(__always)
-  public func sgGlyphRow(code: UInt8, row: Int) -> UInt8 {
+  package func sgGlyphRow(code: UInt8, row: Int) -> UInt8 {
     return sgPattern[Int(code) * 8 + row]
   }
 

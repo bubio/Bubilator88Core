@@ -21,14 +21,14 @@ private let busLog = Logger(label: "EmulatorCore.Pc88Bus")
 ///   0xC000-0xFFFF: GVRAM (plane selected) or Main RAM
 ///
 /// Unimplemented ports return 0xFF.
-public final class Pc88Bus: Bus {
+package final class Pc88Bus: Bus {
 
-  public enum TextDisplayMode: Equatable, CustomStringConvertible {
+  package enum TextDisplayMode: Equatable, CustomStringConvertible {
     case disabled
     case enabled
     case attributesOnly
 
-    public var description: String {
+    package var description: String {
       switch self {
       case .disabled:
         return "disabled"
@@ -43,52 +43,52 @@ public final class Pc88Bus: Bus {
   // MARK: - Memory
 
   /// 64KB Main RAM
-  public var mainRAM: [UInt8] = Array(repeating: 0x00, count: 65536)
+  package var mainRAM: [UInt8] = Array(repeating: 0x00, count: 65536)
 
   /// Graphic VRAM: 3 planes x 16KB
   /// Index 0=Blue, 1=Red, 2=Green
-  public var gvram: [[UInt8]] = Array(repeating: Array(repeating: 0x00, count: 0x4000), count: 3)
+  package var gvram: [[UInt8]] = Array(repeating: Array(repeating: 0x00, count: 0x4000), count: 3)
 
   // MARK: - ROM
 
   /// N88-BASIC ROM (32KB). Nil if not loaded.
-  public var n88BasicROM: [UInt8]?
+  package var n88BasicROM: [UInt8]?
 
   /// N-BASIC ROM (32KB). Nil if not loaded.
-  public var nBasicROM: [UInt8]?
+  package var nBasicROM: [UInt8]?
 
   /// N88 Extended ROM banks (4 banks x 8KB). Nil if not loaded.
-  public var n88ExtROM: [[UInt8]]?
+  package var n88ExtROM: [[UInt8]]?
 
   // MARK: - Banking State
 
   /// Port 0x31 bit 1 (RMODE): false=N-BASIC, true=N88-BASIC
-  public var romModeN88: Bool = true
+  package var romModeN88: Bool = true
 
   /// Port 0x31 bit 2 (MMODE): false=ROM at 0x0000-0x7FFF, true=RAM
-  public var ramMode: Bool = false
+  package var ramMode: Bool = false
 
   /// Currently selected GVRAM plane (0-2), or -1 for main RAM.
   /// Controlled by port 0x5C-0x5F writes.
-  public var gvramPlane: Int = -1
+  package var gvramPlane: Int = -1
 
   /// Port 0x35 bit 7 (GAM): GVRAM access mode enable (Extended mode ALU access).
-  public var gamMode: Bool = false
+  package var gamMode: Bool = false
 
   /// Port 0x32 bit 6 (EVRAM): Extended VRAM access mode.
   /// false = Independent mode (port 0x5C-0x5F controls GVRAM plane access)
   /// true  = Extended mode (port 0x35 bit 7 controls ALU GVRAM access)
   /// Reference: QUASI88 MISC_CTRL_EVRAM, main_memory_vram_mapping()
-  public var evramMode: Bool = false
+  package var evramMode: Bool = false
 
   /// Port 0x71: Extended ROM bank select (active low)
-  public var extROMBank: UInt8 = 0xFF
+  package var extROMBank: UInt8 = 0xFF
 
   /// Port 0x32 bit 0-1 (EROMSL): N88 ext ROM bank number
-  public var n88ExtROMSelect: UInt8 = 0
+  package var n88ExtROMSelect: UInt8 = 0
 
   /// Port 0x71 bit 0 (EXT_ROM_NOT): Ext ROM area enable (0x6000-0x7FFF), active low
-  public var extROMEnabled: Bool = false
+  package var extROMEnabled: Bool = false
 
   /// Port 0x71 bits 7-1: external expansion ROM select lines (active low).
   /// Bubilator does not emulate external ROM boards yet, so any selected bit makes
@@ -98,21 +98,21 @@ public final class Pc88Bus: Bus {
   }
 
   /// Port 0x70: Text window offset
-  public var textWindowOffset: UInt8 = 0
+  package var textWindowOffset: UInt8 = 0
 
   // MARK: - Display Control
 
   /// Port 0x30 write: system control register
-  public var port30w: UInt8 = 0
+  package var port30w: UInt8 = 0
 
   /// Port 0x52: background/border color (bit 5=R, bit 4=G, bit 3=B)
-  public var borderColor: UInt8 = 0
+  package var borderColor: UInt8 = 0
 
   /// Analog background color register (analog counterpart of QUASI88 vram_bg_palette).
   /// Updated by writing port 0x54 with bit 7 set while in analog mode.
   /// Physically the border color (outside the visible 640x400 area); independent
   /// of the graphics palette[0].
-  public var analogBgPalette: (b: UInt8, r: UInt8, g: UInt8) = (0, 0, 0)
+  package var analogBgPalette: (b: UInt8, r: UInt8, g: UInt8) = (0, 0, 0)
 
   /// Port 0x53: layer display control (QUASI88: grph_pile)
   /// All bits are SUPPRESS flags (1 = hide layer)
@@ -120,42 +120,42 @@ public final class Pc88Bus: Bus {
   /// bit 1: Blue GVRAM plane suppress (GRPH_PILE_BLUE)
   /// bit 2: Red GVRAM plane suppress (GRPH_PILE_RED)
   /// bit 3: Green GVRAM plane suppress (GRPH_PILE_GREEN)
-  public var layerControl: UInt8 = 0
+  package var layerControl: UInt8 = 0
 
   /// Color/mono mode: true = color, false = mono
-  public var colorMode: Bool = true
+  package var colorMode: Bool = true
 
   /// Column width: true = 80 columns, false = 40 columns
-  public var columns80: Bool = true
+  package var columns80: Bool = true
 
   /// Analog palette mode (512 colors): controlled by port 0x32 bit 5 (MISC_CTRL_ANALOG).
   /// false = 8-color digital, true = 512-color analog
-  public var analogPalette: Bool = false
+  package var analogPalette: Bool = false
 
   /// Port 0x31 bit 3 (GRPH_CTRL_VDISP): GVRAM display enable.
   /// false = graphics hidden, true = graphics visible.
   /// Reference: QUASI88 GRPH_CTRL_VDISP (0x08), BubiC Port31_GRAPH
-  public var graphicsDisplayEnabled: Bool = true
+  package var graphicsDisplayEnabled: Bool = true
 
   /// Port 0x31 bit 4 (GRPH_CTRL_COLOR): Graphics color/mono mode.
   /// false = mono/attribute mode, true = 8-color mode.
   /// Reference: QUASI88 GRPH_CTRL_COLOR (0x10), BubiC Port31_HCOLOR
-  public var graphicsColorMode: Bool = true
+  package var graphicsColorMode: Bool = true
 
   /// Port 0x31 bit 0 (GRPH_CTRL_200): 200/400 line mode select.
   /// true = 200-line mode, false = 400-line mode.
   /// Reference: QUASI88 GRPH_CTRL_200 (0x01), BubiC Port31_200LINE
-  public var mode200Line: Bool = true
+  package var mode200Line: Bool = true
 
   /// Which CRT is attached (DIP SW1 bit 8). Owned by `Machine`, mirrored
   /// here because port 0x40 bit 1 (SHG) reports it back to software — and,
   /// from Step 4 on, because the V1S GVRAM wait depends on it.
-  public var monitorType: MonitorType = .khz24
+  package var monitorType: MonitorType = .khz24
 
   /// True when 400-line monochrome mode is active.
   /// 400-line mode requires: mode200Line=false AND graphicsColorMode=false.
   /// Blue plane = upper 200 lines, Red plane = lower 200 lines.
-  public var is400LineMode: Bool {
+  package var is400LineMode: Bool {
     !mode200Line && !graphicsColorMode
   }
 
@@ -165,64 +165,64 @@ public final class Pc88Bus: Bus {
   /// 8 cards = 1MB (QUASI88-compatible extended addressing via port 0xE3
   /// bits 4-5). Indexed as [card][bank][offset], each bank is 32KB.
   /// Nil if no extended RAM is installed.
-  public var extRAM: [[[UInt8]]]?
+  package var extRAM: [[[UInt8]]]?
 
   /// Number of installed extended RAM cards. Derived from `extRAM.count`.
   /// Selects the port 0xE3 bank decode range (cards × 4 banks).
-  public var extramCardCount: Int { extRAM?.count ?? 0 }
+  package var extramCardCount: Int { extRAM?.count ?? 0 }
 
   /// Port 0xE2 bit 0 (WREN): Extended RAM write enable
-  public var extRAMWriteEnable: Bool = false
+  package var extRAMWriteEnable: Bool = false
 
   /// Port 0xE2 bit 4 (RDEN): Extended RAM read enable
-  public var extRAMReadEnable: Bool = false
+  package var extRAMReadEnable: Bool = false
 
   /// Selected card index (decoded from port 0xE3 according to card count).
   /// 0xFF = out-of-range select, returns 0xFF on read.
-  public var extRAMCard: Int = 0
+  package var extRAMCard: Int = 0
 
   /// Selected bank index within the card (0-3).
-  public var extRAMBank: Int = 0
+  package var extRAMBank: Int = 0
 
   /// Last raw value written to port 0xE3 (for readback).
-  public var extRAMBankRaw: UInt8 = 0
+  package var extRAMBankRaw: UInt8 = 0
 
   // MARK: - Kanji ROM
 
   /// Kanji ROM Level 1 data (128KB). Nil if not loaded.
-  public var kanjiROM1: [UInt8]?
+  package var kanjiROM1: [UInt8]?
 
   /// Kanji ROM Level 2 data (128KB). Nil if not loaded.
-  public var kanjiROM2: [UInt8]?
+  package var kanjiROM2: [UInt8]?
 
   /// Kanji ROM Level 1 address register (ports 0xE8-0xE9)
-  public var kanjiAddr1: UInt16 = 0
+  package var kanjiAddr1: UInt16 = 0
 
   /// Kanji ROM Level 2 address register (ports 0xEC-0xED)
-  public var kanjiAddr2: UInt16 = 0
+  package var kanjiAddr2: UInt16 = 0
 
   // MARK: - ALU State
 
   /// Port 0x34: ALU control register 1 (per-plane operations)
-  public var aluControl1: UInt8 = 0
+  package var aluControl1: UInt8 = 0
 
   /// Port 0x35: ALU control register 2 (GAM, GDM, compare data)
-  public var aluControl2: UInt8 = 0
+  package var aluControl2: UInt8 = 0
 
   /// ALU registers: loaded during ALU-mode GVRAM reads, used by GDM write-back modes.
   /// [0]=Blue, [1]=Red, [2]=Green. Reference: BubiC alu_reg[3]
-  public var aluReg: [UInt8] = [0, 0, 0]
+  package var aluReg: [UInt8] = [0, 0, 0]
 
   // MARK: - System State
 
   /// Port 0x31 full register value (for mode tracking)
-  public var port31: UInt8 = 0
+  package var port31: UInt8 = 0
 
   /// Port 0x32 full register value
-  public var port32: UInt8 = 0
+  package var port32: UInt8 = 0
 
   /// Port 0x40 write register (beep, joystick, calendar, CRT sync)
-  public var port40w: UInt8 = 0
+  package var port40w: UInt8 = 0
 
   /// Port 0x40 write bit 4 (GHSM): graphic high-speed mode.
   /// When set, the video circuit releases the GVRAM bus early, so a V1S/N
@@ -230,10 +230,10 @@ public final class Pc88Bus: Bus {
   /// Reference: `SPECS/IO_PORT_MAP.md` port 0x40 write bit 4, BubiC
   /// `pc88.cpp` `Port40_GHSM`.
   @inline(__always)
-  public var port40GHSM: Bool { (port40w & 0x10) != 0 }
+  package var port40GHSM: Bool { (port40w & 0x10) != 0 }
 
   /// CPU clock: true=8MHz, false=4MHz
-  public var cpuClock8MHz: Bool = true
+  package var cpuClock8MHz: Bool = true
 
   /// Boot mode axis: DIP SW3-S0, reported as port 0x31 read bit 6.
   /// 0 = standard (V1S, or N-BASIC), 1 = high speed (V1H / V2).
@@ -243,7 +243,7 @@ public final class Pc88Bus: Bus {
   /// GVRAM wait table applies and how the 0xF000 range is routed — it is
   /// *not* the memory-wait DIP, which is `memoryWaitDip` below.
   @inline(__always)
-  public var bootModeStandard: Bool { (dipSw2 & 0x40) == 0 }
+  package var bootModeStandard: Bool { (dipSw2 & 0x40) == 0 }
 
   /// Memory wait DIP: DIP SW1 bit 6 ("メモリウェイト", ON = add 1 WAIT).
   ///
@@ -252,30 +252,30 @@ public final class Pc88Bus: Bus {
   /// SW1-1..SW1-5), so software cannot read it back and it lives here
   /// rather than in `dipSw1`. Off by default, matching BubiC's
   /// `DIPSWITCH_DEFAULT`. Survives `reset()`, like a real switch.
-  public var memoryWaitDip: Bool = false
+  package var memoryWaitDip: Bool = false
 
   /// VRTC flag (set by CRTC during vertical blanking)
-  public var vrtcFlag: Bool = false
+  package var vrtcFlag: Bool = false
 
   /// When true, port 0x09 bit 0 (STOP key) is forced low to skip disk boot
   /// and start N88-BASIC directly (simulates holding STOP during power-on).
   /// Default false: cold boot shows "How many files?" prompt (correct behavior).
   /// Warm boot (STOP held) skips workspace LDIR init, causing E69F garbage.
-  public var directBasicBoot: Bool = false
+  package var directBasicBoot: Bool = false
 
   /// Memory WAIT: accumulated wait T-states from memory access, added by
   /// `addMainWait` / `addTvramWait` / `addGvramWait`. `Machine` reads and
   /// clears this after each CPU step. See `MEMORY_WAIT_STATES.md` for the
   /// tables; the figures range from 0 to 141 T-states for one access.
-  public var pendingWaitStates: Int = 0
+  package var pendingWaitStates: Int = 0
 
   /// V2 high-speed text RAM (0xF000-0xFFFF, 4KB).
   /// Separate buffer from mainRAM, used when tvramEnabled=true.
-  public var tvram: [UInt8] = Array(repeating: 0x00, count: 4096)
+  package var tvram: [UInt8] = Array(repeating: 0x00, count: 4096)
 
   /// When true, CPU and DMA accesses to 0xF000-0xFFFF route to tvram instead of mainRAM.
   /// Controlled by Port 0x32 bit 4 (TMODE): TMODE=0 → tvram enabled, TMODE=1 → mainRAM.
-  public var tvramEnabled: Bool = false
+  package var tvramEnabled: Bool = false
 
   // MARK: - Palette
 
@@ -283,10 +283,10 @@ public final class Pc88Bus: Bus {
   /// Port 0x54-0x5B: each port sets one palette entry.
   /// Digital mode: bit 0=B, bit 1=R, bit 2=G (1 bit per color, stored as 0 or 7).
   /// Analog mode: bit 6=0 → bits 0-2=B, 3-5=R; bit 6=1 → bits 0-2=G.
-  public var palette: [(b: UInt8, r: UInt8, g: UInt8)] = Pc88Bus.defaultPalette
+  package var palette: [(b: UInt8, r: UInt8, g: UInt8)] = Pc88Bus.defaultPalette
 
   /// Default 8-color palette (standard PC-8801)
-  public static let defaultPalette: [(b: UInt8, r: UInt8, g: UInt8)] = [
+  package static let defaultPalette: [(b: UInt8, r: UInt8, g: UInt8)] = [
     (0, 0, 0),  // 0: Black
     (7, 0, 0),  // 1: Blue
     (0, 7, 0),  // 2: Red
@@ -300,56 +300,56 @@ public final class Pc88Bus: Bus {
   // MARK: - Keyboard
 
   /// Keyboard reference for port 0x00-0x0E reads
-  public weak var keyboard: Keyboard?
+  package weak var keyboard: Keyboard?
 
   // MARK: - Component References (weak to avoid retain cycles)
 
   /// Interrupt controller reference for port 0xE4/0xE6 writes
-  public weak var interruptController: InterruptControllerRef?
+  package weak var interruptController: InterruptControllerRef?
 
   /// CRTC reference for port 0x50/0x51
-  public weak var crtc: CRTC?
+  package weak var crtc: CRTC?
 
   /// YM2608 reference for port 0x44-0x47
-  public weak var sound: YM2608?
+  package weak var sound: YM2608?
 
   /// Called when SINTM transitions from masked→unmasked (port 0x32 bit 7: 1→0).
   /// Machine wires this to re-request sound IRQ if the OPNA line is still active.
-  public var onSoundUnmask: (() -> Void)?
+  package var onSoundUnmask: (() -> Void)?
 
   /// Debug: main CPU PC, updated by Machine before each step
-  public var debugMainPC: UInt16 = 0
+  package var debugMainPC: UInt16 = 0
 
   /// SubSystem reference for port 0xFC-0xFF
-  public weak var subSystem: SubSystem?
+  package weak var subSystem: SubSystem?
 
   /// DMA controller reference for port 0x60-0x68
-  public weak var dma: DMAController?
+  package weak var dma: DMAController?
 
   /// uPD1990A calendar chip for port 0x10 / port 0x40 bit 4
-  public var calendar: UPD1990A?
+  package var calendar: UPD1990A?
 
   /// μPD8251 USART for port 0x20/0x21 (CMT / RS-232C)
-  public var usart: I8251?
+  package var usart: I8251?
 
   /// Cassette deck — pumps bytes into `usart` while motor is on and
   /// port 0x30 has CMT selected.
-  public var cassette: CassetteDeck?
+  package var cassette: CassetteDeck?
 
   /// PC-8801 bus mouse (PC-8872). When `enabled`, intercepts OPN port A/B
   /// reads (port 0x45 with reg 0x0E/0x0F selected) and is strobed via
   /// port 0x40 bit 6.
-  public var mouse: Mouse?
+  package var mouse: Mouse?
 
   /// Current T-state, updated by Machine before each CPU step. Used by the
   /// mouse strobe to measure inter-strobe timing.
-  public var currentTState: UInt64 = 0
+  package var currentTState: UInt64 = 0
 
   // MARK: - Trace
 
   /// Optional callback invoked on every I/O read/write for trace logging.
   /// Parameters: (port, value, isWrite)
-  public var onIOAccess: ((UInt16, UInt8, Bool) -> Void)?
+  package var onIOAccess: ((UInt16, UInt8, Bool) -> Void)?
 
   // MARK: - Debugger access hooks
 
@@ -359,27 +359,27 @@ public final class Pc88Bus: Bus {
   /// these to implement memory / I/O breakpoints — it updates its
   /// own paused-state flag; the caller does not inspect a return
   /// value because we cannot unwind a mid-instruction fetch anyway.
-  public var onDebuggerMemRead:  ((UInt16) -> Void)?
-  public var onDebuggerMemWrite: ((UInt16, UInt8) -> Void)?
-  public var onDebuggerIORead:   ((UInt16) -> Void)?
-  public var onDebuggerIOWrite:  ((UInt16, UInt8) -> Void)?
+  package var onDebuggerMemRead:  ((UInt16) -> Void)?
+  package var onDebuggerMemWrite: ((UInt16, UInt8) -> Void)?
+  package var onDebuggerIORead:   ((UInt16) -> Void)?
+  package var onDebuggerIOWrite:  ((UInt16, UInt8) -> Void)?
 
   /// Tracks unimplemented ports that have been read (for debugging).
   /// Each port is logged once on first access.
-  public var unimplementedReadPorts: Set<UInt8> = []
+  package var unimplementedReadPorts: Set<UInt8> = []
 
   /// Tracks unimplemented ports that have been written (for debugging).
-  public var unimplementedWritePorts: Set<UInt8> = []
+  package var unimplementedWritePorts: Set<UInt8> = []
 
   #if DEBUG
   /// Recent I/O on ports that affect text DMA / overlay eligibility.
-  public private(set) var recentTextDMAIO: [TextDMADebugSnapshot.IOEvent] = []
+  package private(set) var recentTextDMAIO: [TextDMADebugSnapshot.IOEvent] = []
   private let recentTextDMAIOMax = 40
   #endif
 
   // MARK: - Init
 
-  public init() {}
+  package init() {}
 
   /// Reset bus-visible registers and peripheral state.
   ///
@@ -387,7 +387,7 @@ public final class Pc88Bus: Bus {
   /// pattern. The front-panel RESET key does not clear those RAM contents, and
   /// some software deliberately asks the user to reset after installing data
   /// or flags in RAM.
-  public func reset(preserveRAM: Bool = false) {
+  package func reset(preserveRAM: Bool = false) {
     if !preserveRAM {
       powerOnRAMInit()
       gvram = Array(repeating: Array(repeating: 0x00, count: 0x4000), count: 3)
@@ -622,13 +622,13 @@ public final class Pc88Bus: Bus {
     }
   }
 
-  public func opcodeRead(_ addr: UInt16) -> UInt8 {
+  package func opcodeRead(_ addr: UInt16) -> UInt8 {
     let value = memRead(addr)
     addM1Wait(addr)
     return value
   }
 
-  public func memRead(_ addr: UInt16) -> UInt8 {
+  package func memRead(_ addr: UInt16) -> UInt8 {
     onDebuggerMemRead?(addr)
     switch addr {
     case 0x0000..<0x6000:
@@ -730,7 +730,7 @@ public final class Pc88Bus: Bus {
     }
   }
 
-  public func memWrite(_ addr: UInt16, value: UInt8) {
+  package func memWrite(_ addr: UInt16, value: UInt8) {
     onDebuggerMemWrite?(addr, value)
     switch addr {
     case 0x0000..<0x8000:
@@ -826,7 +826,7 @@ public final class Pc88Bus: Bus {
     mainRAM[Int(addr)] = value
   }
 
-  public func ioRead(_ port: UInt16) -> UInt8 {
+  package func ioRead(_ port: UInt16) -> UInt8 {
     onDebuggerIORead?(port)
     let rawPort = UInt8(port & 0xFF)
     let port8 = normalizeIOPort(rawPort)
@@ -1028,7 +1028,7 @@ public final class Pc88Bus: Bus {
     }
   }
 
-  public func ioWrite(_ port: UInt16, value: UInt8) {
+  package func ioWrite(_ port: UInt16, value: UInt8) {
     onDebuggerIOWrite?(port, value)
     let rawPort = UInt8(port & 0xFF)
     let port8 = normalizeIOPort(rawPort)
@@ -1423,7 +1423,7 @@ public final class Pc88Bus: Bus {
   /// bit 4 (SW1-4): 0=S parameter on, 1=S parameter off
   /// bit 5 (SW1-5): 0=DEL code process, 1=DEL code ignore
   /// BubiC: (mode==N ? 0 : 1) | 0xC2; QUASI88 V2: 0xDB
-  public var dipSw1: UInt8 = 0xC3
+  package var dipSw1: UInt8 = 0xC3
 
   /// DIP switch 2 base value.
   /// bit 7 (SW_V1): 0=V2 mode, 1=V1 mode
@@ -1435,7 +1435,7 @@ public final class Pc88Bus: Bus {
   /// bit 2-0: serial settings
   /// Port 0x31 read forces bit 3 high (BubiC/QUASI88-compatible).
   /// Default base 0x71 = V2 mode, high speed, disk boot selected.
-  public var dipSw2: UInt8 = 0x71
+  package var dipSw2: UInt8 = 0x71
 
   private func dipSwitch1() -> UInt8 {
     return dipSw1 | 0xC0
@@ -1453,7 +1453,7 @@ public final class Pc88Bus: Bus {
   /// Current text display mode.
   /// Color mode + port 0x53 bit 0 = fully hidden.
   /// Mono/attribute graphics + port 0x53 bit 0 = glyphs hidden, attributes remain active.
-  public var textDisplayMode: TextDisplayMode {
+  package var textDisplayMode: TextDisplayMode {
     // QUASI88: (dmac_mode & 0x4) && crtc_active && (crtc_intr_mask == 3)
     // dmaUnderrun not checked here — QUASI88/XM8 always render text
     // when DMA is active. Underrun flag is still set in performTextDMATransfer
@@ -1471,7 +1471,7 @@ public final class Pc88Bus: Bus {
   }
 
   /// Whether text glyphs should be rendered as an overlay.
-  public var textDisplayEnabled: Bool {
+  package var textDisplayEnabled: Bool {
     textDisplayMode == .enabled
   }
 
@@ -1493,7 +1493,7 @@ public final class Pc88Bus: Bus {
   /// Transfer text VRAM data into CRTC's internal DMA buffer (called at VRTC).
   /// BubiC: dmac.run(2, rowBytes) → RAM→buffer per char row during active display.
   /// We do the entire transfer at VRTC for simplicity.
-  public func performTextDMATransfer() {
+  package func performTextDMATransfer() {
     guard let crtc = crtc else { return }
 
     crtc.startDMATransfer()
@@ -1521,7 +1521,7 @@ public final class Pc88Bus: Bus {
   /// uPD3301 DMA format: each row is (charsPerLine + attrsPerLine) bytes.
   /// Character codes are the first `charsPerLine` bytes of each row.
   /// Returns flattened character data (cols × rows).
-  public func readTextVRAM() -> [UInt8] {
+  package func readTextVRAM() -> [UInt8] {
     guard let crtc = crtc else { return Array(repeating: 0x00, count: 2000) }
     let cols = Int(crtc.charsPerLine)
     let rows = Int(crtc.linesPerScreen)
@@ -1554,7 +1554,7 @@ public final class Pc88Bus: Bus {
   /// All attrsPerLine pairs are processed (no early termination).
   ///
   /// Returns expanded per-character attribute array (cols × rows).
-  public func readTextAttributes() -> [UInt8] {
+  package func readTextAttributes() -> [UInt8] {
     guard let crtc = crtc else { return Array(repeating: 0xE0, count: 2000) }
     let cols = Int(crtc.charsPerLine)
     let rows = Int(crtc.linesPerScreen)
@@ -1629,7 +1629,7 @@ public final class Pc88Bus: Bus {
   }
 
   #if DEBUG
-  public func textDMADebugSnapshot() -> TextDMADebugSnapshot {
+  package func textDMADebugSnapshot() -> TextDMADebugSnapshot {
     let dmaState = TextDMADebugSnapshot.DMAState(
       enabled: dma?.channels[2].enabled ?? false,
       mode: dma?.channels[2].mode ?? 0,
@@ -1803,7 +1803,7 @@ public final class Pc88Bus: Bus {
   /// Port 0x31 bit 3 (GRPH_CTRL_VDISP): master graphics display enable.
   /// Port 0x53 bits 1-3: per-plane suppress (mono/attrib mode only per BubiC).
   /// In color mode (GRPH_CTRL_COLOR=1), Port 0x53 plane suppress is ignored (BubiC confirmed).
-  public func renderGVRAMPlanes() -> (blue: [UInt8], red: [UInt8], green: [UInt8]) {
+  package func renderGVRAMPlanes() -> (blue: [UInt8], red: [UInt8], green: [UInt8]) {
     // Master switch: Port 0x31 bit 3 (GRPH_CTRL_VDISP)
     guard graphicsDisplayEnabled else {
       return (Self.zeroPlane, Self.zeroPlane, Self.zeroPlane)

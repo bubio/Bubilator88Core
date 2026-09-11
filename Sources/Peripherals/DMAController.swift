@@ -11,33 +11,33 @@
 ///   0x68:      Mode register
 ///
 /// Each channel: 16-bit start address + 14-bit count + 2-bit mode
-public final class DMAController {
+package final class DMAController {
 
   // MARK: - Channel State
 
-  public struct Channel {
-    public var address: UInt16 = 0
-    public var count: UInt16 = 0
-    public var mode: UInt8 = 0  // bit 6-7: 00=verify, 01=write, 10=read
+  package struct Channel {
+    package var address: UInt16 = 0
+    package var count: UInt16 = 0
+    package var mode: UInt8 = 0  // bit 6-7: 00=verify, 01=write, 10=read
 
     /// Whether this channel is enabled
-    public var enabled: Bool = false
+    package var enabled: Bool = false
   }
 
   /// 4 DMA channels
-  public var channels: [Channel] = Array(repeating: Channel(), count: 4)
+  package var channels: [Channel] = Array(repeating: Channel(), count: 4)
 
   /// Mode register (port 0x68)
-  public var modeRegister: UInt8 = 0
+  package var modeRegister: UInt8 = 0
 
   /// Flip-flop for address/count byte ordering (low byte first)
   package var flipFlop: Bool = false  // false = low byte, true = high byte
 
   // MARK: - Init
 
-  public init() {}
+  package init() {}
 
-  public func reset() {
+  package func reset() {
     channels = Array(repeating: Channel(), count: 4)
     modeRegister = 0
     flipFlop = false
@@ -46,7 +46,7 @@ public final class DMAController {
   // MARK: - Port I/O
 
   /// Write to DMA controller port.
-  public func ioWrite(_ port: UInt8, value: UInt8) {
+  package func ioWrite(_ port: UInt8, value: UInt8) {
     switch port {
     case 0x60, 0x62, 0x64, 0x66:
       // Address register (even ports)
@@ -86,7 +86,7 @@ public final class DMAController {
   }
 
   /// Read from DMA controller port.
-  public func ioRead(_ port: UInt8) -> UInt8 {
+  package func ioRead(_ port: UInt8) -> UInt8 {
     switch port {
     case 0x60, 0x62, 0x64, 0x66:
       let ch = Int((port - 0x60) / 2)
@@ -115,12 +115,12 @@ public final class DMAController {
   // MARK: - Text VRAM Access
 
   /// Get the start address for text VRAM (DMA channel 2).
-  public var textVRAMAddress: UInt16 {
+  package var textVRAMAddress: UInt16 {
     return channels[2].address
   }
 
   /// Get the byte count for text VRAM transfer.
-  public var textVRAMCount: UInt16 {
+  package var textVRAMCount: UInt16 {
     return channels[2].count & 0x3FFF  // 14-bit count
   }
 }

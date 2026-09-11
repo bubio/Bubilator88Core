@@ -23,14 +23,14 @@ import PC88Types
 ///   0x80 (cmd=4): Load Cursor    — 2 parameter bytes (X, Y), bit 0 = enable
 ///   0xA0 (cmd=5): Reset Int      — clears interrupt flags
 ///   0xC0 (cmd=6): Reset Counters — clears interrupt flags
-public final class CRTC {
+package final class CRTC {
 
   // MARK: - Display Parameters
 
   /// Which monitor the machine is wired to. Decides the reset-time geometry
   /// and, via `Machine.tStatesPerLine`, the length of a scanline. Applied at
   /// reset only, as on real hardware (it is a DIP switch).
-  public var monitorType: MonitorType
+  package var monitorType: MonitorType
 
   /// Cached scanline geometry, derived from the CRTC's own SET PARAMETER
   /// values — updated by `updateDynamicScanlines()`.
@@ -43,8 +43,8 @@ public final class CRTC {
   /// was wrong on two counts — 262 is not a PC-8801 line count, and it made
   /// the frame rate independent of the monitor — but it did guard a real
   /// transient; see `updateDynamicScanlines()`.
-  public private(set) var dynamicTotalScanlines: Int = 0
-  public private(set) var dynamicBlankingStart: Int = 0
+  package private(set) var dynamicTotalScanlines: Int = 0
+  package private(set) var dynamicBlankingStart: Int = 0
 
   /// Recalculate cached scanline values after mode or parameter changes.
   ///
@@ -80,66 +80,66 @@ public final class CRTC {
   /// Needed after a bulk restore (save state) where the parameters are
   /// assigned one at a time: an intermediate combination can be structurally
   /// invalid and get rejected, so the settled values need one more pass.
-  public func refreshScanlineGeometry() {
+  package func refreshScanlineGeometry() {
     updateDynamicScanlines()
   }
 
   // MARK: - State
 
   /// Current scanline (0-261)
-  public var scanline: Int = 0
+  package var scanline: Int = 0
 
   /// VRTC flag — true during vertical blanking
-  public var vrtcFlag: Bool = false
+  package var vrtcFlag: Bool = false
 
   /// T-state accumulator for scanline timing
-  public var tStateAccumulator: Int = 0
+  package var tStateAccumulator: Int = 0
 
   /// Whether display is enabled (CRTC start command issued)
-  public var displayEnabled: Bool = false
+  package var displayEnabled: Bool = false
 
   /// 200-line mode (true) or 400-line mode (false).
   ///
   /// Purely a display-mode flag as far as the CRTC is concerned: scanline
   /// geometry comes from the SET PARAMETER values alone. (It used to switch
   /// the line count to the NTSC 262; see `updateDynamicScanlines()`.)
-  public var mode200Line: Bool = true
+  package var mode200Line: Bool = true
 
   // MARK: - uPD3301 Registers
 
   /// Parameter bytes written via port 0x50
-  public var parameters: [UInt8] = []
+  package var parameters: [UInt8] = []
   package var parameterIndex: Int = 0
   package var expectedParameters: Int = 0
   package var currentCommand: UInt8 = 0
 
   /// Characters per line (from Reset param 0)
-  public var charsPerLine: UInt8 = 80
+  package var charsPerLine: UInt8 = 80
 
   /// Lines per screen (from Reset param 1)
-  public var linesPerScreen: UInt8 = 25 {
+  package var linesPerScreen: UInt8 = 25 {
     didSet { updateDynamicScanlines() }
   }
 
   /// Character lines per row (from Reset param 2, bits 4-0 + 1)
-  public var charLinesPerRow: UInt8 = 8 {
+  package var charLinesPerRow: UInt8 = 8 {
     didSet { updateDynamicScanlines() }
   }
 
   /// Skip line flag (from Reset param 2, bit 7)
-  public var skipLine: Bool = false
+  package var skipLine: Bool = false
 
   /// Display mode (from Reset param 4, bits 7-5):
   ///   bit 7: non-transparent (1) / transparent (0)
   ///   bit 6: color (1) / mono (0)
   ///   bit 5: no attributes (1) / attributes (0)
-  public var displayMode: UInt8 = 0
+  package var displayMode: UInt8 = 0
 
   /// Attribute mode: false = transparent (position/value pairs), true = non-transparent
-  public var attrNonTransparent: Bool = false
+  package var attrNonTransparent: Bool = false
 
   /// Attribute bytes per line (from Reset param 4, bits 4-0 + 1)
-  public var attrsPerLine: UInt8 = 20
+  package var attrsPerLine: UInt8 = 20
 
   /// Bytes per DMA row.
   ///
@@ -148,7 +148,7 @@ public final class CRTC {
   /// - NONETRANSPARENT (4/5): char block only = charsPerLine (attributes not stored in VRAM,
   ///   display is monochrome). Confirmed via vraminfo.html and BubiC pc88.cpp:2836
   ///   `dmac.run(2, 80 + crtc.attrib.num * 2)` where attrib.num = 0 in non-transparent.
-  public var bytesPerDMARow: Int {
+  package var bytesPerDMARow: Int {
     if attrNonTransparent {
       return Int(charsPerLine)
     }
@@ -157,39 +157,39 @@ public final class CRTC {
 
   /// Interrupt mask (from Set Interrupt Mask command, bits 1-0)
   /// Text display requires intrMask == 3 (both bits set)
-  public var intrMask: UInt8 = 0
+  package var intrMask: UInt8 = 0
 
   /// Reverse display flag (from Start Display command, bit 0)
-  public var reverseDisplay: Bool = false
+  package var reverseDisplay: Bool = false
 
   /// Cursor position and enable
-  public var cursorX: Int = -1
-  public var cursorY: Int = -1
-  public var cursorEnabled: Bool = false
+  package var cursorX: Int = -1
+  package var cursorY: Int = -1
+  package var cursorEnabled: Bool = false
   /// Cursor display mode (from Reset param 2: 0=underline, 1=block)
-  public var cursorMode: UInt8 = 0
+  package var cursorMode: UInt8 = 0
 
   /// Blink rate in frames (BubiC pc88.cpp:4012,4076 — default 24,
   /// reset param 1 bits 7-6 give 32/64/96/128).
-  public var blinkRate: Int = 24
+  package var blinkRate: Int = 24
 
   /// Frame-scoped blink counter. Advanced once per rendered frame.
-  public var blinkCounter: Int = 0
+  package var blinkCounter: Int = 0
 
   /// XOR mask applied to internal SECRET bit (0x02) during blink-off phase.
   /// BubiC pc88.cpp:4178 — reuses the SECRET bit to hide blinking text.
-  public var blinkAttribBit: UInt8 = 0
+  package var blinkAttribBit: UInt8 = 0
 
   /// CRTC hardware cursor blink-off flag. True = cursor is HIDDEN this frame.
   /// BubiC pc88.cpp:4179-4181 — toggles twice per `blinkRate` window, so the
   /// cursor blinks at ~rate/2 cadence (≈ 0.2s @ rate=24, 60Hz) — about twice
   /// as fast as the attribute BLINK rate.
-  public var blinkCursorOff: Bool = false
+  package var blinkCursorOff: Bool = false
 
   /// Advance blink counter. Called once per rendered frame.
   /// BubiC pc88.cpp:4173 — counter wraps at `blinkRate`, attribute BLINK
   /// is masked while counter is below `blinkRate / 4` (off ~25%, on ~75%).
-  public func updateBlink() {
+  package func updateBlink() {
     blinkCounter += 1
     if blinkCounter > blinkRate { blinkCounter = 0 }
     blinkAttribBit = blinkCounter < blinkRate / 4 ? 0x02 : 0x00
@@ -199,35 +199,35 @@ public final class CRTC {
   }
 
   /// Vertical retrace lines (from Reset param 3, bits 7-5)
-  public var vretrace: Int = 1 {
+  package var vretrace: Int = 1 {
     didSet { updateDynamicScanlines() }
   }
 
   /// Status flags
-  public var dataReady: Bool = false    // DMA data ready
-  public var lightPen: Bool = false     // Light pen detect (unused)
-  public var underrun: Bool = false     // DMA underrun
+  package var dataReady: Bool = false    // DMA data ready
+  package var lightPen: Bool = false     // Light pen detect (unused)
+  package var underrun: Bool = false     // DMA underrun
 
   // MARK: - DMA Buffer (BubiC-style)
 
   /// Internal DMA buffer — captures text VRAM snapshot during VRTC.
   /// BubiC: buffer[120*200] (24KB), written by DMA transfer, read by renderer.
-  public var dmaBuffer: [UInt8] = Array(repeating: 0, count: 24000)
+  package var dmaBuffer: [UInt8] = Array(repeating: 0, count: 24000)
 
   /// Write pointer into dmaBuffer (number of bytes transferred).
-  public var dmaBufferPtr: Int = 0
+  package var dmaBufferPtr: Int = 0
 
   /// True when DMA buffer read exceeds written data (underrun → suppress text).
-  public var dmaUnderrun: Bool = false
+  package var dmaUnderrun: Bool = false
 
   // MARK: - Interrupt callback
 
   /// Called when VSYNC occurs. Machine should wire this to InterruptController.
-  public var onVSYNC: (() -> Void)?
+  package var onVSYNC: (() -> Void)?
 
   // MARK: - Init
 
-  public init(monitorType: MonitorType = .khz24) {
+  package init(monitorType: MonitorType = .khz24) {
     self.monitorType = monitorType
     reset()
   }
@@ -235,7 +235,7 @@ public final class CRTC {
   // MARK: - DMA Buffer Operations
 
   /// Prepare buffer for new frame DMA transfer (called at VRTC start).
-  public func startDMATransfer() {
+  package func startDMATransfer() {
     dmaBuffer.withUnsafeMutableBufferPointer { buf in
       buf.baseAddress!.initialize(repeating: 0, count: buf.count)
     }
@@ -245,14 +245,14 @@ public final class CRTC {
 
   /// Write one byte into DMA buffer (called during DMA transfer).
   @inline(__always)
-  public func writeDMABuffer(_ data: UInt8) {
+  package func writeDMABuffer(_ data: UInt8) {
     dmaBuffer[dmaBufferPtr & 0x3FFF] = data
     dmaBufferPtr += 1
   }
 
   /// Read one byte from DMA buffer (called by renderer). Returns 0 if offset exceeds written data.
   @inline(__always)
-  public func readDMABuffer(at offset: Int) -> UInt8 {
+  package func readDMABuffer(at offset: Int) -> UInt8 {
     if offset < dmaBufferPtr {
       return dmaBuffer[offset]
     }
@@ -263,7 +263,7 @@ public final class CRTC {
   ///
   /// `monitorType` is *not* cleared here — it is a DIP switch, so the caller
   /// sets it before resetting and it survives the reset.
-  public func reset() {
+  package func reset() {
     scanline = 0
     vrtcFlag = false
     tStateAccumulator = 0
@@ -305,7 +305,7 @@ public final class CRTC {
 
   /// Advance CRTC by the given number of T-states.
   /// `tStatesPerLine` depends on CPU clock (4MHz or 8MHz).
-  public func tick(tStates: Int, tStatesPerLine: Int) {
+  package func tick(tStates: Int, tStatesPerLine: Int) {
     tStateAccumulator += tStates
 
     while tStateAccumulator >= tStatesPerLine {
@@ -345,7 +345,7 @@ public final class CRTC {
   ///   bit 1 (0x02): E — display end interrupt
   ///   bit 0 (0x01): LP — light pen input
   /// BubiC: if underrun, clears VE on read
-  public func readStatus() -> UInt8 {
+  package func readStatus() -> UInt8 {
     var status: UInt8 = 0
     if dataReady { status |= 0x80 }        // bit 7: DR (BubiC convention)
     if vrtcFlag { status |= 0x20 }         // bit 5: VRTC
@@ -359,7 +359,7 @@ public final class CRTC {
   }
 
   /// Write command register (port 0x51).
-  public func writeCommand(_ value: UInt8) {
+  package func writeCommand(_ value: UInt8) {
     let cmd = value & 0xE0  // Upper 3 bits = command
 
     switch cmd {
@@ -424,7 +424,7 @@ public final class CRTC {
   }
 
   /// Write parameter register (port 0x50).
-  public func writeParameter(_ value: UInt8) {
+  package func writeParameter(_ value: UInt8) {
     if parameterIndex < expectedParameters {
       parameters[parameterIndex] = value
       parameterIndex += 1
@@ -444,7 +444,7 @@ public final class CRTC {
   }
 
   /// Read parameter register (port 0x50) — typically for light pen data.
-  public func readParameter() -> UInt8 {
+  package func readParameter() -> UInt8 {
     return 0x00
   }
 

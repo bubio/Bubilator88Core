@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 @testable import FMSynthesis
 
 /// F-Number 0 combined with a negative DT1 underflows the hardware's 17-bit

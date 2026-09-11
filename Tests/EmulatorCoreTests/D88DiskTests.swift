@@ -1,5 +1,5 @@
 import Testing
-@testable import EmulatorCore
+@_spi(Debug) @testable import EmulatorCore
 
 @Suite("D88Disk Tests")
 struct D88DiskTests {

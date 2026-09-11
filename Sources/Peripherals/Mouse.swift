@@ -29,18 +29,18 @@
 ///
 /// The buttons on reg 0x0F (port B) — left=bit0, right=bit1, negative logic,
 /// high bits 0xFC — are common to both modes.
-public final class Mouse {
+package final class Mouse {
 
   /// Port reads are only intercepted while the mouse is enabled.
-  public var enabled: Bool = false
+  package var enabled: Bool = false
 
   /// true = joystick mode (mouse mapped to joystick direction bits),
   /// false = bus mouse mode (strobed four-nibble read).
-  public var joyMode: Bool = false
+  package var joyMode: Bool = false
 
   /// Dead zone for joystick mode: accumulated movement beyond this threshold
   /// sets a direction bit. Equivalent to M88's `sensibility`.
-  public var joyThreshold: Int = 3
+  package var joyThreshold: Int = 3
 
   /// Accumulated relative movement from the host, consumed on latch.
   private var dx: Int = 0
@@ -64,12 +64,12 @@ public final class Mouse {
   /// read recomputes it.
   private var joyLatch: Int = -1
 
-  public init() {}
+  package init() {}
 
   /// Resets transient read state. `enabled` / `joyMode` are external
   /// configuration set by the host (settings) and are intentionally preserved
   /// across a machine reset.
-  public func reset() {
+  package func reset() {
     dx = 0
     dy = 0
     latchedX = 0
@@ -83,20 +83,20 @@ public final class Mouse {
 
   /// Called by Machine on every vertical blank to release the joystick-mode
   /// latch, giving one sample per frame. Equivalent to M88 `Mouse::VSync`.
-  public func vsync() {
+  package func vsync() {
     joyLatch = -1
   }
 
   // MARK: - Host input
 
   /// Accumulates relative mouse movement from the host. Called by the app layer.
-  public func injectMovement(dx: Int, dy: Int) {
+  package func injectMovement(dx: Int, dy: Int) {
     self.dx += dx
     self.dy += dy
   }
 
   /// Sets the left and right button state.
-  public func setButtons(left: Bool, right: Bool) {
+  package func setButtons(left: Bool, right: Bool) {
     leftButton = left
     rightButton = right
   }
@@ -109,7 +109,7 @@ public final class Mouse {
   /// - Parameters:
   ///   - now: The current T-state.
   ///   - clock8MHz: CPU clock, which selects the strobe timeout width.
-  public func strobe(now: UInt64, clock8MHz: Bool) {
+  package func strobe(now: UInt64, clock8MHz: Bool) {
     // Joystick mode does not use the strobe; advancing the phase is meaningless.
     guard !joyMode else { return }
     // Strobe timeout = (8MHz ? 1440 : 720) * 1.25 CPU clocks. On the Z80 one
@@ -134,7 +134,7 @@ public final class Mouse {
   }
 
   /// Reads reg 0x0E (port A). Behaviour depends on the mode.
-  public func readData() -> UInt8 {
+  package func readData() -> UInt8 {
     if joyMode {
       return readJoyDirection()
     }
@@ -170,7 +170,7 @@ public final class Mouse {
 
   /// Reads reg 0x0F (port B): left=bit0, right=bit1, negative logic, high bits
   /// fixed at 0xFC.
-  public func readButtons() -> UInt8 {
+  package func readButtons() -> UInt8 {
     var buttons: UInt8 = 0
     if leftButton { buttons |= 0x01 }
     if rightButton { buttons |= 0x02 }
