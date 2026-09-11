@@ -1326,17 +1326,19 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
       }
       return set.isEmpty ? defaultTracePorts : set
     }()
+    // BOOTTEST_PORT_TRACE_READS=1 also logs reads (marked "rd").
+    let portTraceReads = ProcessInfo.processInfo.environment["BOOTTEST_PORT_TRACE_READS"] == "1"
     var portTraceLines: [String] = []
     var currentTraceFrame: Int = 0
     if portTracePath != nil {
       dm.bus.onIOAccess = { port, value, isWrite in
-        guard isWrite else { return }
+        guard isWrite || portTraceReads else { return }
         guard currentTraceFrame >= portTraceStartFrame,
               currentTraceFrame < portTraceEndFrame else { return }
         let p8 = UInt8(port & 0xFF)
         guard tracePorts.contains(p8) else { return }
-        portTraceLines.append(String(format: "f%05d port=%02X val=%02X",
-                                     currentTraceFrame, p8, value))
+        portTraceLines.append(String(format: "f%05d port=%02X val=%02X%@",
+                                     currentTraceFrame, p8, value, isWrite ? "" : " rd"))
       }
       print("  Port trace enabled → \(portTracePath!) (frames \(portTraceStartFrame)..<\(portTraceEndFrame), ports=\(tracePorts.sorted().map { String(format: "%02X", $0) }.joined(separator: ",")))")
     }
