@@ -94,9 +94,10 @@ jobs:
           swift build -c release --product Bubilator88C
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # @_cdecl は dllexport を付けないので、DLL から見えるのは Bubilator88C.def に書いたものだけ。
-      # .def に書き忘れてもビルドは通り、P/Invoke が実行時に失敗する。出来上がった DLL の
-      # 書き出し表を @_cdecl の一覧と突き合わせる。
+      # @_cdecl の関数が DLL から書き出されていなくてもビルドは通り、P/Invoke が実行時に失敗する。
+      # 出来上がった DLL の書き出し表を @_cdecl の一覧と突き合わせる。
+      # Swift 6.3.2 では public の関数は .def に無くても書き出され、public でない関数は
+      # .def に無いと書き出されなかった (どちらも CI で実測)。
       - name: Check the DLL exports
         shell: pwsh
         run: |
