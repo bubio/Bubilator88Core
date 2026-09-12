@@ -102,10 +102,6 @@ Bubilator88 の Windows 版 (C# / WinUI 3) はこれを P/Invoke で呼んでい
 swift build -c release --product Bubilator88C
 ```
 
-Windows でのシンボル書き出しにリンカフラグ (unsafeFlags) を使っているため、
-このプロダクトはバージョン指定の依存としては使えません。リポジトリを clone して
-ビルドしてください。
-
 ## 開発
 
 ```
