@@ -96,8 +96,7 @@ jobs:
 
       # @_cdecl の関数が DLL から書き出されていなくてもビルドは通り、P/Invoke が実行時に失敗する。
       # 出来上がった DLL の書き出し表を @_cdecl の一覧と突き合わせる。
-      # Swift 6.3.2 では public の関数は .def に無くても書き出され、public でない関数は
-      # .def に無いと書き出されなかった (どちらも CI で実測)。
+      # Swift は public の関数を自分で書き出す。public を付け忘れるとここで落ちる。
       - name: Check the DLL exports
         shell: pwsh
         run: |

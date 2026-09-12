@@ -14,9 +14,10 @@
 //     uses, so the host receives finished RGBA and never re-implements
 //     palette math — this is what keeps macOS and Windows pixel-identical.
 //
-// Export note: on Windows, SwiftPM dynamic libraries may need the `@_cdecl`
-// symbols listed in a module-definition (.def) file or exported via
-// `-Xlinker /EXPORT:`. See docs/WINDOWS_PORT.md for the build recipe.
+// Export note: every `@_cdecl` function here must be `public`. On Windows,
+// Swift exports a DLL's public symbols by itself; a function that is not
+// public builds fine but is missing from the DLL, and P/Invoke fails at run
+// time. CI compares the DLL's export table with the `@_cdecl` names.
 
 import Bubilator88Core
 import Foundation

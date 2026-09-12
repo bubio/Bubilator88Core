@@ -8,7 +8,7 @@ import PackageDescription
 // SwiftPM refuses unsafe flags in a dependency pinned by version. Release tags
 // therefore point at a commit of their own where this is empty, made by
 // scripts/tag-release.sh; main keeps the flag. Nothing else in this file may
-// use unsafeFlags on the Bubilator88Core product's targets, or tagging breaks.
+// use unsafeFlags, or tagging breaks.
 let alwaysOptimize: [SwiftSetting] = [
     .unsafeFlags(["-O"], .when(configuration: .debug)),
 ]
@@ -81,18 +81,10 @@ let package = Package(
             dependencies: [
                 "Bubilator88Core",
             ],
-            swiftSettings: alwaysOptimize,
-            // Windows: export the @_cdecl symbols from the DLL via a .def file
-            // (Swift's @_cdecl does not emit __declspec(dllexport)). No-op on
-            // macOS, so the existing static-link build is unaffected. Kept on
-            // release tags: SwiftPM checks only the products a dependent uses,
-            // and the DLL is built here, not by dependents.
-            linkerSettings: [
-                .unsafeFlags(
-                    ["-Xlinker", "/DEF:Sources/CApi/Bubilator88C.def"],
-                    .when(platforms: [.windows])
-                ),
-            ]
+            // The @_cdecl functions are public, and Swift exports public
+            // symbols from a Windows DLL by itself; no .def file is needed.
+            // CI checks the DLL's export table against the @_cdecl names.
+            swiftSettings: alwaysOptimize
         ),
         .executableTarget(
             name: "BootTester",

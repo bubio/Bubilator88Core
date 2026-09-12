@@ -104,6 +104,7 @@ let package = Package(
     targets: [
         .target(name: "Consumer", dependencies: [
             .product(name: "Bubilator88Core", package: "$(basename "$pkg_root")"),
+            .product(name: "Bubilator88C", package: "$(basename "$pkg_root")"),
         ]),
     ]
 )
