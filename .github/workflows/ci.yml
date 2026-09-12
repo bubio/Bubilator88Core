@@ -1,6 +1,7 @@
 name: CI
 
-# PR と main への push で swift test と Release ビルド、公開 API の互換チェックを回す。
+# PR と main への push で swift test と Release ビルド、公開 API の互換チェック、
+# Windows でのテストと DLL ビルドを回す。
 # テストは ROM を使わない (ROM は配布できない)。
 
 on:
@@ -61,3 +62,63 @@ jobs:
 
       - name: Check API compatibility
         run: ./scripts/check-api.sh
+
+  # Windows でのテストと Bubilator88C.dll のビルド。Bubilator88 の Windows 版はこの DLL を
+  # P/Invoke で呼ぶ。Swift の版は Bubilator88 の Windows CI と揃える。
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    env:
+      SWIFT_VERSION: "6.3.2"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Swift ${{ env.SWIFT_VERSION }}
+        uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      # セーブステート形式や Foundation の差など、ビルドが通っても壊れうるものを捕まえる。
+      - name: Test
+        shell: pwsh
+        run: |
+          swift --version
+          swift test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Bubilator88C.dll
+        shell: pwsh
+        run: |
+          swift build -c release --product Bubilator88C
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # @_cdecl の関数が DLL から書き出されていなくてもビルドは通り、P/Invoke が実行時に失敗する。
+      # 出来上がった DLL の書き出し表を @_cdecl の一覧と突き合わせる。
+      # Swift 6.3.2 では public の関数は .def に無くても書き出され、public でない関数は
+      # .def に無いと書き出されなかった (どちらも CI で実測)。
+      - name: Check the DLL exports
+        shell: pwsh
+        run: |
+          $expected = Select-String -Path Sources/CApi/CApi.swift -Pattern '@_cdecl\("([^"]+)"\)' -AllMatches |
+            ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+          # llvm-objdump は Swift ツールチェーンの bin (swift.exe の隣) にある。
+          $objdump = Join-Path (Split-Path (Get-Command swift).Source -Parent) 'llvm-objdump.exe'
+          $table = & $objdump -p .build/release/Bubilator88C.dll
+          if ($LASTEXITCODE -ne 0) { throw "llvm-objdump failed" }
+          # Export Table の行は "  <ordinal> <RVA> <name>"。Swift の記号 ($s で始まる mangled 名)
+          # も書き出されるが、P/Invoke には関係ないので除く。
+          $actual = $table | Select-String -Pattern '^\s*\d+\s+0x[0-9a-fA-F]+\s+(\S+)\s*$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } |
+            Where-Object { -not $_.StartsWith('$s') } | Sort-Object -Unique
+          if (-not $actual) {
+            $table | Select-String -Pattern 'Export Table' -Context 0,8 | Out-Host
+            throw "No exports found in Bubilator88C.dll"
+          }
+          $missing = $expected | Where-Object { $actual -notcontains $_ }
+          $extra = $actual | Where-Object { $expected -notcontains $_ }
+          foreach ($s in $missing) { Write-Host "::error title=Missing DLL export::$s (@_cdecl but not exported; add it to Bubilator88C.def)" }
+          foreach ($s in $extra) { Write-Host "::error title=Unexpected DLL export::$s (exported but has no @_cdecl)" }
+          if ($missing -or $extra) { exit 1 }
+          Write-Host "OK: $($actual.Count) exports match @_cdecl"
