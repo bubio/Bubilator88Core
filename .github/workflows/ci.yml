@@ -1,6 +1,6 @@
 name: CI
 
-# PR と main への push で swift test と Release ビルドを回す。
+# PR と main への push で swift test と Release ビルド、公開 API の互換チェックを回す。
 # テストは ROM を使わない (ROM は配布できない)。
 
 on:
@@ -36,3 +36,28 @@ jobs:
       # @_spi / #if DEBUG の付け忘れは Release でだけ壊れる。
       - name: Build (release)
         run: swift build -c release
+
+  # 公開 API を最新のリリースタグと比べ、互換を壊していたら失敗する。
+  # 仕組みと、意図して壊すときの手順は scripts/check-api.sh の冒頭。
+  api:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      # リリースタグは main から辿れない専用コミットにあるので、全履歴とタグを取る。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select latest Xcode 26
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=/Applications/Xcode.app
+          fi
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          swift --version
+
+      - name: Check API compatibility
+        run: ./scripts/check-api.sh
