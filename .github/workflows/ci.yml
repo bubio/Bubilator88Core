@@ -106,9 +106,11 @@ jobs:
           $objdump = Join-Path (Split-Path (Get-Command swift).Source -Parent) 'llvm-objdump.exe'
           $table = & $objdump -p .build/release/Bubilator88C.dll
           if ($LASTEXITCODE -ne 0) { throw "llvm-objdump failed" }
-          # Export Table の行は "  <ordinal> <RVA> <name>"。
+          # Export Table の行は "  <ordinal> <RVA> <name>"。Swift の記号 ($s で始まる mangled 名)
+          # も書き出されるが、P/Invoke には関係ないので除く。
           $actual = $table | Select-String -Pattern '^\s*\d+\s+0x[0-9a-fA-F]+\s+(\S+)\s*$' |
-            ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique
+            ForEach-Object { $_.Matches[0].Groups[1].Value } |
+            Where-Object { -not $_.StartsWith('$s') } | Sort-Object -Unique
           if (-not $actual) {
             $table | Select-String -Pattern 'Export Table' -Context 0,8 | Out-Host
             throw "No exports found in Bubilator88C.dll"
