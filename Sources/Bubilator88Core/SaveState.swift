@@ -75,12 +75,19 @@ package struct SaveStateWriter: Sendable {
 
 // MARK: - Reader
 
+/// Why a save state could not be read.
 public enum SaveStateError: Error {
+  /// The data ended in the middle of a field.
   case endOfData
+  /// Not a save state: the magic number is wrong.
   case invalidMagic
+  /// A save state from a format version this build cannot read.
   case unsupportedVersion(UInt16)
+  /// Required sections, named by their FourCC, are missing.
   case missingSections([String])
+  /// A section, named by its FourCC, is shorter than its contents need.
   case sectionTooSmall(String)
+  /// The data is inconsistent; the string says how.
   case invalidData(String)
 }
 

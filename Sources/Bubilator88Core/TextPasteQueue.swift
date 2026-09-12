@@ -1,24 +1,31 @@
 import Foundation
 import Peripherals
 
-/// Queue that converts a Unicode string into a stream of PC-8801 keyboard
-/// matrix press/release events.
+// Ported from X88000M's `DoClipboardPasteText()` / `AddIMEChar()` (X88000.cpp).
+// Encoding of the 16-bit queue entry (matches X88000M):
+//
+// - bits 0-2: key bit (0-7)
+// - bits 4-7: key row (0-F)
+// - bit 8   : SHIFT modifier (Bubilator88: row 8 / bit 6)
+// - bit 12  : KANA  modifier (Bubilator88: row 8 / bit 5)
+//
+// Entry 0x0000 is a "no-op / blank" placeholder in the original table.
+
+/// Types text into the machine as key presses, for pasting.
 ///
-/// Ported from X88000M's `DoClipboardPasteText()` / `AddIMEChar()` (X88000.cpp).
-/// Encoding of the 16-bit queue entry (matches X88000M):
-///
-/// - bits 0-2: key bit (0-7)
-/// - bits 4-7: key row (0-F)
-/// - bit 8   : SHIFT modifier (Bubilator88: row 8 / bit 6)
-/// - bit 12  : KANA  modifier (Bubilator88: row 8 / bit 5)
-///
-/// Entry 0x0000 is a "no-op / blank" placeholder in the original table.
+/// `enqueue(_:)` the text, then call `tick(emit:)` once per frame and pass
+/// each event to `PC88.pressKey(_:)` / `releaseKey(_:)`. A character takes
+/// 12 frames, so BASIC keeps up. ASCII and half-width katakana are typed
+/// (with SHIFT and KANA as needed); anything else, kanji included, is
+/// skipped.
 public final class TextPasteQueue {
 
   /// One key going down or up, for the host to pass to `PC88.pressKey` /
   /// `releaseKey`.
   public struct KeyEvent: Equatable, Sendable {
+    /// The key.
     public let key: PC88Key
+    /// True to press it, false to release it.
     public let down: Bool
   }
 
@@ -45,8 +52,10 @@ public final class TextPasteQueue {
   /// to inject releases.
   private var pressed = false
 
+  /// An empty queue.
   public init() {}
 
+  /// Whether there is nothing left to type.
   public var isEmpty: Bool { queue.isEmpty }
 
   /// Clear all pending characters and release any currently-held keys via
@@ -150,7 +159,9 @@ public final class TextPasteQueue {
   /// `base` = KANA alone; `shifted` = KANA+SHIFT (small kana ｧ–ｮ, ｦ, etc.),
   /// nil when the key produces no shifted kana.
   public struct KanaLegend: Sendable {
+    /// The kana typed with KANA alone.
     public let base: String
+    /// The kana typed with KANA and SHIFT, or nil if none.
     public let shifted: String?
   }
 

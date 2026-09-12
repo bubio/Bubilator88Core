@@ -1,6 +1,9 @@
 import Foundation
 
-/// D88 disk image format parser.
+/// A floppy disk image in D88 format: parsed, editable, and serialisable back.
+///
+/// Mount one with `PC88.mountDisk(drive:disk:)`. A D88 file can hold several
+/// disks back to back; `parseAll(data:)` returns them all.
 ///
 /// D88 header: 688 bytes
 ///   0x00 (17B): Disk name
@@ -14,27 +17,45 @@ public struct D88Disk: Sendable {
 
   // MARK: - Types
 
+  /// The media type recorded in the header. The raw value is the header byte.
   public enum DiskType: UInt8, Sendable {
-    case twoD  = 0x00  // 2D:  40 tracks, 2 sides
-    case twoDD = 0x10  // 2DD: 80 tracks, 2 sides
-    case twoHD = 0x20  // 2HD: 77 tracks, 2 sides
+    /// 2D: 40 cylinders, 2 sides.
+    case twoD  = 0x00
+    /// 2DD: 80 cylinders, 2 sides.
+    case twoDD = 0x10
+    /// 2HD: 77 cylinders, 2 sides.
+    case twoHD = 0x20
   }
 
+  /// One sector: its ID field as the FDC sees it, and its data.
   public struct Sector: Sendable {
-    public var c: UInt8          // Cylinder
-    public var h: UInt8          // Head
-    public var r: UInt8          // Record (sector number)
-    public var n: UInt8          // Size code (0=128, 1=256, 2=512, 3=1024)
+    /// Cylinder, from the ID field.
+    public var c: UInt8
+    /// Head, from the ID field.
+    public var h: UInt8
+    /// Record: the sector number.
+    public var r: UInt8
+    /// Size code: 0 = 128 bytes, 1 = 256, 2 = 512, 3 = 1024.
+    public var n: UInt8
+    /// Sectors on this track, as recorded in the image.
     public var sectorCount: UInt16
-    public var density: UInt8    // 0x00=double, 0x40=single
-    public var deleted: Bool     // Deleted data mark
-    public var status: UInt8     // FDC status (0=normal)
+    /// 0x00 = double density (MFM), 0x40 = single density (FM).
+    public var density: UInt8
+    /// Written with a deleted data mark.
+    public var deleted: Bool
+    /// The FDC status reading this sector gives (0 = normal). Copy-protected
+    /// images use it to reproduce deliberate errors.
+    public var status: UInt8
+    /// The sector's bytes. May differ in length from `dataSize` on
+    /// copy-protected images.
     public var data: [UInt8]
 
+    /// The size the size code `n` stands for, in bytes.
     public var dataSize: Int {
       128 << Int(n)
     }
 
+    /// An empty sector: all ID fields zero, no data.
     public init() {
       c = 0; h = 0; r = 0; n = 0
       sectorCount = 0; density = 0
@@ -44,19 +65,26 @@ public struct D88Disk: Sendable {
 
   // MARK: - Properties
 
+  /// The disk name from the header (up to 16 bytes of Shift-JIS).
   public var name: String
+  /// The header's write-protect flag. `PC88.setWriteProtect(drive:protected:)`
+  /// changes it on a mounted disk.
   public var writeProtected: Bool
+  /// The media type from the header.
   public var diskType: DiskType
-  public var tracks: [[Sector]]    // Indexed by track number (up to 164)
+  /// Sectors by track, in physical order. A track is cylinder × 2 + head;
+  /// there are always `maxTracks` entries, empty for tracks not in the image.
+  public var tracks: [[Sector]]
   /// Changed since it was mounted or last written back. The machine's
   /// bookkeeping; hosts see it through `PC88.takeDirtyDiskImage(drive:)`.
   package var dirty: Bool = false
 
-  /// Total number of track slots in D88 format
+  /// Track slots in a D88 image.
   public static let maxTracks = 164
 
   // MARK: - Init
 
+  /// An unformatted 2D disk: no name, no sectors.
   public init() {
     name = ""
     writeProtected = false
@@ -70,10 +98,13 @@ public struct D88Disk: Sendable {
   /// - 2DD: 80 cylinders × 2 sides, 16 sectors/track, 256 bytes/sector
   /// - 2HD: 77 cylinders × 2 sides, 26 sectors/track, 256 bytes/sector
   ///
-  /// - Parameter initBasicFAT: when true, fill bytes are 0xFF and three
-  ///   N88-BASIC FAT copies are written at C=18 H=1 R=14/15/16, matching
-  ///   what `INIT "NAME",0,0` produces. When false (default), sectors are
-  ///   filled with 0xE5 (FDC-erased state) and no FAT is laid down.
+  /// - Parameters:
+  ///   - type: the media type, which sets the geometry.
+  ///   - name: the disk name written to the header.
+  ///   - initBasicFAT: when true, fill bytes are 0xFF and three
+  ///     N88-BASIC FAT copies are written at C=18 H=1 R=14/15/16, matching
+  ///     what `INIT "NAME",0,0` produces. When false (default), sectors are
+  ///     filled with 0xE5 (FDC-erased state) and no FAT is laid down.
   public static func createFormatted(
     type: DiskType,
     name: String = "BLANK",
@@ -148,7 +179,7 @@ public struct D88Disk: Sendable {
   /// the directory track). Bytes 0x4A/0x4B = 0xFE mark the directory
   /// cluster itself; 0xA0–0xFF = 0x00 is the unused tail beyond the
   /// largest supported FAT entry count.
-  public static let n88BasicFATSector: [UInt8] = {
+  package static let n88BasicFATSector: [UInt8] = {
     var bytes = [UInt8](repeating: 0xFF, count: 256)
     bytes[0x4A] = 0xFE
     bytes[0x4B] = 0xFE
@@ -160,7 +191,8 @@ public struct D88Disk: Sendable {
 
   // MARK: - Parsing
 
-  /// Parse a D88 disk image from raw data. Returns nil on invalid data.
+  /// Parse the first disk image in `data`. Returns nil if it is too short to
+  /// hold a D88 header.
   public static func parse(data: [UInt8]) -> D88Disk? {
     guard data.count >= 688 else { return nil }  // Minimum: header only
 
@@ -239,8 +271,9 @@ public struct D88Disk: Sendable {
     return disk
   }
 
-  /// Parse all disk images from a multi-image D88 file.
-  /// Returns an array of D88Disk; single-image files return a 1-element array.
+  /// Parse every disk image in a D88 file, which may hold several back to
+  /// back. A single-image file gives a one-element array; data that is not
+  /// D88 gives an empty one.
   public static func parseAll(data: [UInt8]) -> [D88Disk] {
     var disks: [D88Disk] = []
     var offset = 0
@@ -257,14 +290,15 @@ public struct D88Disk: Sendable {
 
   // MARK: - Sector Access
 
-  /// Find a sector by C/H/R values.
+  /// The first sector on `track` whose ID field matches C/H/R.
   public func findSector(track: Int, c: UInt8, h: UInt8, r: UInt8) -> Sector? {
     guard track >= 0 && track < tracks.count else { return nil }
     return tracks[track].first { $0.c == c && $0.h == h && $0.r == r }
   }
 
-  /// Find sector matching C/H/R/N. Used when the track has duplicate R values
-  /// with different N (sector size), e.g. mixed 256B/512B sectors on Track 0.
+  /// The sector on `track` matching C/H/R/N, falling back to C/H/R alone.
+  /// For tracks that repeat an R with different sizes, e.g. mixed 256- and
+  /// 512-byte sectors on track 0.
   public func findSector(track: Int, c: UInt8, h: UInt8, r: UInt8, n: UInt8) -> Sector? {
     guard track >= 0 && track < tracks.count else { return nil }
     // Prefer exact N match; fall back to C/H/R-only if no N match exists
@@ -274,12 +308,13 @@ public struct D88Disk: Sendable {
     return tracks[track].first { $0.c == c && $0.h == h && $0.r == r }
   }
 
-  /// Read sector data by C/H/R.
+  /// The data of the first sector on `track` matching C/H/R.
   public func readSector(track: Int, c: UInt8, h: UInt8, r: UInt8) -> [UInt8]? {
     return findSector(track: track, c: c, h: h, r: r)?.data
   }
 
-  /// Write data to a sector. Returns false if write-protected or sector not found.
+  /// Replace the data of the first sector on `track` matching C/H/R. Returns
+  /// false if the disk is write-protected or there is no such sector.
   public mutating func writeSector(track: Int, c: UInt8, h: UInt8, r: UInt8, data: [UInt8]) -> Bool {
     guard !writeProtected else { return false }
     guard track >= 0 && track < tracks.count else { return false }
@@ -292,8 +327,9 @@ public struct D88Disk: Sendable {
     return false
   }
 
-  /// Replace a track with freshly formatted sectors. Returns false if write-protected
-  /// or the target track is outside the D88 track table.
+  /// Replace a track with freshly formatted sectors, each filled with
+  /// `fillByte`. Returns false if the disk is write-protected or `track` is
+  /// outside the track table.
   public mutating func formatTrack(
     track: Int,
     sectorIDs: [(c: UInt8, h: UInt8, r: UInt8, n: UInt8)],
@@ -323,7 +359,8 @@ public struct D88Disk: Sendable {
 
   // MARK: - Serialization
 
-  /// Serialize back to D88 format. Returns nil if structure is invalid.
+  /// The disk as a D88 file image. Never nil at present; the optional leaves
+  /// room for images that cannot be written back.
   public func serialize() -> [UInt8]? {
     var output: [UInt8] = []
 

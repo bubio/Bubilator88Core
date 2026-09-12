@@ -1,9 +1,7 @@
 /// One key of the PC-8801 keyboard, named by its place in the 15-row scan
 /// matrix (I/O ports 0x00-0x0E): `row` is the port, `bit` the bit within it.
 ///
-/// A plain value, so it can cross the boundary into the app, b88script and
-/// the C ABI without exposing the `Keyboard` matrix itself. The named keys
-/// are statics on the type, so `pc88.pressKey(.a)` works.
+/// The named keys are statics on the type, so `pc88.pressKey(.a)` works.
 ///
 /// Row layout:
 /// ```
@@ -24,8 +22,12 @@
 /// Row 0E: (model-specific, unused for FA)
 /// ```
 public struct PC88Key: Equatable, Hashable, Sendable {
+  /// The scan-matrix row, 0x00-0x0E: the I/O port the key is read on.
   public let row: Int
+  /// The bit within the row, 0-7.
   public let bit: Int
+  /// The key at `row` / `bit`. Out-of-range values are accepted, and the
+  /// machine ignores them.
   public init(_ row: Int, _ bit: Int) { self.row = row; self.bit = bit }
 }
 

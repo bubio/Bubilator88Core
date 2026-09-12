@@ -14,6 +14,12 @@
 // equivalent to the down/up pair. Only presses at or below the threshold are
 // folded; longer holds stay as explicit down/up.
 
+/// Records what a person does into b88script steps.
+///
+/// Advance `frameIndex` once per frame and report key presses, releases and
+/// disk operations as they happen; `finish()` returns the steps, which
+/// `ScriptWriter` turns into text and `ScriptPlayer` plays back frame for
+/// frame. Short presses are written as `key <name> tap`.
 public final class ScriptRecorder {
 
   /// Presses lasting at most this many frames are folded into a `tap`; longer
@@ -40,12 +46,15 @@ public final class ScriptRecorder {
     let step: ScriptStep
   }
 
+  /// A recorder whose script starts with `setup`: the boot mode, clock and
+  /// disks in place when recording starts.
+  ///
   /// - Parameter setup: The boot/clock/disk header fixed when recording started.
   public init(setup: [ScriptStep]) {
     self.setup = setup
   }
 
-  // MARK: - Event intake (called by host on the main thread)
+  // MARK: - Event intake
 
   /// A real key press. OS auto-repeat — the same key already held — is ignored.
   public func keyDown(_ key: PC88Key) {
@@ -64,14 +73,18 @@ public final class ScriptRecorder {
     emitInterval(key: key, fd: fd, fu: frameIndex, sd: sd)
   }
 
+  /// A different disk file was put in `drive`. `path` is written to the
+  /// script as given.
   public func diskSwap(drive: Int, path: String, image: Int) {
     append(.diskSwap(drive: drive, path: path, image: image))
   }
 
+  /// Another disk in the same file was selected for `drive`.
   public func diskSelect(drive: Int, image: Int) {
     append(.diskSelect(drive: drive, image: image))
   }
 
+  /// `drive` was emptied.
   public func diskEject(drive: Int) {
     append(.diskEject(drive: drive))
   }

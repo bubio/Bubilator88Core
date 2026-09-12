@@ -7,6 +7,17 @@
 
 import Foundation
 
+/// Plays b88script steps on a `PC88`.
+///
+/// Two ways to drive it:
+///
+/// - **Drive mode**, `run(_:)`: the player owns the clock and calls
+///   `runFrame()` itself for every `wait`. For headless runs.
+/// - **Live mode**, `beginLive(_:)` then `liveTick()` once per frame: the host
+///   keeps calling `runFrame()` on its own schedule and the player rides along.
+///
+/// The player never touches the file system: disk paths in the script go to
+/// the `FileLoader` you pass in. Use it on the queue that owns the `PC88`.
 public final class ScriptPlayer {
 
   /// Resolves a disk path string to the bytes of a D88 image.
@@ -15,11 +26,10 @@ public final class ScriptPlayer {
   /// A playback error, such as a failed disk load or an out-of-range image.
   ///
   /// Like ``ScriptError``, the message is kept as an English format string plus
-  /// its arguments so the app layer can localize it; `format` doubles as the
-  /// String Catalog key.
+  /// its arguments so a host can localize it, using `format` as the key.
   public struct RuntimeError: Error, Equatable, Sendable, CustomStringConvertible {
     /// English format string, using positional `%1$@`-style placeholders when
-    /// there is more than one argument. Doubles as the String Catalog key.
+    /// there is more than one argument.
     public let format: String
 
     /// Values substituted into `format`, already rendered as strings.
@@ -30,11 +40,13 @@ public final class ScriptPlayer {
       arguments.isEmpty ? format : String(format: format, arguments: arguments)
     }
 
+    /// An error with an English `format` and its `arguments`.
     public init(_ format: String, arguments: [String] = []) {
       self.format = format
       self.arguments = arguments
     }
 
+    /// Same as `message`.
     public var description: String { message }
   }
 
@@ -51,17 +63,18 @@ public final class ScriptPlayer {
   private var mountedPaths: [String?] = [nil, nil]
   private var mountedIndexes: [Int] = [0, 0]
 
-  /// Snapshot of what is mounted in one drive.
-  /// `path` is the disk path as written in the script (unresolved), `images`
-  /// holds every image in that D88 (the `disk select` candidates), and
-  /// `imageIndex` is the currently selected one.
-  public struct DriveMount {
+  /// What the script has put in one drive.
+  public struct DriveMount: Sendable {
+    /// The disk path as written in the script, not resolved.
     public let path: String
+    /// Every disk in that D88 file: the candidates for `disk select`.
     public let images: [D88Disk]
+    /// Which of `images` is in the drive.
     public let imageIndex: Int
   }
 
-  /// What is mounted in the given drive, or nil if nothing is (or it was ejected).
+  /// What the script has put in a drive, or nil if nothing (or it was
+  /// ejected). A host can use it after playback to show what is mounted.
   public func driveMount(_ drive: Int) -> DriveMount? {
     guard drive >= 0, drive < mountedPaths.count,
           let path = mountedPaths[drive], !loadedImages[drive].isEmpty else { return nil }
@@ -93,11 +106,15 @@ public final class ScriptPlayer {
     self.loader = loader
   }
 
+  /// A player for `pc88` that reads disk images through `loader`.
   public convenience init(pc88: PC88, loader: @escaping FileLoader) {
     self.init(machine: pc88.machine, loader: loader)
   }
 
-  /// Replays a whole script in drive mode, where the player owns the clock.
+  /// Play a whole script in drive mode: apply the setup, then run the
+  /// timeline, calling `runFrame()` for every `wait`. Reset the machine first.
+  /// Returns when the script ends. Throws `RuntimeError` if a disk cannot be
+  /// loaded.
   public func run(_ steps: [ScriptStep]) throws {
     for step in steps {
       try execute(step)
@@ -107,9 +124,9 @@ public final class ScriptPlayer {
 
   // MARK: - Live driver (the host owns runFrame)
 
-  /// The live mode of docs/SCRIPTING.md, for riding the app's own 60Hz loop.
-  /// Unlike `run()`, the player never calls `runFrame` — the host drives
-  /// `machine.runFrame()` each frame and calls `liveTick()` once just before it.
+  /// Live mode, for riding the host's own frame loop. Unlike `run()`, the
+  /// player never calls `runFrame` — the host does, each frame, and calls
+  /// `liveTick()` once just before it.
   private var liveSteps: [ScriptStep] = []
   private var liveCursor = 0
   private var liveWaitRemaining = 0
@@ -118,10 +135,9 @@ public final class ScriptPlayer {
   /// Whether live playback is in progress.
   public var isLivePlaying: Bool { liveActive }
 
-  /// Starts live playback: applies the setup steps (boot/clock/dipsw/disk) and
-  /// advances the cursor to the first `wait` greater than zero. The caller is
-  /// expected to have called `machine.reset()` already, as BootTester does in
-  /// drive mode.
+  /// Start live playback: apply the setup steps (boot, clock, DIP switches,
+  /// disks) and everything up to the first non-zero `wait`. Reset the
+  /// machine first.
   public func beginLive(_ steps: [ScriptStep]) throws {
     liveSteps = steps
     liveCursor = 0
@@ -133,11 +149,10 @@ public final class ScriptPlayer {
     try liveAdvanceCursor()
   }
 
-  /// Call once per frame, **immediately before** the host's
-  /// `machine.runFrame()` — the same position as the app's `tickPasteQueue()`.
-  /// Fires any due `tap` releases, consumes one frame of the current `wait`, and
-  /// once that wait is exhausted applies the next run of immediate steps
-  /// (key, disk, and so on).
+  /// Call once per frame, **immediately before** `runFrame()`. Fires any due
+  /// `tap` releases, consumes one frame of the current `wait`, and once that
+  /// wait is over applies the steps up to the next one (keys, disks, and so
+  /// on).
   ///
   /// - Returns: `false` once the script is fully consumed and no keys remain held.
   @discardableResult

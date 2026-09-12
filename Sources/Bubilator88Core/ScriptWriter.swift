@@ -5,6 +5,8 @@
 // round-trip `ScriptParser.parse(write(steps)) == steps`. A pure function with
 // no dependency on Machine.
 
+/// Writes b88script steps as text that `ScriptParser` reads back to the same
+/// steps.
 public enum ScriptWriter {
 
   /// [ScriptStep] to canonical script text: one step per line, with a trailing
