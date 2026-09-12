@@ -9,9 +9,7 @@ import PackageDescription
 // therefore point at a commit of their own where this is empty, made by
 // scripts/tag-release.sh; main keeps the flag. Nothing else in this file may
 // use unsafeFlags on the Bubilator88Core product's targets, or tagging breaks.
-let alwaysOptimize: [SwiftSetting] = [
-    .unsafeFlags(["-O"], .when(configuration: .debug)),
-]
+let alwaysOptimize: [SwiftSetting] = []
 
 let package = Package(
     name: "Bubilator88Core",
