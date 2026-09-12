@@ -21,7 +21,7 @@
 #
 # 意図して壊すとき (メジャーを上げるとき) は、出力された行をそのまま
 # api-breakage-allowlist.txt (リポジトリ直下) に書くと、その行は失敗扱いにしない。
-# メジャーのタグを打ったら基準が進むので、ファイルは消してよい。
+# メジャーのタグを打ったら基準が進むので、書いた行は消す。
 set -euo pipefail
 
 modules=(Bubilator88Core PC88Types)
@@ -95,7 +95,8 @@ for m in "${modules[@]}"; do
         -o "$work/diff-$m.txt"
     breaks="$(grep -v -e '^$' -e '^/\*' "$work/diff-$m.txt" || true)"
     if [ -n "$breaks" ] && [ -f "$allowlist" ]; then
-        breaks="$(grep -v -x -F -f "$allowlist" <<<"$breaks" || true)"
+        grep -v -e '^#' -e '^$' "$allowlist" > "$work/allowed.txt" || true
+        breaks="$(grep -v -x -F -f "$work/allowed.txt" <<<"$breaks" || true)"
     fi
     if [ -z "$breaks" ]; then
         echo "$m: no breaking changes"
