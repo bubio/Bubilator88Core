@@ -116,6 +116,9 @@ swift test
 (`scripts/tag-release.sh`) で打ちます。手で `git tag` しないでください
 (unsafeFlags を外したコミットを作る必要があるため)。
 
+安定 API の互換は CI が `scripts/check-api.sh` で最新のリリースタグと比べて確かめます。
+手元でも同じスクリプトを実行できます。
+
 ## Credits
 
 - **FM 合成エンジン**: [fmgen](http://retropc.net/cisc/sound/) by cisc — Swift への移植。
