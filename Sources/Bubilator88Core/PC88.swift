@@ -16,10 +16,20 @@ import Foundation
 @_exported import PC88Types
 import FMSynthesis
 
-/// A PC-8801-FA.
+/// A PC-8801-FA: the whole machine behind one object.
 ///
-/// Same threading contract as `Machine`: confine an instance to one serial
-/// queue for its whole lifetime.
+/// Load the ROMs, reset, then call `runFrame()` at `frameRate`. After each
+/// frame, take the picture with `render(into:blinkCursor:markTextPixels:)` and
+/// the sound with `takeAudioSamples()`. Input goes in through `pressKey(_:)`,
+/// the mouse methods and the disk and tape methods at any point between
+/// frames.
+///
+/// ## Threading
+///
+/// Confine an instance to one serial queue for its whole lifetime: every
+/// method and property, and the callbacks it makes, belong to that queue.
+/// The `Sendable` conformance is there so the instance can be handed to that
+/// queue, not so it can be shared.
 public final class PC88: @unchecked Sendable {
 
   /// The machine this wraps. For the debugger and development tools only;
@@ -28,6 +38,8 @@ public final class PC88: @unchecked Sendable {
 
   private let compositor = FrameCompositor()
 
+  /// A machine with no ROMs loaded and nothing in the drives. Load the ROMs,
+  /// then `reset()` before running it.
   public init() {
     machine = Machine()
     // Chain onto the FDC hooks rather than replace them: SubSystem already
@@ -93,6 +105,8 @@ public final class PC88: @unchecked Sendable {
     case kanji2
   }
 
+  /// Load a ROM image, replacing any loaded before. Load them all before the
+  /// first `reset()`.
   public func loadROM(_ rom: ROM, data: [UInt8]) {
     switch rom {
     case .n88Basic:          machine.loadN88BasicROM(data)
@@ -194,19 +208,28 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Disks
 
-  /// Mount a disk image in drive 0 or 1.
+  /// Mount a disk image in drive 0 or 1, replacing any disk already there.
+  /// Other drive numbers are ignored.
+  ///
+  /// Swapping disks opens the door for a moment first, as a person would, so
+  /// software polling for a disk change sees one.
   public func mountDisk(drive: Int, disk: D88Disk) {
     machine.mountDisk(drive: drive, disk: disk)
   }
 
+  /// Empty drive 0 or 1. Does nothing if it is already empty.
   public func ejectDisk(drive: Int) {
     machine.ejectDisk(drive: drive)
   }
 
+  /// Set or clear the write-protect tab on the disk in a drive. Does nothing
+  /// if the drive is empty.
   public func setWriteProtect(drive: Int, protected: Bool) {
     machine.setWriteProtect(drive: drive, protected: protected)
   }
 
+  /// Whether the disk in a drive is write-protected. False for an empty
+  /// drive.
   public func isWriteProtected(drive: Int) -> Bool {
     machine.isWriteProtected(drive: drive)
   }
@@ -273,14 +296,17 @@ public final class PC88: @unchecked Sendable {
     machine.mountTape(data: data)
   }
 
+  /// Remove the cassette.
   public func ejectTape() {
     machine.ejectTape()
   }
 
+  /// Rewind the cassette to the start.
   public func rewindTape() {
     machine.rewindTape()
   }
 
+  /// Whether a cassette is loaded.
   public var isTapeLoaded: Bool {
     machine.cassette.isLoaded
   }
@@ -292,14 +318,19 @@ public final class PC88: @unchecked Sendable {
 
   // MARK: - Keyboard
 
+  /// Hold a key down until `releaseKey(_:)`. Software sees it the next time
+  /// it scans the keyboard, so a press and release within the same frame
+  /// can go unnoticed; keep keys down for a frame or two.
   public func pressKey(_ key: PC88Key) {
     machine.keyboard.pressKey(row: key.row, bit: key.bit)
   }
 
+  /// Let go of a key.
   public func releaseKey(_ key: PC88Key) {
     machine.keyboard.releaseKey(row: key.row, bit: key.bit)
   }
 
+  /// Let go of every key, e.g. when the host window loses focus.
   public func releaseAllKeys() {
     machine.keyboard.releaseAll()
   }
@@ -324,6 +355,7 @@ public final class PC88: @unchecked Sendable {
     machine.mouse.injectMovement(dx: dx, dy: dy)
   }
 
+  /// Set the state of both mouse buttons.
   public func setMouseButtons(left: Bool, right: Bool) {
     machine.mouse.setButtons(left: left, right: right)
   }
@@ -340,13 +372,13 @@ public final class PC88: @unchecked Sendable {
   /// every other pixel is 0xFF.
   public static let textPixelAlpha = ScreenRenderer.textPixelAlphaTag
 
-  /// Composite the current screen into `pixelBuffer`, which must hold
-  /// `frameBufferSize` bytes: 640×400 RGBA, with 200-line modes
-  /// line-doubled into it. A shorter buffer is a programming error and traps:
-  /// the renderer writes through raw pointers and would otherwise run past
-  /// its end.
+  /// Composite the current screen into `pixelBuffer`: 640×400 RGBA, with
+  /// 200-line modes line-doubled into it.
   ///
   /// - Parameters:
+  ///   - pixelBuffer: at least `frameBufferSize` bytes. A shorter buffer is
+  ///     a programming error and traps: the renderer writes through raw
+  ///     pointers and would otherwise run past its end.
   ///   - blinkCursor: honour the cursor blink phase. Pass false while the
   ///     machine is paused, so a frozen frame does not keep blinking.
   ///   - markTextPixels: tag text-layer pixels with `textPixelAlpha` in the
@@ -395,12 +427,15 @@ public final class PC88: @unchecked Sendable {
   public struct AudioSamples: Sendable {
     /// The mixed output.
     public var stereo: [Float]
-    /// The same span split by source, each interleaved stereo with the
-    /// chip's own panning. Empty unless `immersiveOutputEnabled`. The beeper
-    /// is mixed into `fm`.
+    /// The FM channels alone, covering the same span as `stereo`,
+    /// interleaved stereo with the chip's own panning. The beeper is mixed
+    /// in here. Empty unless `immersiveOutputEnabled`.
     public var fm: [Float]
+    /// The SSG channels alone. Empty unless `immersiveOutputEnabled`.
     public var ssg: [Float]
+    /// ADPCM alone. Empty unless `immersiveOutputEnabled`.
     public var adpcm: [Float]
+    /// The rhythm section alone. Empty unless `immersiveOutputEnabled`.
     public var rhythm: [Float]
   }
 
@@ -478,6 +513,10 @@ public final class PC88: @unchecked Sendable {
     machine.createSaveState(thumbnail: thumbnail, extraSections: extraSections)
   }
 
+  /// Restore a state made by `createSaveState(thumbnail:extraSections:)`,
+  /// mounted disks included. Throws `SaveStateError` if the data is not a
+  /// save state or comes from a format version this build cannot read; the
+  /// machine may then be partly restored, so reset it.
   public func loadSaveState(_ data: [UInt8]) throws {
     try machine.loadSaveState(data)
   }

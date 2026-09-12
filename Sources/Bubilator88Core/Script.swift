@@ -10,40 +10,65 @@ import Foundation
 
 /// The action taken by the `key` verb.
 public enum KeyAction: Equatable, Sendable {
+  /// `key <name> down`: press and hold.
   case down
+  /// `key <name> up`: release.
   case up
-  /// Presses the key and schedules an automatic release `hold` frames later.
-  /// Defaults to 2.
+  /// `key <name> tap [hold]`: press, and release `hold` frames later
+  /// (2 if omitted).
   case tap(hold: Int)
 }
 
-/// A single script step. Steps are held in the order they were written.
+/// One line of a b88script, in the order written.
+///
+/// The setup steps configure the machine before it boots; the timeline steps
+/// run one after another as frames pass. Each case notes the line it is
+/// parsed from. Drives are 0 or 1; `image` picks a disk in a multi-image
+/// D88 file, counting from 0.
 public enum ScriptStep: Equatable, Sendable {
   // --- setup ---
+  /// `boot <mode>`: set the DIP switches for a BASIC mode, e.g.
+  /// `boot N88-V2`.
   case boot(BootMode)
-  case clock(mhz: Int)                                  // 4 or 8
+  /// `clock <4|8>`: CPU clock in MHz.
+  case clock(mhz: Int)
+  /// `monitor <15k|24k>`.
   case monitor(MonitorType)
+  /// `memwait <on|off>`: DIP SW1-6.
   case memoryWait(Bool)
+  /// `dipsw1 <byte>`: DIP switch 1, raw. See `PC88.dipSw1`.
   case dipsw1(UInt8)
+  /// `dipsw2 <byte>`: DIP switch 2, raw. See `PC88.dipSw2`.
   case dipsw2(UInt8)
-  case diskMount(drive: Int, path: String, image: Int)  // initial mount
+  /// `disk <drive> <path> [image <index>]`: the disk in a drive at boot.
+  case diskMount(drive: Int, path: String, image: Int)
 
   // --- timeline ---
+  /// `wait <n>`, `wait <n>f` or `wait <seconds>s`: let frames pass.
+  /// Seconds count as 60 frames each.
   case wait(frames: Int)
+  /// `key <name> <down|up|tap [hold]>`.
   case key(PC88Key, KeyAction)
-  case diskSwap(drive: Int, path: String, image: Int)   // swap in a different file
-  case diskSelect(drive: Int, image: Int)               // switch image within the same file
+  /// `disk swap <drive> <path> [image <index>]`: put a different file in
+  /// the drive.
+  case diskSwap(drive: Int, path: String, image: Int)
+  /// `disk select <drive> <index>`: switch to another disk in the file
+  /// already in the drive.
+  case diskSelect(drive: Int, image: Int)
+  /// `disk eject <drive>`.
   case diskEject(drive: Int)
+  /// `reset [cold|warm]`: power-on reset (the default), or the RESET
+  /// button, which keeps memory.
   case reset(preserveRAM: Bool)
 }
 
-/// A parse error. `line` is 1-based.
+/// A b88script parse error.
 ///
 /// The message is split into an English format string and its arguments rather
-/// than being pre-interpolated, so the app layer can localize it: `format` is
-/// also the String Catalog key. Bubilator88Core itself has no localization — it is
-/// a platform-agnostic package, and BootTester wants the English text anyway.
+/// than being pre-interpolated, so a host can localize it: use `format` as the
+/// key into its own string table. Bubilator88Core itself has no localization.
 public struct ScriptError: Error, Equatable, Sendable {
+  /// The line the error is on, counting from 1.
   public let line: Int
 
   /// English format string, using positional `%1$@`-style placeholders when
@@ -58,6 +83,7 @@ public struct ScriptError: Error, Equatable, Sendable {
     arguments.isEmpty ? format : String(format: format, arguments: arguments)
   }
 
+  /// An error on `line` with an English `format` and its `arguments`.
   public init(line: Int, format: String, arguments: [String] = []) {
     self.line = line
     self.format = format
@@ -67,9 +93,15 @@ public struct ScriptError: Error, Equatable, Sendable {
 
 // MARK: - Parser
 
+/// Turns b88script text into steps for `ScriptPlayer`.
+///
+/// One step per line. Tokens are separated by whitespace; `"..."` keeps a
+/// path with spaces as one token (`\"` and `\\` escape inside it), and `#`
+/// starts a comment. Verbs and key names are case-insensitive. See
+/// `ScriptStep` for the verbs.
 public enum ScriptParser {
 
-  /// Parses script text into a [ScriptStep] timeline.
+  /// Parse a whole script. Throws `ScriptError` at the first bad line.
   public static func parse(_ text: String) throws -> [ScriptStep] {
     var steps: [ScriptStep] = []
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -339,9 +371,9 @@ public enum ScriptParser {
 
   // MARK: Key name resolution
 
-  /// Resolves a key name (case-insensitive) or `row-bit` notation to a
-  /// PC88Key, or nil if it cannot be resolved. This is the shared entry
-  /// point, also used from outside by BootTester.
+  /// The key a b88script name stands for (case-insensitive), or `row-bit`
+  /// notation such as `9-6`; nil if it names no key. `ScriptWriter` writes
+  /// the names this reads.
   public static func key(named token: String) -> PC88Key? {
     let name = token.lowercased()
     if let key = keyNameTable[name] { return key }
