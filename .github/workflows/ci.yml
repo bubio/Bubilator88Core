@@ -1,0 +1,38 @@
+name: CI
+
+# PR と main への push で swift test と Release ビルドを回す。
+# テストは ROM を使わない (ROM は配布できない)。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select latest Xcode 26
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=/Applications/Xcode.app
+          fi
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          swift --version
+
+      - name: Test
+        run: swift test
+
+      # @_spi / #if DEBUG の付け忘れは Release でだけ壊れる。
+      - name: Build (release)
+        run: swift build -c release
