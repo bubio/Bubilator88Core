@@ -1132,9 +1132,13 @@ package final class YM2608 {
   }
 
   private func updateSSGDebugState(noiseBit: Int) {
-    ssgToneCounter = ssgTonePhase.map(Int.init)
-    ssgToneOutput = ssgTonePhase.map {
-      (($0 >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1) != 0
+    // In-place writes, not `.map`: this runs on every generated SSG sample,
+    // and `.map` allocated a fresh 3-element array each call (~13% of Release
+    // CPU time in profiling — see docs/develop/RELEASE_PERFORMANCE.md).
+    for ch in 0..<3 {
+      ssgToneCounter[ch] = Int(ssgTonePhase[ch])
+      ssgToneOutput[ch] =
+        ((ssgTonePhase[ch] >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1) != 0
     }
     ssgNoiseCounter = Int(ssgNoisePhase)
     ssgNoiseOutput = noiseBit != 0
