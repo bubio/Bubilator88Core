@@ -306,12 +306,15 @@ package final class CRTC {
   /// Advance CRTC by the given number of T-states.
   /// `tStatesPerLine` depends on CPU clock (4MHz or 8MHz).
   package func tick(tStates: Int, tStatesPerLine: Int) {
-    tStateAccumulator += tStates
+    var accumulator = tStateAccumulator + tStates
 
-    while tStateAccumulator >= tStatesPerLine {
-      tStateAccumulator -= tStatesPerLine
+    while accumulator >= tStatesPerLine {
+      accumulator -= tStatesPerLine
+      // Callbacks observe the accumulator after the elapsed scanline is deducted.
+      tStateAccumulator = accumulator
       advanceScanline()
     }
+    tStateAccumulator = accumulator
   }
 
   private func advanceScanline() {
