@@ -191,7 +191,8 @@ package final class PIO8255 {
       onCPUSwitch?()
     }
 
-    syncPublicState()
+    // Port C reads leave the raw latches and AB pending flags unchanged.
+    // Writers already synchronize the public state, including callback writes.
     onPIOAccess?(PIOAccess(side: side, port: 2, isWrite: false, value: value))
     return value
   }

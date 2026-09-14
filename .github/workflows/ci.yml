@@ -31,12 +31,15 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           swift --version
 
-      - name: Test
-        run: swift test
+      - name: Test (Debug checked)
+        run: swift test -Xswiftc -enforce-exclusivity=checked
+
+      - name: Test (Release checked)
+        run: swift test -c release -Xswiftc -enforce-exclusivity=checked
 
       # @_spi / #if DEBUG の付け忘れは Release でだけ壊れる。
       - name: Build (release)
-        run: swift build -c release
+        run: swift build -c release -Xswiftc -enforce-exclusivity=checked
 
   # 公開 API を最新のリリースタグと比べ、互換を壊していたら失敗する。
   # 仕組みと、意図して壊すときの手順は scripts/check-api.sh の冒頭。

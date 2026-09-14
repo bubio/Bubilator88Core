@@ -973,11 +973,10 @@ package final class YM2608 {
       return 0
     }
 
-    let toneEnabled = (0..<3).map {
-      ((enabledMask >> $0) & 1) != 0 && ssgToneStep[$0] <= Self.ssgToneStepLimit
-    }
-    let noiseEnabled = (0..<3).map {
-      ((enabledMask >> ($0 + 3)) & 1) != 0
+    // Keep the high-frequency tone gate without allocating per-sample arrays.
+    var toneEnabledMask = enabledMask & 0x07
+    for ch in 0..<3 where ssgToneStep[ch] > Self.ssgToneStepLimit {
+      toneEnabledMask &= ~(1 << ch)
     }
 
     var sample = 0
@@ -996,10 +995,10 @@ package final class YM2608 {
       lastNoiseBit = Int((Self.ssgNoiseTable[noiseIndex] >> noiseShift) & 1)
 
       for ch in 0..<3 {
-        let toneBit = toneEnabled[ch]
+        let toneBit = (toneEnabledMask & (1 << ch)) != 0
           ? Int((ssgTonePhase[ch] >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1)
           : 1
-        let noiseBit = noiseEnabled[ch] ? lastNoiseBit : 1
+        let noiseBit = (enabledMask & (1 << (ch + 3))) != 0 ? lastNoiseBit : 1
         let gate = toneBit & noiseBit
         // Per-channel mute mask (debug only; branch is always-taken in normal use).
         let ssgMuted = (debugChannelMask.ssg >> ch) & 1 == 0
@@ -1132,9 +1131,13 @@ package final class YM2608 {
   }
 
   private func updateSSGDebugState(noiseBit: Int) {
-    ssgToneCounter = ssgTonePhase.map(Int.init)
-    ssgToneOutput = ssgTonePhase.map {
-      (($0 >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1) != 0
+    // In-place writes, not `.map`: this runs on every generated SSG sample,
+    // and `.map` allocated a fresh 3-element array each call (~13% of Release
+    // CPU time in profiling — see docs/develop/RELEASE_PERFORMANCE.md).
+    for ch in 0..<3 {
+      ssgToneCounter[ch] = Int(ssgTonePhase[ch])
+      ssgToneOutput[ch] =
+        ((ssgTonePhase[ch] >> (Self.ssgToneShift + Self.ssgOversamplingShift)) & 1) != 0
     }
     ssgNoiseCounter = Int(ssgNoisePhase)
     ssgNoiseOutput = noiseBit != 0
