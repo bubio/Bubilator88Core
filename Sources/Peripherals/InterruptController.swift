@@ -85,7 +85,7 @@ package struct InterruptController {
   /// Returns (level, vectorOffset) or nil if no interrupt is active.
   /// QUASI88: intr_level == 0 → reject all; level N needs intr_level >= N+1 (N < levelThreshold).
   package func resolve() -> (level: Int, vectorOffset: UInt8)? {
-    guard levelThreshold > 0 else { return nil }
+    guard pendingLevels != 0, levelThreshold > 0 else { return nil }
     // Scan from highest priority (level 0) to lowest (level 7)
     for levelNum in 0...7 {
       guard pendingLevels & (1 << levelNum) != 0 else { continue }

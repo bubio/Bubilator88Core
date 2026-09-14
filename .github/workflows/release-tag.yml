@@ -46,7 +46,13 @@ jobs:
           swift --version
 
       - name: Test the base commit
-        run: swift test
+        run: swift test -Xswiftc -enforce-exclusivity=checked
+
+      - name: Test Release with checks
+        run: swift test -c release -Xswiftc -enforce-exclusivity=checked
+
+      - name: Test Release without dynamic checks
+        run: swift test -c release -Xswiftc -enforce-exclusivity=unchecked
 
       # 作ったタグをバージョン指定で使う利用者パッケージのビルドまでスクリプトが行い、
       # 通らなければタグを消して失敗する。
