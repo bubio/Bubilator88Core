@@ -204,7 +204,7 @@ package final class CRTC {
   }
 
   /// Status flags
-  package var dataReady: Bool = false    // DMA data ready
+  package var dataReady: Bool = false    // DMA data ready; not in the status read (kept in save states)
   package var lightPen: Bool = false     // Light pen detect (unused)
   package var underrun: Bool = false     // DMA underrun
 
@@ -340,18 +340,18 @@ package final class CRTC {
 
   /// Read status register (port 0x51).
   /// uPD3301 status bits:
-  ///   bit 7 (0x80): DR — data ready (BubiC); QUASI88 omits this
-  ///   bit 5 (0x20): VRTC — vertical retrace (active high)
+  ///   bit 7-5: 0 (vraminfo; M88M sets nothing there either)
   ///   bit 4 (0x10): VE — display enabled
   ///   bit 3 (0x08): U — DMA underrun
   ///   bit 2 (0x04): N — special control character interrupt
   ///   bit 1 (0x02): E — display end interrupt
   ///   bit 0 (0x01): LP — light pen input
   /// BubiC: if underrun, clears VE on read
+  ///
+  /// BubiC also reports DR (bit 7) and VRTC (bit 5), which is where these
+  /// bits came from. Vertical retrace is read from port 0x40 bit 5.
   package func readStatus() -> UInt8 {
     var status: UInt8 = 0
-    if dataReady { status |= 0x80 }        // bit 7: DR (BubiC convention)
-    if vrtcFlag { status |= 0x20 }         // bit 5: VRTC
     if displayEnabled { status |= 0x10 }   // bit 4: VE
     if underrun {
       status |= 0x08                     // bit 3: U (underrun)
