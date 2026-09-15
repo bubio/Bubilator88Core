@@ -376,10 +376,10 @@ struct MachineTests {
     machine.bus.ioWrite(0x51, value: 0x20)
     #expect(machine.crtc.displayEnabled == true)
 
-    // Read status
+    // Read status: VE, with bits 7-5 clear even in vertical retrace
     machine.crtc.vrtcFlag = true
     let status = machine.bus.ioRead(0x51)
-    #expect(status & 0x20 != 0)  // VRTC flag
+    #expect(status == 0x10)
   }
 
   @Test func subSystemPIORoutedViaBus() {

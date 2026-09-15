@@ -100,20 +100,18 @@ struct CRTCTests {
     #expect(crtc.vrtcFlag == false)  // Back to active display
   }
 
+  /// vraminfo / M88M: bits 7-5 read 0 — no DR, and vertical retrace is
+  /// not reported here (it is port 0x40 bit 5).
   @Test func statusRegister() {
     let crtc = CRTC()
     crtc.reset()
-
-    // Not in VRTC
-    #expect(crtc.readStatus() & 0x20 == 0)
-
-    // Simulate VRTC
+    crtc.dataReady = true
     crtc.vrtcFlag = true
-    #expect(crtc.readStatus() & 0x20 != 0)
+    #expect(crtc.readStatus() & 0xE0 == 0)
 
     // Display enabled
     crtc.displayEnabled = true
-    #expect(crtc.readStatus() & 0x10 != 0)
+    #expect(crtc.readStatus() == 0x10)
   }
 
   @Test func startDisplayCommand() {
