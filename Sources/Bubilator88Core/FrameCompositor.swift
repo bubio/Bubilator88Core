@@ -52,7 +52,8 @@ package final class FrameCompositor {
       textDisplayMode: bus.textDisplayMode,
       textRows: Int(crtc.linesPerScreen),
       reverseDisplay: crtc.reverseDisplay,
-      colorZero: !crtc.displayEnabled && bus.analogPalette
+      crtcStopped: !crtc.displayEnabled,
+      monoText: !bus.colorMode
     )
     let crtcLines = Int(crtc.linesPerScreen)
     // B/W graphics: palette[0] above is the background; lit dots take the
@@ -137,24 +138,26 @@ package final class FrameCompositor {
 
   // MARK: - Palette helpers
 
-  /// Attributes that color B/W graphics. With text off they fall back to
-  /// white, or to color code 0 when `colorZero` is set.
+  /// Attributes that color B/W graphics while text is off: white, except
+  /// with the CRTC stopped.
   ///
   /// vraminfo: 「白黒モード時に CRTC にリセットコマンドを送って止めると、「白」の
-  /// 部分はカラーコード 0 番の色になる」. The page checked this in analog mode
-  /// only, so the caller sets `colorZero` for a stopped CRTC in analog mode.
-  /// In digital mode color 0 is black, and The Man I Love shows its B/W
-  /// 400-line title after `out $51,0`, so digital keeps white.
+  /// 部分はカラーコード 0 番の色になる」. M88M does this by clearing the text
+  /// color and reverse bits when the CRTC stops (`CRTC::ClearText`), and ORs
+  /// in 7 when port 0x30 bit 1 selects mono text — so The Man I Love, which
+  /// stops the CRTC with mono text, keeps its B/W title white.
   package static func attributeGraphAttributes(
     from attrData: [UInt8],
     textDisplayMode: Pc88Bus.TextDisplayMode,
     textRows: Int,
     reverseDisplay: Bool,
-    colorZero: Bool = false
+    crtcStopped: Bool = false,
+    monoText: Bool = false
   ) -> [UInt8] {
     guard textDisplayMode == .disabled else { return attrData }
-    let color: UInt8 = colorZero ? 0x00 : 0xE0
-    let defaultAttr: UInt8 = color | (reverseDisplay ? 0x01 : 0x00)
+    let defaultAttr: UInt8 = crtcStopped
+      ? (monoText ? 0xE0 : 0x00)
+      : 0xE0 | (reverseDisplay ? 0x01 : 0x00)
     return Array(
       repeating: defaultAttr,
       count: max(textRows, 1) * ScreenRenderer.textCols80
@@ -200,9 +203,10 @@ package final class FrameCompositor {
     return palette
   }
 
-  /// The color of B/W graphics' lit dots under attribute color 0. vraminfo:
-  /// in digital mode the lit dots take the fixed digital colors, in analog
-  /// mode the analog palette — not the background of port 0x52.
+  /// The color of B/W graphics' lit dots under attribute color 0: the fixed
+  /// digital black, or analog palette 0 — not the port 0x52 background
+  /// (vraminfo: 白黒グラフィックの「白」はテキストアトリビュートの色。M88M
+  /// `Screen::UpdatePalette` likewise takes it from the text palette).
   package static func attributeGraphColorZero(
     busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
     analogPalette: Bool

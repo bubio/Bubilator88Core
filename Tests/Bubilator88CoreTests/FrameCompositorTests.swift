@@ -51,20 +51,30 @@ struct FrameCompositorTests {
     #expect(result[0] == 0xE1)
   }
 
-  /// vraminfo: stopping the CRTC in (analog) B/W mode turns the lit dots to
-  /// color code 0 instead of white.
-  @Test("attribute graphics can fall back to color 0")
+  /// vraminfo / M88M: stopping the CRTC turns B/W graphics' lit dots to
+  /// color 0 and drops reverse; mono text (port 0x30 bit 1) makes it 7.
+  @Test("attribute graphics take color 0 while the CRTC is stopped")
   func attributeGraphAttributesColorZeroWhenCRTCStopped() {
-    let result = FrameCompositor.attributeGraphAttributes(
+    let color = FrameCompositor.attributeGraphAttributes(
       from: [],
       textDisplayMode: .disabled,
       textRows: 25,
-      reverseDisplay: false,
-      colorZero: true
+      reverseDisplay: true,
+      crtcStopped: true,
+      monoText: false
     )
+    #expect(color.count == 80 * 25)
+    #expect(color.allSatisfy { $0 == 0x00 })
 
-    #expect(result.count == 80 * 25)
-    #expect(result.allSatisfy { $0 == 0x00 })
+    let mono = FrameCompositor.attributeGraphAttributes(
+      from: [],
+      textDisplayMode: .disabled,
+      textRows: 25,
+      reverseDisplay: true,
+      crtcStopped: true,
+      monoText: true
+    )
+    #expect(mono.allSatisfy { $0 == 0xE0 })
   }
 
   /// In B/W mode palette[0] is the background; the lit dots of attribute
