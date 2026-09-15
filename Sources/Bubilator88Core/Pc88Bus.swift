@@ -1787,8 +1787,8 @@ package final class Pc88Bus: Bus {
 
   /// BubiC pc88.cpp:4286 — when raw BLINK (bit 1) is set and SECRET (bit 0)
   /// is clear, XOR the internal SECRET bit with the CRTC blink phase so the
-  /// glyph is hidden during the blink-off period. Under/upper lines are
-  /// applied after the SECRET skip and thus remain visible (vraminfo #51).
+  /// glyph is hidden during the blink-off period. SECRET blanks only the
+  /// glyph, so under/upper lines remain visible (vraminfo #51).
   @inline(__always)
   private func blinkMask(raw: UInt8) -> UInt8 {
     guard (raw & 0x02) != 0, (raw & 0x01) == 0 else { return 0 }
