@@ -327,6 +327,77 @@ struct FontROMTests {
     #expect(attrs[3] == 0x80)
   }
 
+  @Test("Smallest attribute position reads as X=0")
+  func smallestAttributePositionReadsAsColumnZero() {
+    func expand(_ pairs: [(UInt8, UInt8)], cols: Int) -> [UInt8] {
+      let bus = Pc88Bus()
+      let dma = DMAController()
+      let crtc = CRTC()
+      bus.dma = dma
+      bus.crtc = crtc
+      crtc.displayMode = 0x02
+
+      crtc.charsPerLine = UInt8(cols)
+      crtc.linesPerScreen = 1
+      crtc.attrsPerLine = UInt8(pairs.count)
+      crtc.attrNonTransparent = false
+      dma.channels[2].address = 0x8000
+      configureTextDMARead(dma, crtc: crtc)
+      for (i, pair) in pairs.enumerated() {
+        bus.mainRAM[0x8000 + cols + i * 2] = pair.0
+        bus.mainRAM[0x8000 + cols + i * 2 + 1] = pair.1
+      }
+      bus.performTextDMATransfer()
+      return bus.readTextAttributes()
+    }
+
+    // vraminfo: written X=2 red, X=3 green → red from 0, green from 3.
+    let page = expand([(2, 0x48), (3, 0x88)], cols: 4)
+    #expect(page == [0x40, 0x40, 0x40, 0x80])
+
+    // Exective's menu row: X=2 normal, X=4 reverse, then $80 pads. The pad
+    // masks to X=0, so the positions sort to 0, 2, 4 and the values go
+    // normal, reverse — reverse from X=2. Forcing the first pair in the
+    // stream to X=0 instead would lose the highlight.
+    let exective = expand([(2, 0x00), (4, 0x04), (0x80, 0x00)], cols: 4)
+    #expect(exective == [0xE0, 0xE0, 0xE1, 0xE1])
+  }
+
+  @Test("40-column mode ignores attribute pairs at odd X")
+  func fortyColumnModeIgnoresOddAttributePositions() {
+    let bus = Pc88Bus()
+    let dma = DMAController()
+    let crtc = CRTC()
+    bus.dma = dma
+    bus.crtc = crtc
+    bus.columns80 = false
+    crtc.displayMode = 0x02
+
+    crtc.charsPerLine = 6
+    crtc.linesPerScreen = 1
+    crtc.attrsPerLine = 3
+    crtc.attrNonTransparent = false
+    dma.channels[2].address = 0x8000
+    configureTextDMARead(dma, crtc: crtc)
+
+    // vraminfo: in 40 columns only even X positions take effect.
+    // Written: X=0 white, X=1 red (ignored), X=4 green. The ignored pair's
+    // value is not consumed at X=4 either.
+    bus.mainRAM[0x8006] = 0
+    bus.mainRAM[0x8007] = 0xE8
+    bus.mainRAM[0x8008] = 1
+    bus.mainRAM[0x8009] = 0x48
+    bus.mainRAM[0x800A] = 4
+    bus.mainRAM[0x800B] = 0x88
+
+    bus.performTextDMATransfer()
+
+    let attrs = bus.readTextAttributes()
+    #expect(attrs[0...3].allSatisfy { $0 == 0xE0 })
+    #expect(attrs[4] == 0x80)
+    #expect(attrs[5] == 0x80)
+  }
+
   @Test("Transparent attributes mask high bit in position bytes")
   func transparentAttributesMaskPositionHighBit() {
     let bus = Pc88Bus()
@@ -338,17 +409,20 @@ struct FontROMTests {
 
     crtc.charsPerLine = 4
     crtc.linesPerScreen = 1
-    crtc.attrsPerLine = 2
+    crtc.attrsPerLine = 3
     crtc.attrNonTransparent = false
     dma.channels[2].address = 0x8000
     configureTextDMARead(dma, crtc: crtc)
 
     // Position bit 7 is ignored by BubiC (`pos & 0x7F`).
-    // 0x82 therefore targets column 2, not "no-op".
-    bus.mainRAM[0x8004] = 0x82
-    bus.mainRAM[0x8005] = 0x48
-    bus.mainRAM[0x8006] = 3
-    bus.mainRAM[0x8007] = 0x88
+    // 0x82 therefore targets column 2, not "no-op". The first pair is
+    // X=0 white, since the first position always reads as 0.
+    bus.mainRAM[0x8004] = 0
+    bus.mainRAM[0x8005] = 0xE8
+    bus.mainRAM[0x8006] = 0x82
+    bus.mainRAM[0x8007] = 0x48
+    bus.mainRAM[0x8008] = 3
+    bus.mainRAM[0x8009] = 0x88
 
     bus.performTextDMATransfer()
 
