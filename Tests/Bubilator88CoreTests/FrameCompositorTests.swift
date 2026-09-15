@@ -51,6 +51,35 @@ struct FrameCompositorTests {
     #expect(result[0] == 0xE1)
   }
 
+  /// vraminfo: stopping the CRTC in (analog) B/W mode turns the lit dots to
+  /// color code 0 instead of white.
+  @Test("attribute graphics can fall back to color 0")
+  func attributeGraphAttributesColorZeroWhenCRTCStopped() {
+    let result = FrameCompositor.attributeGraphAttributes(
+      from: [],
+      textDisplayMode: .disabled,
+      textRows: 25,
+      reverseDisplay: false,
+      colorZero: true
+    )
+
+    #expect(result.count == 80 * 25)
+    #expect(result.allSatisfy { $0 == 0x00 })
+  }
+
+  /// In B/W mode palette[0] is the background; the lit dots of attribute
+  /// color 0 take the fixed digital black or the analog palette instead.
+  @Test("attribute color 0 is not the B/W background")
+  func attributeGraphColorZeroIsNotBackground() {
+    var busPalette = Array(repeating: (b: UInt8(0), r: UInt8(0), g: UInt8(0)), count: 8)
+    busPalette[0] = (b: 1, r: 2, g: 3)
+    #expect(FrameCompositor.attributeGraphColorZero(busPalette: busPalette, analogPalette: false)
+      == ScreenRenderer.defaultPalette[0])
+    let analog = FrameCompositor.attributeGraphColorZero(busPalette: busPalette, analogPalette: true)
+    let expected = ScreenRenderer.expandPalette(busPalette)[0]
+    #expect(analog == expected)
+  }
+
   @Test("debug text toggle suppresses overlay rendering")
   func effectiveTextDisplayEnabledRespectsDebugToggle() {
     #expect(

@@ -299,6 +299,7 @@ package struct ScreenRenderer {
     columns80: Bool = true,
     textRows: Int = 25,
     graphicsDisplayEnabled: Bool = true,
+    background: (r: UInt8, g: UInt8, b: UInt8)? = nil,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
@@ -306,7 +307,7 @@ package struct ScreenRenderer {
     let rowBytes = rowPixels * Self.bytesPerPixel
     let attrRows = max(textRows, 1)
     let cellHeight = attrRows <= 20 ? 10 : 8
-    let bg32 = Self.packRGBA(palette[0])
+    let bg32 = Self.packRGBA(background ?? palette[0])
 
     let cellCount = attrRows * bytesPerLine
     let cellColor = UnsafeMutablePointer<UInt32>.allocate(capacity: cellCount)
@@ -389,12 +390,13 @@ package struct ScreenRenderer {
     columns80: Bool = true,
     textRows: Int = 25,
     graphicsDisplayEnabled: Bool = true,
+    background: (r: UInt8, g: UInt8, b: UInt8)? = nil,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
     let attrRows = max(textRows, 1)
     let cellHeight = attrRows <= 20 ? 10 : 8
-    let bg32 = Self.packRGBA(palette[0])
+    let bg32 = Self.packRGBA(background ?? palette[0])
 
     let cellCount = attrRows * bytesPerLine
     let cellColor = UnsafeMutablePointer<UInt32>.allocate(capacity: cellCount)

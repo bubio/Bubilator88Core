@@ -51,9 +51,17 @@ package final class FrameCompositor {
       from: attrData,
       textDisplayMode: bus.textDisplayMode,
       textRows: Int(crtc.linesPerScreen),
-      reverseDisplay: crtc.reverseDisplay
+      reverseDisplay: crtc.reverseDisplay,
+      colorZero: !crtc.displayEnabled && bus.analogPalette
     )
     let crtcLines = Int(crtc.linesPerScreen)
+    // B/W graphics: palette[0] above is the background; lit dots take the
+    // attribute color, so color 0 gets its own entry.
+    var attributeGraphPalette = graphicsPalette
+    attributeGraphPalette[0] = Self.attributeGraphColorZero(
+      busPalette: bus.palette,
+      analogPalette: bus.analogPalette
+    )
 
     if bus.graphicsColorMode {
       renderer.renderDoubled(
@@ -68,10 +76,11 @@ package final class FrameCompositor {
         blueVRAM: planes.blue,
         redVRAM: planes.red,
         attrData: attributeGraphAttrData,
-        palette: graphicsPalette,
+        palette: attributeGraphPalette,
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        background: graphicsPalette[0],
         into: &pixelBuffer
       )
     } else {
@@ -80,10 +89,11 @@ package final class FrameCompositor {
         redVRAM: planes.red,
         greenVRAM: planes.green,
         attrData: attributeGraphAttrData,
-        palette: graphicsPalette,
+        palette: attributeGraphPalette,
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        background: graphicsPalette[0],
         into: &pixelBuffer
       )
     }
@@ -127,14 +137,24 @@ package final class FrameCompositor {
 
   // MARK: - Palette helpers
 
+  /// Attributes that color B/W graphics. With text off they fall back to
+  /// white, or to color code 0 when `colorZero` is set.
+  ///
+  /// vraminfo: 「白黒モード時に CRTC にリセットコマンドを送って止めると、「白」の
+  /// 部分はカラーコード 0 番の色になる」. The page checked this in analog mode
+  /// only, so the caller sets `colorZero` for a stopped CRTC in analog mode.
+  /// In digital mode color 0 is black, and The Man I Love shows its B/W
+  /// 400-line title after `out $51,0`, so digital keeps white.
   package static func attributeGraphAttributes(
     from attrData: [UInt8],
     textDisplayMode: Pc88Bus.TextDisplayMode,
     textRows: Int,
-    reverseDisplay: Bool
+    reverseDisplay: Bool,
+    colorZero: Bool = false
   ) -> [UInt8] {
     guard textDisplayMode == .disabled else { return attrData }
-    let defaultAttr: UInt8 = 0xE0 | (reverseDisplay ? 0x01 : 0x00)
+    let color: UInt8 = colorZero ? 0x00 : 0xE0
+    let defaultAttr: UInt8 = color | (reverseDisplay ? 0x01 : 0x00)
     return Array(
       repeating: defaultAttr,
       count: max(textRows, 1) * ScreenRenderer.textCols80
@@ -178,6 +198,18 @@ package final class FrameCompositor {
       palette[0] = ScreenRenderer.defaultPalette[0]
     }
     return palette
+  }
+
+  /// The color of B/W graphics' lit dots under attribute color 0. vraminfo:
+  /// in digital mode the lit dots take the fixed digital colors, in analog
+  /// mode the analog palette — not the background of port 0x52.
+  package static func attributeGraphColorZero(
+    busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
+    analogPalette: Bool
+  ) -> (r: UInt8, g: UInt8, b: UInt8) {
+    analogPalette
+      ? ScreenRenderer.expandPalette(busPalette)[0]
+      : ScreenRenderer.defaultPalette[0]
   }
 
   package static func effectiveTextPalette(
