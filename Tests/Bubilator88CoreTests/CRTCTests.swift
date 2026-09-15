@@ -147,6 +147,28 @@ struct CRTCTests {
     #expect(crtc.attrNonTransparent == false)
   }
 
+  /// vraminfo's 32/50-row screens: the row count and height are taken as
+  /// written, not rounded to 20/25.
+  @Test func resetKeepsRowCountAndHeight() {
+    let crtc = CRTC(monitorType: .khz24)
+    crtc.writeCommand(0x00)
+    for param: UInt8 in [0xCE, 0x80 | 49, 0x60 | 7, (5 << 5) | 24, 0x53] {
+      crtc.writeParameter(param)  // 50 rows of 8 lines
+    }
+    #expect(crtc.linesPerScreen == 50)
+    #expect(crtc.charLinesPerRow == 8)
+    #expect(crtc.textRowHeight400 == 8)
+    #expect(crtc.dynamicTotalScanlines == (50 + 6) * 8)
+  }
+
+  @Test func textRowHeightDoublesOn15kHz() {
+    let crtc = CRTC(monitorType: .khz15)
+    crtc.charLinesPerRow = 8
+    #expect(crtc.textRowHeight400 == 16)
+    crtc.charLinesPerRow = 10
+    #expect(crtc.textRowHeight400 == 20)
+  }
+
   @Test func setInterruptMaskCommand() {
     let crtc = CRTC()
     crtc.reset()

@@ -408,4 +408,48 @@ struct ScreenRendererTests {
     // Line 383 (last covered) should NOT be filled (original white preserved or text rendered)
     // It's covered by text rendering so it depends on text content
   }
+
+  // MARK: - Row height from the CRTC
+
+  /// vraminfo: with 50 rows (8 lines each) only half of each glyph's raster
+  /// lines show — semigraphics keep bits 0, 1, 4, 5 — and the next row
+  /// starts 8 lines down.
+  @Test("An 8-line row shows the top half of the glyph")
+  func eightLineRowsCutGlyph() {
+    let fontROM = FontROM()
+    // A semigraphic lit only in its bottom half (glyph rows 4-7).
+    let bottomOnly = UInt8((0..<256).first { code in
+      (0..<4).allSatisfy { fontROM.sgGlyphRow(code: UInt8(code), row: $0) == 0 }
+        && (4..<8).allSatisfy { fontROM.sgGlyphRow(code: UInt8(code), row: $0) != 0 }
+    }!)
+
+    func litLines(code: UInt8, rowHeight400: Int) -> [Bool] {
+      var buffer = Array(repeating: UInt8(0x00), count: ScreenRenderer.bufferSize400)
+      var textData = Array(repeating: UInt8(0x20), count: 80 * 50)
+      var attrData = Array(repeating: UInt8(0xE0), count: 80 * 50)
+      for row in 0..<2 {
+        textData[row * 80] = code
+        attrData[row * 80] = 0xF0  // white + GRAPH
+      }
+      ScreenRenderer().renderTextOverlay(
+        textData: textData,
+        attrData: attrData,
+        fontROM: fontROM,
+        palette: ScreenRenderer.defaultPalette,
+        displayEnabled: true,
+        textRows: 50,
+        is400Line: true,
+        rowHeight400: rowHeight400,
+        into: &buffer
+      )
+      return (0..<32).map { line in
+        (0..<8).contains { col in buffer[(line * ScreenRenderer.width + col) * 4] != 0 }
+      }
+    }
+
+    #expect(litLines(code: 0xFF, rowHeight400: 8)[0..<16].allSatisfy { $0 })
+    #expect(litLines(code: 0xFF, rowHeight400: 8)[16..<32].allSatisfy { !$0 })
+    #expect(litLines(code: bottomOnly, rowHeight400: 8).allSatisfy { !$0 })
+    #expect(litLines(code: bottomOnly, rowHeight400: 16)[8..<16].allSatisfy { $0 })
+  }
 }

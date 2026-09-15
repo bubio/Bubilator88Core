@@ -56,6 +56,10 @@ package final class FrameCompositor {
       monoText: !bus.colorMode
     )
     let crtcLines = Int(crtc.linesPerScreen)
+    // Line-skip mode keeps the older cell height; nothing measured says how
+    // it combines with the CRTC's row pitch.
+    let rowHeight400: Int? = crtc.skipLine || crtc.textRowHeight400 <= 0
+      ? nil : crtc.textRowHeight400
     // B/W graphics: palette[0] above is the background; lit dots take the
     // attribute color, so color 0 gets its own entry.
     var attributeGraphPalette = graphicsPalette
@@ -82,6 +86,7 @@ package final class FrameCompositor {
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
         background: graphicsPalette[0],
+        rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
     } else {
@@ -95,6 +100,7 @@ package final class FrameCompositor {
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
         background: graphicsPalette[0],
+        rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
     }
@@ -131,6 +137,7 @@ package final class FrameCompositor {
       // 400-line cell height to match. Nothing to do with the monitor type.
       is400Line: true,
       skipLine: crtc.skipLine,
+      rowHeight400: rowHeight400,
       markTextPixels: markTextPixels,
       into: &pixelBuffer
     )

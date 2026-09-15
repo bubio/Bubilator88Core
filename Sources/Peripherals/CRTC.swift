@@ -138,6 +138,14 @@ package final class CRTC {
   /// Attribute mode: false = transparent (position/value pairs), true = non-transparent
   package var attrNonTransparent: Bool = false
 
+  /// Height of a text row in lines of a 400-line screen: the lines per row
+  /// the CRTC was given, doubled on a 15kHz monitor (200 lines shown twice).
+  /// vraminfo: 「25 行の時に 1 文字は 400/25=16 ドットだったのが倍の 50 行のときは
+  /// 400/50=8 ドット」.
+  package var textRowHeight400: Int {
+    Int(charLinesPerRow) * (monitorType == .khz24 ? 1 : 2)
+  }
+
   /// Attribute bytes per line (from Reset param 4, bits 4-0 + 1)
   package var attrsPerLine: UInt8 = 20
 
@@ -473,14 +481,10 @@ package final class CRTC {
     // Parameter 0: characters per line (bits 6-0 + 2)
     charsPerLine = (parameters[0] & 0x7F) + 2
 
-    // Parameter 1: lines per screen (bits 5-0 + 1), blink rate (bits 7-6)
-    // QUASI88: clamp to 20 or 25 (values 21-24 become 25)
-    let rawLines = (parameters[1] & 0x3F) + 1
-    if rawLines <= 20 {
-      linesPerScreen = 20
-    } else {
-      linesPerScreen = 25
-    }
+    // Parameter 1: lines per screen (bits 5-0 + 1), blink rate (bits 7-6).
+    // Taken as written, as XM8 does: QUASI88 rounds to 20/25, which hides
+    // vraminfo's 32- and 50-row screens.
+    linesPerScreen = (parameters[1] & 0x3F) + 1
     // BubiC pc88.cpp:4076 — blink.rate = 32 * ((data >> 6) + 1) → 32/64/96/128 frames
     blinkRate = 32 * (Int((parameters[1] >> 6) & 0x03) + 1)
 
