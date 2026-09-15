@@ -824,5 +824,8 @@ extension Machine {
     subDebt = try r.readInt()
     clock8MHz = try r.readBool()
     traceEnabled = try r.readBool()
+
+    // Not in the stream; derived from the DMAC and CRTC state just loaded.
+    bus.scheduleTextDMAEnd()
   }
 }

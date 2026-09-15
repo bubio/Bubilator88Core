@@ -242,7 +242,7 @@ struct ScreenRendererDifferentialTests {
           let charCode = textData[charIndex]
           let attr = charIndex < attrCount ? attrData[charIndex] : 0xE0
 
-          if (attr & 0x02) != 0 { continue }  // secret
+          let secret = (attr & 0x02) != 0  // blanks the glyph only
 
           let colorIdx = Int((attr >> 5) & 0x07)
           var reverse = (attr & 0x01) != 0
@@ -276,7 +276,9 @@ struct ScreenRendererDifferentialTests {
             let fontRow = is400Line ? cellRow / 2 : cellRow
 
             var rowBits: UInt8
-            if fontRow < fontHeight {
+            if secret {
+              rowBits = 0x00
+            } else if fontRow < fontHeight {
               rowBits = isGraph
                 ? fontROM.sgGlyphRow(code: charCode, row: fontRow)
                 : fontROM.glyphRow(code: charCode, row: fontRow)

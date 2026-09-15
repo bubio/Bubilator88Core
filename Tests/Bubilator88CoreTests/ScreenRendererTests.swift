@@ -106,6 +106,41 @@ struct ScreenRendererTests {
     #expect(foundWhitePixel)
   }
 
+  @Test("Secret hides only the glyph; lines and reverse fill remain (vraminfo)")
+  func secretKeepsLinesAndReverse() {
+    let renderer = ScreenRenderer()
+    let fontROM = FontROM()
+    var buffer = Array(repeating: UInt8(0x00), count: ScreenRenderer.bufferSize)
+
+    var textData = Array(repeating: UInt8(0x20), count: 2000)
+    var attrData = Array(repeating: UInt8(0xE0), count: 2000)
+    for col in 0..<3 { textData[col] = 0x41 }  // 'A'
+    attrData[0] = 0xE0 | 0x02 | 0x08  // secret + underline
+    attrData[1] = 0xE0 | 0x02 | 0x01  // secret + reverse
+    attrData[2] = 0xE0 | 0x02         // secret
+
+    renderer.renderTextOverlay(
+      textData: textData,
+      attrData: attrData,
+      fontROM: fontROM,
+      palette: ScreenRenderer.defaultPalette,
+      displayEnabled: true,
+      into: &buffer
+    )
+
+    // 25 rows × 8-line cells in the 200-line buffer.
+    func lit(_ x: Int, _ y: Int) -> Bool {
+      buffer[(y * ScreenRenderer.width + x) * ScreenRenderer.bytesPerPixel] == 0xFF
+    }
+    // Cell 0: no glyph pixels, underline on the last line.
+    #expect((0..<7).allSatisfy { y in (0..<8).allSatisfy { !lit($0, y) } })
+    #expect((0..<8).allSatisfy { lit($0, 7) })
+    // Cell 1: reverse of a blank glyph is a solid block.
+    #expect((0..<8).allSatisfy { y in (8..<16).allSatisfy { lit($0, y) } })
+    // Cell 2: nothing drawn.
+    #expect((0..<8).allSatisfy { y in (16..<24).allSatisfy { !lit($0, y) } })
+  }
+
   @Test func cyanPixel() {
     let renderer = ScreenRenderer()
     var blue = Array(repeating: UInt8(0x00), count: 0x4000)

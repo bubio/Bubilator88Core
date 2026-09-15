@@ -51,13 +51,22 @@ package final class FrameCompositor {
       from: attrData,
       textDisplayMode: bus.textDisplayMode,
       textRows: Int(crtc.linesPerScreen),
-      reverseDisplay: crtc.reverseDisplay
+      reverseDisplay: crtc.reverseDisplay,
+      crtcStopped: !crtc.displayEnabled,
+      monoText: !bus.colorMode
     )
     let crtcLines = Int(crtc.linesPerScreen)
     // Line-skip mode keeps the older cell height; nothing measured says how
     // it combines with the CRTC's row pitch.
     let rowHeight400: Int? = crtc.skipLine || crtc.textRowHeight400 <= 0
       ? nil : crtc.textRowHeight400
+    // B/W graphics: palette[0] above is the background; lit dots take the
+    // attribute color, so color 0 gets its own entry.
+    var attributeGraphPalette = graphicsPalette
+    attributeGraphPalette[0] = Self.attributeGraphColorZero(
+      busPalette: bus.palette,
+      analogPalette: bus.analogPalette
+    )
 
     if bus.graphicsColorMode {
       renderer.renderDoubled(
@@ -72,10 +81,11 @@ package final class FrameCompositor {
         blueVRAM: planes.blue,
         redVRAM: planes.red,
         attrData: attributeGraphAttrData,
-        palette: graphicsPalette,
+        palette: attributeGraphPalette,
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        background: graphicsPalette[0],
         rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
@@ -85,10 +95,11 @@ package final class FrameCompositor {
         redVRAM: planes.red,
         greenVRAM: planes.green,
         attrData: attributeGraphAttrData,
-        palette: graphicsPalette,
+        palette: attributeGraphPalette,
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        background: graphicsPalette[0],
         rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
@@ -134,14 +145,26 @@ package final class FrameCompositor {
 
   // MARK: - Palette helpers
 
+  /// Attributes that color B/W graphics while text is off: white, except
+  /// with the CRTC stopped.
+  ///
+  /// vraminfo: 「白黒モード時に CRTC にリセットコマンドを送って止めると、「白」の
+  /// 部分はカラーコード 0 番の色になる」. M88M does this by clearing the text
+  /// color and reverse bits when the CRTC stops (`CRTC::ClearText`), and ORs
+  /// in 7 when port 0x30 bit 1 selects mono text — so The Man I Love, which
+  /// stops the CRTC with mono text, keeps its B/W title white.
   package static func attributeGraphAttributes(
     from attrData: [UInt8],
     textDisplayMode: Pc88Bus.TextDisplayMode,
     textRows: Int,
-    reverseDisplay: Bool
+    reverseDisplay: Bool,
+    crtcStopped: Bool = false,
+    monoText: Bool = false
   ) -> [UInt8] {
     guard textDisplayMode == .disabled else { return attrData }
-    let defaultAttr: UInt8 = 0xE0 | (reverseDisplay ? 0x01 : 0x00)
+    let defaultAttr: UInt8 = crtcStopped
+      ? (monoText ? 0xE0 : 0x00)
+      : 0xE0 | (reverseDisplay ? 0x01 : 0x00)
     return Array(
       repeating: defaultAttr,
       count: max(textRows, 1) * ScreenRenderer.textCols80
@@ -185,6 +208,19 @@ package final class FrameCompositor {
       palette[0] = ScreenRenderer.defaultPalette[0]
     }
     return palette
+  }
+
+  /// The color of B/W graphics' lit dots under attribute color 0: the fixed
+  /// digital black, or analog palette 0 — not the port 0x52 background
+  /// (vraminfo: 白黒グラフィックの「白」はテキストアトリビュートの色。M88M
+  /// `Screen::UpdatePalette` likewise takes it from the text palette).
+  package static func attributeGraphColorZero(
+    busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
+    analogPalette: Bool
+  ) -> (r: UInt8, g: UInt8, b: UInt8) {
+    analogPalette
+      ? ScreenRenderer.expandPalette(busPalette)[0]
+      : ScreenRenderer.defaultPalette[0]
   }
 
   package static func effectiveTextPalette(

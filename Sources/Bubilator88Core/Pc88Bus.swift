@@ -1497,23 +1497,44 @@ package final class Pc88Bus: Bus {
     guard let crtc = crtc else { return }
 
     crtc.startDMATransfer()
+    scheduleTextDMAEnd()
 
-    guard let dma = dma,
-          dma.channels[2].enabled else { return }
-    let count = Int(dma.textVRAMCount)
-    guard count > 0 else {
-      // DMA count = 0: no transfer
-      return
-    }
-
+    guard let transferBytes = textDMATransferBytes(), let dma = dma else { return }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
-    let transferBytes = min(expectedBytes, count + 1)
     let startAddr = Int(dma.textVRAMAddress)
 
     for offset in 0..<transferBytes {
       crtc.writeDMABuffer(readDMAByte(startAddr + offset))
     }
     crtc.dmaUnderrun = transferBytes < expectedBytes
+  }
+
+  /// Bytes the text DMA moves in one frame, or nil when it does not run.
+  private func textDMATransferBytes() -> Int? {
+    guard let crtc = crtc, let dma = dma,
+          dma.channels[2].enabled else { return nil }
+    let count = Int(dma.textVRAMCount)
+    // DMA count = 0: no transfer
+    guard count > 0 else { return nil }
+    let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
+    return min(expectedBytes, count + 1)
+  }
+
+  /// Tell the CRTC on which scanline this frame's text DMA ends (TC2).
+  ///
+  /// The uPD3301 fetches each row during the row before it, so the row that
+  /// holds the last byte is fetched one row early — before vertical blank,
+  /// as vraminfo measured. A count longer than the screen is treated as
+  /// ending with the last row; real hardware would not reach TC in that
+  /// frame, but what it does next is not known.
+  package func scheduleTextDMAEnd() {
+    guard let crtc = crtc else { return }
+    guard let transferBytes = textDMATransferBytes(), crtc.bytesPerDMARow > 0 else {
+      crtc.textDMAEndScanline = -1
+      return
+    }
+    let lastRow = (transferBytes - 1) / crtc.bytesPerDMARow
+    crtc.textDMAEndScanline = max(0, lastRow - 1) * Int(crtc.charLinesPerRow)
   }
 
   /// Read text character data from CRTC DMA buffer.
@@ -1552,6 +1573,8 @@ package final class Pc88Bus: Bus {
   /// Per uPD3301 behavior (confirmed via BubiC): attributes persist across rows.
   /// Position byte bit 7 is LC flag and masked off (& 0x7F).
   /// All attrsPerLine pairs are processed (no early termination).
+  /// The smallest position always reads as X=0; in 40-column mode pairs at
+  /// odd X are ignored (vraminfo).
   ///
   /// Returns expanded per-character attribute array (cols × rows).
   package func readTextAttributes() -> [UInt8] {
@@ -1596,18 +1619,36 @@ package final class Pc88Bus: Bus {
         let attrBase = rowBase + cols
         var flags = Array(repeating: false, count: 128)
 
+        // vraminfo: in 40-column mode a pair at an odd X is ignored —
+        // neither its position nor its value takes effect. Returns nil for
+        // an ignored pair.
+        func column(ofPair i: Int) -> Int? {
+          let x = Int(crtc.readDMABuffer(at: attrBase + i * 2) & 0x7F)
+          return !columns80 && (x & 1) != 0 ? nil : x
+        }
+
         // BubiC expands transparent attributes by first marking the
         // effective columns in reverse order, masking the position
         // byte with 0x7F, then consuming attribute values in their
         // original stream order as each marked column is reached.
         for i in stride(from: attrsPerLine - 1, through: 0, by: -1) {
-          let column = Int(crtc.readDMABuffer(at: attrBase + i * 2) & 0x7F)
-          flags[column] = true
+          if let x = column(ofPair: i) { flags[x] = true }
+        }
+
+        // vraminfo: the row's first attribute starts at X=0 whatever
+        // position was written. Positions are taken in sorted order, so
+        // the first one is the smallest, not the first in the stream —
+        // Exective pads with $80 (X=0) after its real pairs and relies on
+        // that pad claiming the first value.
+        if let first = flags.firstIndex(of: true), first > 0 {
+          flags[first] = false
+          flags[0] = true
         }
 
         var pairIndex = 0
         for col in 0..<cols {
           if flags[col] {
+            while column(ofPair: pairIndex) == nil { pairIndex += 1 }
             let raw = crtc.readDMABuffer(at: attrBase + pairIndex * 2 + 1)
             _ = remapAttribute(raw, currentAttr: &currentAttr)
             pairIndex += 1
@@ -1787,8 +1828,8 @@ package final class Pc88Bus: Bus {
 
   /// BubiC pc88.cpp:4286 — when raw BLINK (bit 1) is set and SECRET (bit 0)
   /// is clear, XOR the internal SECRET bit with the CRTC blink phase so the
-  /// glyph is hidden during the blink-off period. Under/upper lines are
-  /// applied after the SECRET skip and thus remain visible (vraminfo #51).
+  /// glyph is hidden during the blink-off period. SECRET blanks only the
+  /// glyph, so under/upper lines remain visible (vraminfo #51).
   @inline(__always)
   private func blinkMask(raw: UInt8) -> UInt8 {
     guard (raw & 0x02) != 0, (raw & 0x01) == 0 else { return 0 }
