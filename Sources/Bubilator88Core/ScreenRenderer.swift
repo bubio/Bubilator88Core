@@ -536,7 +536,10 @@ package struct ScreenRenderer {
           let charCode = textData[charIndex]
           let attr = charIndex < attrCount ? attrData[charIndex] : 0xE0
 
-          if (attr & 0x02) != 0 { continue }  // secret
+          // vraminfo: secret blanks only the glyph. The cell still takes its
+          // reverse fill and under/upper lines (BubiC draws code 0 instead).
+          // Attribute BLINK reuses this bit, so lines stay lit while blinking.
+          let secret = (attr & 0x02) != 0
 
           let colorIdx = Int((attr >> 5) & 0x07)
           var reverse = (attr & 0x01) != 0
@@ -570,7 +573,7 @@ package struct ScreenRenderer {
           // in 400-line mode every font row is drawn twice — and pack the 8 rows
           // into a word so the blank test below is a single comparison.
           var glyph: UInt64 = 0
-          for fontRow in 0..<fontHeight {
+          for fontRow in 0..<fontHeight where !secret {
             let bits = isGraph
               ? fontROM.sgGlyphRow(code: charCode, row: fontRow)
               : fontROM.glyphRow(code: charCode, row: fontRow)
