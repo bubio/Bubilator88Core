@@ -67,6 +67,26 @@ struct CRTCTests {
     #expect(vsyncCount == 1)
   }
 
+  @Test func vsyncCallbackObservesPostScanlineAccumulator() {
+    let crtc = CRTC()
+    crtc.reset()
+
+    var accumulatorAtVsync: Int?
+    crtc.onVSYNC = {
+      accumulatorAtVsync = crtc.tStateAccumulator
+    }
+
+    let tStatesPerLine = 321
+    for _ in 0..<399 {
+      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    }
+    crtc.tick(tStates: tStatesPerLine * 2 + 17, tStatesPerLine: tStatesPerLine)
+
+    #expect(accumulatorAtVsync == tStatesPerLine + 17)
+    #expect(crtc.tStateAccumulator == 17)
+    #expect(crtc.scanline == 401)
+  }
+
   @Test func scanlineWrapsAround() {
     let crtc = CRTC()
     crtc.reset()

@@ -581,6 +581,11 @@ package final class UPD765A {
 
   /// Advance FDC by T-states. Handles seek timing.
   package func tick(tStates: Int) {
+    if phase != .execution &&
+      !seekMoving[0] && !seekMoving[1] && !seekMoving[2] && !seekMoving[3] {
+      return
+    }
+
     if phase == .execution &&
       (command == .readData || command == .readDeletedData || command == .readDiagnostic) &&
       !readByteReady &&
