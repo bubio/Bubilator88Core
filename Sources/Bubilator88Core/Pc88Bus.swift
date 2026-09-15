@@ -1497,23 +1497,44 @@ package final class Pc88Bus: Bus {
     guard let crtc = crtc else { return }
 
     crtc.startDMATransfer()
+    scheduleTextDMAEnd()
 
-    guard let dma = dma,
-          dma.channels[2].enabled else { return }
-    let count = Int(dma.textVRAMCount)
-    guard count > 0 else {
-      // DMA count = 0: no transfer
-      return
-    }
-
+    guard let transferBytes = textDMATransferBytes(), let dma = dma else { return }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
-    let transferBytes = min(expectedBytes, count + 1)
     let startAddr = Int(dma.textVRAMAddress)
 
     for offset in 0..<transferBytes {
       crtc.writeDMABuffer(readDMAByte(startAddr + offset))
     }
     crtc.dmaUnderrun = transferBytes < expectedBytes
+  }
+
+  /// Bytes the text DMA moves in one frame, or nil when it does not run.
+  private func textDMATransferBytes() -> Int? {
+    guard let crtc = crtc, let dma = dma,
+          dma.channels[2].enabled else { return nil }
+    let count = Int(dma.textVRAMCount)
+    // DMA count = 0: no transfer
+    guard count > 0 else { return nil }
+    let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
+    return min(expectedBytes, count + 1)
+  }
+
+  /// Tell the CRTC on which scanline this frame's text DMA ends (TC2).
+  ///
+  /// The uPD3301 fetches each row during the row before it, so the row that
+  /// holds the last byte is fetched one row early — before vertical blank,
+  /// as vraminfo measured. A count longer than the screen is treated as
+  /// ending with the last row; real hardware would not reach TC in that
+  /// frame, but what it does next is not known.
+  package func scheduleTextDMAEnd() {
+    guard let crtc = crtc else { return }
+    guard let transferBytes = textDMATransferBytes(), crtc.bytesPerDMARow > 0 else {
+      crtc.textDMAEndScanline = -1
+      return
+    }
+    let lastRow = (transferBytes - 1) / crtc.bytesPerDMARow
+    crtc.textDMAEndScanline = max(0, lastRow - 1) * Int(crtc.charLinesPerRow)
   }
 
   /// Read text character data from CRTC DMA buffer.

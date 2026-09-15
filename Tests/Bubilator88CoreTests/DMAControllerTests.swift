@@ -77,11 +77,93 @@ struct DMAControllerTests {
     #expect(dma.channels[2].address == 0x00CD) // low byte overwritten, high cleared by init
   }
 
-  @Test("Read status returns mode register")
+  /// vraminfo: the status read is UPDATE (bit 4) and TC (bits 3-0), not
+  /// the mode register written to the same port.
+  @Test("Status is UPDATE and TC, not the mode register")
   func readStatus() {
     let dma = DMAController()
-    dma.ioWrite(0x68, value: 0x0F)
-    #expect(dma.ioRead(0x68) == 0x0F)
+    dma.ioWrite(0x68, value: 0xE4)
+    #expect(dma.ioRead(0x68) == 0x00)
+  }
+
+  /// vraminfo: "TC は一旦 1 の状態を read すると即座に 0 にリセットされます。
+  /// UPDATE はしばらく持続。"
+  @Test("Reading clears TC but keeps UPDATE")
+  func readClearsTerminalCount() {
+    let dma = DMAController()
+    dma.ioWrite(0x68, value: 0xE4)  // auto-load + ch2, as the ROM writes
+    dma.reachTerminalCount(channel: 2)
+    #expect(dma.ioRead(0x68) == 0x14)
+    #expect(dma.ioRead(0x68) == 0x10)
+    dma.beginVerticalRetrace()
+    #expect(dma.ioRead(0x68) == 0x00)
+  }
+
+  @Test("UPDATE needs auto-load mode")
+  func updateNeedsAutoLoad() {
+    let dma = DMAController()
+    dma.ioWrite(0x68, value: 0x44)  // TC stop + ch2, no auto-load
+    dma.reachTerminalCount(channel: 2)
+    #expect(dma.ioRead(0x68) == 0x04)
+
+    dma.ioWrite(0x68, value: 0xE4)
+    dma.reachTerminalCount(channel: 2)
+    dma.ioWrite(0x68, value: 0x64)  // leaving auto-load clears UPDATE
+    #expect(dma.ioRead(0x68) == 0x04)
+  }
+
+  /// Poll $68 on every scanline like VRAMTEST H: TC2 reads as 1 once per
+  /// frame and neither TC2 nor UPDATE is 1 during vertical blank.
+  @Test("TC2 comes once per frame, outside vertical blank")
+  func terminalCountTiming() {
+    let machine = Machine()
+    let bus = machine.bus
+    bus.ioWrite(0x68, value: 0xA0)
+    bus.ioWrite(0x64, value: 0x00)
+    bus.ioWrite(0x64, value: 0xF3)
+    bus.ioWrite(0x65, value: UInt8((25 * 120 - 1) & 0xFF))
+    bus.ioWrite(0x65, value: 0x80 | UInt8((25 * 120 - 1) >> 8))
+    bus.ioWrite(0x68, value: 0xE4)
+    machine.crtc.displayEnabled = true
+
+    let lines = machine.crtc.dynamicTotalScanlines
+    var tc2 = [Int]()
+    var updateInBlank = false
+    var updateLines = 0
+    for line in 0..<(lines * 3) {
+      machine.crtc.tick(tStates: 100, tStatesPerLine: 100)
+      let status = bus.ioRead(0x68)
+      guard line >= lines else { continue }  // first VRTC schedules TC
+      if status & 0x04 != 0 {
+        tc2.append(machine.crtc.scanline)
+        #expect(!machine.crtc.vrtcFlag)
+      }
+      if status & 0x10 != 0 {
+        updateLines += 1
+        if machine.crtc.vrtcFlag { updateInBlank = true }
+      }
+    }
+    // 25 rows of 16 lines: row 24 is fetched while row 23 is displayed.
+    #expect(tc2 == [23 * 16, 23 * 16])
+    #expect(updateLines == 2 * 32)
+    #expect(!updateInBlank)
+  }
+
+  @Test("No TC2 while the display is stopped")
+  func noTerminalCountWhenStopped() {
+    let machine = Machine()
+    let bus = machine.bus
+    bus.ioWrite(0x65, value: 0xB7)
+    bus.ioWrite(0x65, value: 0x8B)
+    bus.ioWrite(0x68, value: 0xE4)
+    machine.crtc.displayEnabled = false
+
+    var seen = false
+    for _ in 0..<(machine.crtc.dynamicTotalScanlines * 2) {
+      machine.crtc.tick(tStates: 100, tStatesPerLine: 100)
+      if bus.ioRead(0x68) != 0 { seen = true }
+    }
+    #expect(!seen)
   }
 
   @Test("Address register readback uses DMA flip-flop")
@@ -123,6 +205,7 @@ struct DMAControllerTests {
 
     // Read status via bus
     bus.ioWrite(0x68, value: 0x04)
+    dma.reachTerminalCount(channel: 2)
     let status = bus.ioRead(0x68)
     #expect(status == 0x04)
   }
