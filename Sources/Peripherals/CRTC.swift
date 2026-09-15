@@ -225,6 +225,14 @@ package final class CRTC {
   /// Called when VSYNC occurs. Machine should wire this to InterruptController.
   package var onVSYNC: (() -> Void)?
 
+  /// Scanline on which the frame's text DMA transfers its last byte, or -1
+  /// for none. Set by the bus at each VRTC; not saved (it is recomputed).
+  package var textDMAEndScanline: Int = -1
+
+  /// Called on `textDMAEndScanline` while the display runs. Machine wires
+  /// this to the DMAC's terminal count.
+  package var onTextDMAEnd: (() -> Void)?
+
   // MARK: - Init
 
   package init(monitorType: MonitorType = .khz24) {
@@ -298,6 +306,7 @@ package final class CRTC {
     }
     dmaBufferPtr = 0
     dmaUnderrun = true  // No data yet → underrun until first DMA transfer
+    textDMAEndScanline = -1
     updateDynamicScanlines()
   }
 
@@ -323,6 +332,11 @@ package final class CRTC {
     let total = dynamicTotalScanlines
     if scanline >= total {
       scanline = 0
+    }
+
+    // STOP DISPLAY stops the uPD3301's DMA requests, so no terminal count.
+    if scanline == textDMAEndScanline && displayEnabled {
+      onTextDMAEnd?()
     }
 
     // VRTC flag: active during vertical blanking

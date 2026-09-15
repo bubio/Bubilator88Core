@@ -319,8 +319,12 @@ package final class Machine: @unchecked Sendable {
     crtc.onVSYNC = { [weak self] in
       self?.interruptBox.controller.request(level: .vrtc)
       self?.bus.vrtcFlag = true
+      self?.dma.beginVerticalRetrace()
       self?.bus.performTextDMATransfer()
       self?.mouse.vsync()
+    }
+    crtc.onTextDMAEnd = { [weak self] in
+      self?.dma.reachTerminalCount(channel: 2)
     }
 
     // Wire YM2608 timer IRQ → interrupt controller
@@ -387,8 +391,12 @@ package final class Machine: @unchecked Sendable {
     crtc.onVSYNC = { [weak self] in
       self?.interruptBox.controller.request(level: .vrtc)
       self?.bus.vrtcFlag = true
+      self?.dma.beginVerticalRetrace()
       self?.bus.performTextDMATransfer()
       self?.mouse.vsync()
+    }
+    crtc.onTextDMAEnd = { [weak self] in
+      self?.dma.reachTerminalCount(channel: 2)
     }
     sound.onTimerIRQ = { [weak self] in
       self?.interruptBox.controller.request(level: .sound)
