@@ -54,6 +54,10 @@ package final class FrameCompositor {
       reverseDisplay: crtc.reverseDisplay
     )
     let crtcLines = Int(crtc.linesPerScreen)
+    // Line-skip mode keeps the older cell height; nothing measured says how
+    // it combines with the CRTC's row pitch.
+    let rowHeight400: Int? = crtc.skipLine || crtc.textRowHeight400 <= 0
+      ? nil : crtc.textRowHeight400
 
     if bus.graphicsColorMode {
       renderer.renderDoubled(
@@ -72,6 +76,7 @@ package final class FrameCompositor {
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
     } else {
@@ -84,6 +89,7 @@ package final class FrameCompositor {
         columns80: bus.columns80,
         textRows: crtcLines,
         graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        rowHeight400: rowHeight400,
         into: &pixelBuffer
       )
     }
@@ -120,6 +126,7 @@ package final class FrameCompositor {
       // 400-line cell height to match. Nothing to do with the monitor type.
       is400Line: true,
       skipLine: crtc.skipLine,
+      rowHeight400: rowHeight400,
       markTextPixels: markTextPixels,
       into: &pixelBuffer
     )

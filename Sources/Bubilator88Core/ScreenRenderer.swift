@@ -299,6 +299,7 @@ package struct ScreenRenderer {
     columns80: Bool = true,
     textRows: Int = 25,
     graphicsDisplayEnabled: Bool = true,
+    rowHeight400: Int? = nil,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
@@ -338,7 +339,8 @@ package struct ScreenRenderer {
               let spread = spreadPtr.baseAddress!
 
               for line in 0..<Self.height {
-                let attrBase = min(line / cellHeight, attrRows - 1) * bytesPerLine
+                let attrRow = rowHeight400.map { line * 2 / $0 } ?? line / cellHeight
+                let attrBase = min(attrRow, attrRows - 1) * bytesPerLine
                 let srcOffset = line * bytesPerLine
                 let dstRow0 = line * 2 * rowPixels
                 var pixelOffset = dstRow0
@@ -389,6 +391,7 @@ package struct ScreenRenderer {
     columns80: Bool = true,
     textRows: Int = 25,
     graphicsDisplayEnabled: Bool = true,
+    rowHeight400: Int? = nil,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
@@ -424,7 +427,8 @@ package struct ScreenRenderer {
             let spread = spreadPtr.baseAddress!
 
             for line in 0..<Self.height400 {
-              let attrBase = min((line / 2) / cellHeight, attrRows - 1) * bytesPerLine
+              let attrRow = rowHeight400.map { line / $0 } ?? (line / 2) / cellHeight
+              let attrBase = min(attrRow, attrRows - 1) * bytesPerLine
               let srcLine = line < Self.height ? line : (line - Self.height)
               let srcOffset = srcLine * bytesPerLine
               let plane = line < Self.height ? bSrc : rSrc
@@ -479,6 +483,12 @@ package struct ScreenRenderer {
   /// `hireso` after XM8, which uses that name for the monitor — do not
   /// re-conflate them.
   ///
+  /// `rowHeight400` is the row pitch the CRTC was programmed with, in lines
+  /// of a 400-line screen (`CRTC.textRowHeight400`). nil keeps the older
+  /// 8/10-line cell picked from `textRows`, which is only right for 20 and 25
+  /// rows. Glyph rows past the eighth stay blank, and a row shorter than the
+  /// glyph cuts it: vraminfo's 50-row screen shows only half of each glyph.
+  ///
   /// `markTextPixels` tags every pixel this pass paints with alpha 0xFE so the
   /// display shader can tell text apart from graphics (XM8's SDL port exempts
   /// text from its scanline dimming this way). Alpha is opaque either way — the
@@ -501,6 +511,7 @@ package struct ScreenRenderer {
     cursorBlock: Bool = false,
     is400Line: Bool = false,
     skipLine: Bool = false,
+    rowHeight400: Int? = nil,
     markTextPixels: Bool = false,
     into buffer: inout [UInt8]
   ) {
@@ -514,12 +525,17 @@ package struct ScreenRenderer {
     // Data always has 80 chars per row from CRTC DMA
     let dataCols = Self.textCols80
 
-    // QUASI88: font height derived from line count, NOT from CRTC charLinesPerRow
-    // ≤20 lines → 10px cell (20×10=200), >20 lines → 8px cell (25×8=200)
+    // Row pitch: the CRTC's lines per row when given (XM8), else QUASI88's
+    // cell from the line count — ≤20 lines → 10px (20×10=200), >20 → 8px.
     // XM8: skip_line doubles char_height (every other line is displayed)
     let fontHeight = Self.charHeight  // 8 pixels of font glyph data
     let baseCellHeight = textRows <= 20 ? 10 : 8
-    let cellHeight = (is400Line ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
+    let cellHeight: Int
+    if let rowHeight400 {
+      cellHeight = (is400Line ? rowHeight400 : max(1, rowHeight400 / 2)) * (skipLine ? 2 : 1)
+    } else {
+      cellHeight = (is400Line ? baseCellHeight * 2 : baseCellHeight) * (skipLine ? 2 : 1)
+    }
     let screenHeight = is400Line ? Self.height400 : Self.height
 
     let textCount = textData.count
