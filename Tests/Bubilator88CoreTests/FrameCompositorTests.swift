@@ -51,6 +51,45 @@ struct FrameCompositorTests {
     #expect(result[0] == 0xE1)
   }
 
+  /// vraminfo / M88M: stopping the CRTC turns B/W graphics' lit dots to
+  /// color 0 and drops reverse; mono text (port 0x30 bit 1) makes it 7.
+  @Test("attribute graphics take color 0 while the CRTC is stopped")
+  func attributeGraphAttributesColorZeroWhenCRTCStopped() {
+    let color = FrameCompositor.attributeGraphAttributes(
+      from: [],
+      textDisplayMode: .disabled,
+      textRows: 25,
+      reverseDisplay: true,
+      crtcStopped: true,
+      monoText: false
+    )
+    #expect(color.count == 80 * 25)
+    #expect(color.allSatisfy { $0 == 0x00 })
+
+    let mono = FrameCompositor.attributeGraphAttributes(
+      from: [],
+      textDisplayMode: .disabled,
+      textRows: 25,
+      reverseDisplay: true,
+      crtcStopped: true,
+      monoText: true
+    )
+    #expect(mono.allSatisfy { $0 == 0xE0 })
+  }
+
+  /// In B/W mode palette[0] is the background; the lit dots of attribute
+  /// color 0 take the fixed digital black or the analog palette instead.
+  @Test("attribute color 0 is not the B/W background")
+  func attributeGraphColorZeroIsNotBackground() {
+    var busPalette = Array(repeating: (b: UInt8(0), r: UInt8(0), g: UInt8(0)), count: 8)
+    busPalette[0] = (b: 1, r: 2, g: 3)
+    #expect(FrameCompositor.attributeGraphColorZero(busPalette: busPalette, analogPalette: false)
+      == ScreenRenderer.defaultPalette[0])
+    let analog = FrameCompositor.attributeGraphColorZero(busPalette: busPalette, analogPalette: true)
+    let expected = ScreenRenderer.expandPalette(busPalette)[0]
+    #expect(analog == expected)
+  }
+
   @Test("debug text toggle suppresses overlay rendering")
   func effectiveTextDisplayEnabledRespectsDebugToggle() {
     #expect(
