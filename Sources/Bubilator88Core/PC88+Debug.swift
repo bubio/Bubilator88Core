@@ -165,6 +165,7 @@ extension PC88 {
       cursorBlock: true,
       is400Line: is400Line,
       skipLine: crtc.skipLine,
+      rowHeight400: crtc.skipLine ? nil : crtc.textRowHeight400,
       into: &buffer
     )
     return TextVRAMCapture(
