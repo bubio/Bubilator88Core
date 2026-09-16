@@ -140,25 +140,26 @@ struct Mode400LineTests {
     crtc.onVSYNC = { vsyncCount += 1 }
 
     let tStatesPerLine = 321  // 144134 / 448 ≈ 321 (8MHz, 24kHz)
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     // Advance to scanline 399 (still active)
     for _ in 0..<399 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.vrtcFlag == false)
 
     // Advance to scanline 400 (blanking starts)
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.vrtcFlag == true)
     #expect(vsyncCount == 1)
 
     // Complete the frame (scanlines 401..447)
     for _ in 401..<448 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.scanline == 447)
 
     // Wrap to scanline 0
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.scanline == 0)
     #expect(crtc.vrtcFlag == false)
   }

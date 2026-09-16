@@ -172,6 +172,26 @@ struct MachineTests {
     #expect(abs(machine.frameRate - 62.42) < 0.01)
   }
 
+  /// A frame's worth of T-states is exactly a CRTC frame, so the boundary
+  /// where the picture is handed over stays where it is.
+  ///
+  /// It used to walk: the scanline length was truncated to whole T-states
+  /// (72,067 / 448 = 160), leaving 387 T-states — 2.4 scanlines — unaccounted
+  /// for every frame, which made VRAMTEST's T and U flip pictures on their own.
+  @Test func frameBoundaryDoesNotDrift() {
+    let machine = Machine()
+    machine.clock8MHz = false
+    machine.reset()
+
+    let scanlineAtStart = machine.crtc.scanline
+    for _ in 0..<600 {
+      machine.runFrame()
+      // An instruction runs past the frame's budget, so the boundary lands a
+      // few T-states into a scanline; it must not creep beyond that.
+      #expect(machine.crtc.scanline == scanlineAtStart)
+    }
+  }
+
   /// SHG (port 0x40 bit 1) is the read-back for the monitor DIP. `.khz24`
   /// stays the default so software sees exactly what it saw before 1.5.0.
   @Test func monitorTypeSurfacesOnPort40() {
