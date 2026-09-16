@@ -1501,15 +1501,20 @@ package final class Pc88Bus: Bus {
 
     guard let transferBytes = textDMATransferBytes(), let dma = dma else { return }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
-    let startAddr = Int(dma.textVRAMAddress)
 
-    for offset in 0..<transferBytes {
-      crtc.writeDMABuffer(readDMAByte(startAddr + offset))
+    for _ in 0..<transferBytes {
+      crtc.writeDMABuffer(readDMAByte(Int(dma.nextTextDMAAddress())))
     }
     crtc.dmaUnderrun = transferBytes < expectedBytes
   }
 
   /// Bytes the text DMA moves in one frame, or nil when it does not run.
+  ///
+  /// The transfer ends at terminal count: a count shorter than the screen
+  /// leaves the rest of the rows without data (underrun), it does not wrap
+  /// round and fill them. Sorcerian relies on that — it asks for 13 rows on
+  /// a 25-row screen. The reload at terminal count is what the next frame
+  /// starts from, so a count longer than the screen carries on instead.
   private func textDMATransferBytes() -> Int? {
     guard let crtc = crtc, let dma = dma,
           dma.channels[2].enabled else { return nil }
@@ -1517,23 +1522,29 @@ package final class Pc88Bus: Bus {
     // DMA count = 0: no transfer
     guard count > 0 else { return nil }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
-    return min(expectedBytes, count + 1)
+    return min(expectedBytes, count + 1 - dma.textOffset)
   }
 
   /// Tell the CRTC on which scanline this frame's text DMA ends (TC2).
   ///
   /// The uPD3301 fetches each row during the row before it, so the row that
   /// holds the last byte is fetched one row early — before vertical blank,
-  /// as vraminfo measured. A count longer than the screen is treated as
-  /// ending with the last row; real hardware would not reach TC in that
-  /// frame, but what it does next is not known.
+  /// as vraminfo measured. A count that outlasts this frame reaches no TC
+  /// at all: with 6000 bytes and a 3000-byte screen it comes every other
+  /// frame, which is what makes the two screens alternate.
   package func scheduleTextDMAEnd() {
     guard let crtc = crtc else { return }
-    guard let transferBytes = textDMATransferBytes(), crtc.bytesPerDMARow > 0 else {
+    guard let transferBytes = textDMATransferBytes(), let dma = dma,
+          crtc.bytesPerDMARow > 0 else {
       crtc.textDMAEndScanline = -1
       return
     }
-    let lastRow = (transferBytes - 1) / crtc.bytesPerDMARow
+    let bytesLeft = Int(dma.textVRAMCount) + 1 - dma.textOffset
+    guard bytesLeft <= transferBytes else {
+      crtc.textDMAEndScanline = -1
+      return
+    }
+    let lastRow = (bytesLeft - 1) / crtc.bytesPerDMARow
     crtc.textDMAEndScanline = max(0, lastRow - 1) * Int(crtc.charLinesPerRow)
   }
 

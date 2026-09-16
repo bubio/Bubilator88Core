@@ -43,6 +43,21 @@ package final class DMAController {
   /// Neither flag is in save states; both settle again within a frame.
   package var updateFlag: Bool = false
 
+  /// How far into channel 2's block the text DMA has read.
+  ///
+  /// The real address register counts as it transfers; here it keeps the
+  /// programmed value and this offset walks instead, because the transfer
+  /// happens in one go at VRTC. It survives across frames, so a count
+  /// longer than one screen carries on where the last frame stopped —
+  /// which is how a 6000-byte count alternates two screens (vraminfo's
+  /// 27-color trick). Not in save states: a load restarts at the top of
+  /// the block, at worst showing the other screen for a frame.
+  package var textOffset: Int = 0
+
+  /// Auto-load (mode register bit 7): channel 3 holds the parameters that
+  /// channel 2 is reloaded with at terminal count.
+  package var autoLoad: Bool { modeRegister & 0x80 != 0 }
+
   // MARK: - Init
 
   package init() {}
@@ -53,6 +68,7 @@ package final class DMAController {
     flipFlop = false
     terminalCountFlags = 0
     updateFlag = false
+    textOffset = 0
   }
 
   // MARK: - Port I/O
@@ -69,6 +85,7 @@ package final class DMAController {
         channels[ch].address = (channels[ch].address & 0x00FF) | (UInt16(value) << 8)
       }
       flipFlop.toggle()
+      if ch == 2 { textOffset = 0 }
 
     case 0x61, 0x63, 0x65, 0x67:
       // Count register (odd ports)
@@ -81,6 +98,7 @@ package final class DMAController {
         channels[ch].mode = value >> 6
       }
       flipFlop.toggle()
+      if ch == 2 { textOffset = 0 }
 
     case 0x68:
       // Mode register
@@ -131,11 +149,22 @@ package final class DMAController {
 
   // MARK: - Transfer Events
 
+  /// Address of the next text byte, advancing the walk.
+  ///
+  /// At terminal count it starts the block again. In auto-load mode the
+  /// i8257 takes the parameters back from channel 3, which holds the same
+  /// values because writing channel 2 with auto-load on writes both.
+  package func nextTextDMAAddress() -> UInt16 {
+    let address = channels[2].address &+ UInt16(truncatingIfNeeded: textOffset)
+    textOffset = textOffset >= Int(textVRAMCount) ? 0 : textOffset + 1
+    return address
+  }
+
   /// `channel` transferred its last byte.
   ///
-  /// Only the TC and UPDATE status bits are modeled. The transfer itself
-  /// happens in bulk at VRTC (`Pc88Bus.performTextDMATransfer`), and neither
-  /// the auto-load copy nor TC stop changes the channel registers here.
+  /// Only the TC and UPDATE status bits are set here. The transfer itself
+  /// happens in bulk at VRTC (`Pc88Bus.performTextDMATransfer`), which is
+  /// also where the auto-load reload happens, one byte at a time.
   package func reachTerminalCount(channel: Int) {
     terminalCountFlags |= UInt8(1 << channel)
     if channel == 2 && modeRegister & 0x80 != 0 {
