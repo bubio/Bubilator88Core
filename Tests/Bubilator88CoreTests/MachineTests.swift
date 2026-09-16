@@ -172,23 +172,39 @@ struct MachineTests {
     #expect(abs(machine.frameRate - 62.42) < 0.01)
   }
 
-  /// A frame's worth of T-states is exactly a CRTC frame, so the boundary
-  /// where the picture is handed over stays where it is.
+  /// A frame ends where the CRTC starts its next one, so the picture the host
+  /// renders is always the same instant of the frame.
   ///
-  /// It used to walk: the scanline length was truncated to whole T-states
-  /// (72,067 / 448 = 160), leaving 387 T-states — 2.4 scanlines — unaccounted
-  /// for every frame, which made VRAMTEST's T and U flip pictures on their own.
-  @Test func frameBoundaryDoesNotDrift() {
+  /// The boundary used to walk: the scanline length was truncated to whole
+  /// T-states (72,067 / 448 = 160), leaving 387 T-states — 2.4 scanlines —
+  /// unaccounted for every frame, which made VRAMTEST's T and U flip pictures
+  /// on their own.
+  @Test func frameEndsAtTheTopOfTheCRTCFrame() {
     let machine = Machine()
     machine.clock8MHz = false
     machine.reset()
 
-    let scanlineAtStart = machine.crtc.scanline
     for _ in 0..<600 {
       machine.runFrame()
-      // An instruction runs past the frame's budget, so the boundary lands a
-      // few T-states into a scanline; it must not creep beyond that.
-      #expect(machine.crtc.scanline == scanlineAtStart)
+      // An instruction runs past the boundary, so the frame ends a few
+      // T-states into scanline 0 — but never beyond it.
+      #expect(machine.crtc.scanline == 0)
+    }
+  }
+
+  /// Starting mid-frame, the first frame is short and everything after it is
+  /// back on the CRTC's boundary — a save state or a breakpoint leaves the
+  /// machine part-way through a frame.
+  @Test func frameBoundaryRecoversFromAMidFrameStart() {
+    let machine = Machine()
+    machine.clock8MHz = false
+    machine.reset()
+    machine.run(tStates: 30_000)  // somewhere in the middle of a frame
+    #expect(machine.crtc.scanline > 0)
+
+    for _ in 0..<10 {
+      machine.runFrame()
+      #expect(machine.crtc.scanline == 0)
     }
   }
 

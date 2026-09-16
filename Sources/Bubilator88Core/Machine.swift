@@ -685,15 +685,19 @@ package final class Machine: @unchecked Sendable {
   private var diagFreezeCount: Int = 0
 
 
-  /// T-states the last frame ran past its budget, carried into the next one.
+  /// T-states from here to the top of the CRTC's next frame.
   ///
-  /// A frame stops at the end of an instruction, so it overshoots by a handful
-  /// of T-states. Dropped rather than carried, those add up: ~5 a frame is a
-  /// scanline every 30 frames, and the moment the picture is handed over walks
-  /// through the frame again — the slow drift this exists to stop.
-  private var frameOverrun: Int = 0
+  /// The accumulator counts in 1/scanlines of a T-state (`CRTC.tick`), so the
+  /// whole sum is taken in those units and divided once, rounding up: landing
+  /// a T-state early would leave the frame one scanline short.
+  private var tStatesToFrameStart: Int {
+    let lines = crtc.dynamicTotalScanlines
+    guard lines > 0 else { return tStatesPerFrame }
+    let remaining = (lines - crtc.scanline) * tStatesPerFrame - crtc.tStateAccumulator
+    return (remaining + lines - 1) / lines
+  }
 
-  /// Run for one frame's worth of T-states.
+  /// Run up to the top of the next CRTC frame.
   @discardableResult
   package func runFrame() -> Int {
     diagFrameCount += 1
@@ -711,10 +715,17 @@ package final class Machine: @unchecked Sendable {
         machineLog.warning("FREEZE detected at PC=0x\(hex(pc))")
       }
     }
-    let target = max(0, tStatesPerFrame - frameOverrun)
-    let used = run(tStates: target)
-    frameOverrun = used - target
-    return used
+    // Stop where the CRTC starts its next frame, rather than after a fixed
+    // number of T-states. The host renders the picture when this returns, so
+    // the boundary decides which instant of the frame it sees; anchored to
+    // scanline 0 it sees the screen the CRTC is about to draw — text fetched
+    // by the DMA during the retrace just gone, palette and mode as the frame
+    // begins. A fixed budget instead left the boundary wherever the last CRTC
+    // reprogramming happened to drop it, so the same software showed a
+    // different instant in the app and in BootTester. Recomputed every frame,
+    // so the T-states an instruction runs past the boundary come off the next
+    // frame instead of accumulating.
+    return run(tStates: max(1, tStatesToFrameStart))
   }
 
   // MARK: - ROM Loading
