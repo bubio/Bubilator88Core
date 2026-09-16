@@ -210,6 +210,79 @@ struct DMAControllerTests {
     #expect(status == 0x04)
   }
 
+  // MARK: - A count longer than the screen (vraminfo's 27 colors)
+
+  /// One screen of 4 bytes with the count set to 8: the second frame shows
+  /// the second half, and the third starts over.
+  private func twoScreenSetup() -> (Pc88Bus, CRTC, DMAController) {
+    let bus = Pc88Bus()
+    let crtc = CRTC()
+    let dma = DMAController()
+    bus.crtc = crtc
+    bus.dma = dma
+    crtc.charsPerLine = 2
+    crtc.linesPerScreen = 1
+    crtc.attrsPerLine = 1
+    crtc.attrNonTransparent = false
+    crtc.displayEnabled = true
+    crtc.intrMask = 3
+    // Text VRAM at 0xF000: "AB" then "CD", one screen each.
+    bus.ioWrite(0x32, value: 0x10)  // TMODE=1: the DMA still reads text VRAM
+    bus.tvram[0] = 0x41
+    bus.tvram[1] = 0x42
+    bus.tvram[4] = 0x43
+    bus.tvram[5] = 0x44
+    // Auto-load first, as the ROM and vraminfo's samples do, then the
+    // channel: address 0xF000, count 8 bytes, mode read.
+    bus.ioWrite(0x68, value: 0xA0)
+    bus.ioWrite(0x64, value: 0x00)
+    bus.ioWrite(0x64, value: 0xF0)
+    bus.ioWrite(0x65, value: 0x07)
+    bus.ioWrite(0x65, value: 0x80)
+    bus.ioWrite(0x68, value: 0xE4)
+    return (bus, crtc, dma)
+  }
+
+  @Test("A DMA count of two screens alternates them")
+  func twoScreenCountAlternates() {
+    // The bus holds the CRTC and the DMA weakly: keep them alive here.
+    let (bus, crtc, dma) = twoScreenSetup()
+    defer { withExtendedLifetime((crtc, dma)) {} }
+
+    bus.performTextDMATransfer()
+    #expect(bus.readTextVRAM()[0] == 0x41)
+    bus.performTextDMATransfer()
+    #expect(bus.readTextVRAM()[0] == 0x43)
+    bus.performTextDMATransfer()
+    #expect(bus.readTextVRAM()[0] == 0x41)
+  }
+
+  @Test("TC2 comes on the frame that finishes the count")
+  func terminalCountOnTheFinishingFrame() {
+    let (bus, crtc, dma) = twoScreenSetup()
+    defer { withExtendedLifetime(dma) {} }
+
+    bus.performTextDMATransfer()
+    #expect(crtc.textDMAEndScanline == -1)  // first half: no TC this frame
+    bus.performTextDMATransfer()
+    #expect(crtc.textDMAEndScanline >= 0)
+  }
+
+  @Test("A one-screen count reads the same bytes every frame")
+  func oneScreenCountRepeats() {
+    let (bus, crtc, dma) = twoScreenSetup()
+    defer { withExtendedLifetime((crtc, dma)) {} }
+    bus.ioWrite(0x68, value: 0xA0)
+    bus.ioWrite(0x65, value: 0x03)  // 4 bytes = exactly one screen
+    bus.ioWrite(0x65, value: 0x80)
+    bus.ioWrite(0x68, value: 0xE4)
+
+    bus.performTextDMATransfer()
+    #expect(bus.readTextVRAM()[0] == 0x41)
+    bus.performTextDMATransfer()
+    #expect(bus.readTextVRAM()[0] == 0x41)
+  }
+
   @Test("Bus wiring — RIGLAS DMA channel 3 reads back zero by default")
   func riglasDMAChannel3Readback() {
     let bus = Pc88Bus()
