@@ -22,14 +22,15 @@ struct CRTCTests {
 
     // Advance to just before blanking (scanline 399)
     let tStatesPerLine = 321  // 8MHz / 24kHz
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     for _ in 0..<399 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.vrtcFlag == false)
     #expect(crtc.scanline == 399)
 
     // Advance to blanking start (scanline 400)
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.vrtcFlag == true)
     #expect(crtc.scanline == 400)
   }
@@ -40,13 +41,14 @@ struct CRTCTests {
     let crtc = CRTC(monitorType: .khz15)
 
     let tStatesPerLine = 499  // 8MHz / 15kHz
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     for _ in 0..<199 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.vrtcFlag == false)
     #expect(crtc.scanline == 199)
 
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.vrtcFlag == true)
     #expect(crtc.scanline == 200)
     #expect(crtc.dynamicTotalScanlines == 256)
@@ -60,9 +62,10 @@ struct CRTCTests {
     crtc.onVSYNC = { vsyncCount += 1 }
 
     let tStatesPerLine = 321
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     // Run through one full frame (448 scanlines at 24kHz)
     for _ in 0..<448 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(vsyncCount == 1)
   }
@@ -77,14 +80,32 @@ struct CRTCTests {
     }
 
     let tStatesPerLine = 321
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     for _ in 0..<399 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
-    crtc.tick(tStates: tStatesPerLine * 2 + 17, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine * 2 + 17, tStatesPerFrame: tStatesPerFrame)
 
-    #expect(accumulatorAtVsync == tStatesPerLine + 17)
-    #expect(crtc.tStateAccumulator == 17)
+    // The accumulator counts in 1/scanlines of a T-state.
+    let scale = crtc.dynamicTotalScanlines
+    #expect(accumulatorAtVsync == (tStatesPerLine + 17) * scale)
+    #expect(crtc.tStateAccumulator == 17 * scale)
     #expect(crtc.scanline == 401)
+  }
+
+  /// The scanline length is a fraction of a T-state (72,067 / 448 at 4MHz on
+  /// a 24kHz monitor), so a frame's worth of T-states has to come out at
+  /// exactly one frame — not 445.6 scanlines, over and over.
+  @Test func frameLengthIsExactAcrossManyFrames() {
+    let crtc = CRTC(monitorType: .khz24)
+    crtc.reset()
+
+    let tStatesPerFrame = 72_067  // 4MHz, 25 rows, 24kHz
+    for _ in 0..<1000 {
+      crtc.tick(tStates: tStatesPerFrame, tStatesPerFrame: tStatesPerFrame)
+      #expect(crtc.scanline == 0)
+      #expect(crtc.tStateAccumulator == 0)
+    }
   }
 
   @Test func scanlineWrapsAround() {
@@ -92,9 +113,10 @@ struct CRTCTests {
     crtc.reset()
 
     let tStatesPerLine = 321
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
     // Advance past one full frame
     for _ in 0..<449 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.scanline == 1)  // Wrapped around
     #expect(crtc.vrtcFlag == false)  // Back to active display
@@ -215,25 +237,26 @@ struct CRTCTests {
     let crtc = CRTC(monitorType: .khz24)
 
     let tStatesPerLine = 321  // 8MHz / 24kHz
+    let tStatesPerFrame = tStatesPerLine * crtc.dynamicTotalScanlines
 
     // Advance to scanline 399 — still in active display
     for _ in 0..<399 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     #expect(crtc.scanline == 399)
     #expect(crtc.vrtcFlag == false)
 
     // Advance to scanline 400 — blanking starts
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.scanline == 400)
     #expect(crtc.vrtcFlag == true)
 
     // Advance through blanking (scanlines 401..447) then wrap
     for _ in 401..<448 {
-      crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     }
     // Scanline 448 wraps to 0
-    crtc.tick(tStates: tStatesPerLine, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: tStatesPerLine, tStatesPerFrame: tStatesPerFrame)
     #expect(crtc.scanline == 0)  // wrapped to 0
     #expect(crtc.vrtcFlag == false)
   }

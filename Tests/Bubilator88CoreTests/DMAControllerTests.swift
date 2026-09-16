@@ -131,7 +131,7 @@ struct DMAControllerTests {
     var updateInBlank = false
     var updateLines = 0
     for line in 0..<(lines * 3) {
-      machine.crtc.tick(tStates: 100, tStatesPerLine: 100)
+      machine.crtc.tick(tStates: 100, tStatesPerFrame: 100 * machine.crtc.dynamicTotalScanlines)
       let status = bus.ioRead(0x68)
       guard line >= lines else { continue }  // first VRTC schedules TC
       if status & 0x04 != 0 {
@@ -160,7 +160,7 @@ struct DMAControllerTests {
 
     var seen = false
     for _ in 0..<(machine.crtc.dynamicTotalScanlines * 2) {
-      machine.crtc.tick(tStates: 100, tStatesPerLine: 100)
+      machine.crtc.tick(tStates: 100, tStatesPerFrame: 100 * machine.crtc.dynamicTotalScanlines)
       if bus.ioRead(0x68) != 0 { seen = true }
     }
     #expect(!seen)

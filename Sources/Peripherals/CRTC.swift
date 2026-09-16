@@ -28,7 +28,7 @@ package final class CRTC {
   // MARK: - Display Parameters
 
   /// Which monitor the machine is wired to. Decides the reset-time geometry
-  /// and, via `Machine.tStatesPerLine`, the length of a scanline. Applied at
+  /// and, via `Machine.tStatesPerFrame`, the length of a scanline. Applied at
   /// reset only, as on real hardware (it is a DIP switch).
   package var monitorType: MonitorType
 
@@ -92,7 +92,8 @@ package final class CRTC {
   /// VRTC flag — true during vertical blanking
   package var vrtcFlag: Bool = false
 
-  /// T-state accumulator for scanline timing
+  /// Accumulator for scanline timing, in 1/`dynamicTotalScanlines` of a
+  /// T-state — see `tick(tStates:tStatesPerFrame:)` for why it is scaled.
   package var tStateAccumulator: Int = 0
 
   /// Whether display is enabled (CRTC start command issued)
@@ -320,13 +321,22 @@ package final class CRTC {
 
   // MARK: - Timing
 
-  /// Advance CRTC by the given number of T-states.
-  /// `tStatesPerLine` depends on CPU clock (4MHz or 8MHz).
-  package func tick(tStates: Int, tStatesPerLine: Int) {
-    var accumulator = tStateAccumulator + tStates
+  /// Advance CRTC by the given number of T-states, given the exact length of
+  /// a whole frame.
+  ///
+  /// A scanline lasts `tStatesPerFrame / dynamicTotalScanlines` T-states, which
+  /// is hardly ever a whole number: 72,067 / 448 = 160.86 at 4MHz on a 24kHz
+  /// monitor. Dividing first and then counting whole T-states per line throws
+  /// the remainder away — 387 T-states, 2.4 scanlines, every frame — so the
+  /// frame boundary walks through the picture instead of staying put. The
+  /// accumulator therefore counts in 1/`dynamicTotalScanlines` of a T-state
+  /// and the division never happens.
+  package func tick(tStates: Int, tStatesPerFrame: Int) {
+    guard tStatesPerFrame > 0 else { return }
+    var accumulator = tStateAccumulator + tStates * dynamicTotalScanlines
 
-    while accumulator >= tStatesPerLine {
-      accumulator -= tStatesPerLine
+    while accumulator >= tStatesPerFrame {
+      accumulator -= tStatesPerFrame
       // Callbacks observe the accumulator after the elapsed scanline is deducted.
       tStateAccumulator = accumulator
       advanceScanline()

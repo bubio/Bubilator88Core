@@ -239,7 +239,8 @@ package final class Machine: @unchecked Sendable {
   ///
   /// Rounded at the frame level rather than at the line level so that the
   /// VRTC period — the thing games actually pace off — carries no truncation
-  /// error; `tStatesPerLine` absorbs it instead.
+  /// error. The CRTC divides this by the scanline count as it counts, so the
+  /// remainder is not lost either (`CRTC.tick(tStates:tStatesPerFrame:)`).
   package var tStatesPerFrame: Int {
     let lines = crtc.dynamicTotalScanlines
     guard lines > 0 else { return 0 }
@@ -268,11 +269,6 @@ package final class Machine: @unchecked Sendable {
       if cpuOverclock < 1 { cpuOverclock = 1 }
       if cpuOverclock > 8 { cpuOverclock = 8 }
     }
-  }
-
-  /// T-states per scanline (dynamic based on CRTC mode)
-  package var tStatesPerLine: Int {
-    tStatesPerFrame / crtc.dynamicTotalScanlines
   }
 
   // MARK: - RTC Timing
@@ -520,7 +516,7 @@ package final class Machine: @unchecked Sendable {
     let totalCycles = cycles + waitCycles
 
     // Advance all timing-driven devices
-    crtc.tick(tStates: totalCycles, tStatesPerLine: tStatesPerLine)
+    crtc.tick(tStates: totalCycles, tStatesPerFrame: tStatesPerFrame)
     sound.tick(tStates: totalCycles)
     cassette.tick(tStates: totalCycles)
     driveSub(mainCycles: totalCycles)
@@ -543,7 +539,7 @@ package final class Machine: @unchecked Sendable {
       interruptBox.controller.acknowledge(level: irq.level)
 
       // Advance devices by interrupt acknowledge cycles too
-      crtc.tick(tStates: ackCycles, tStatesPerLine: tStatesPerLine)
+      crtc.tick(tStates: ackCycles, tStatesPerFrame: tStatesPerFrame)
       sound.tick(tStates: ackCycles)
       cassette.tick(tStates: ackCycles)
       totalTStates += UInt64(ackCycles)
@@ -572,7 +568,11 @@ package final class Machine: @unchecked Sendable {
       return executed
     }
 
-    let _tStatesPerLine = tStatesPerLine
+    // Hoisted out of the loop, but the CRTC can be reprogrammed mid-frame and
+    // the frame length follows the scanline count, so re-read it when that
+    // count moves (an Int compare per instruction).
+    var _scanlines = crtc.dynamicTotalScanlines
+    var _tStatesPerFrame = tStatesPerFrame
     let _tStatesPerRTC = tStatesPerRTC
     let _soundBatchThreshold = sound.fmTStatesPerSample  // 144 at 8MHz, 72 at 4MHz
     let _overclock = max(1, cpuOverclock)
@@ -596,7 +596,11 @@ package final class Machine: @unchecked Sendable {
       realFracAccum -= realCycles * _overclock
 
       if realCycles > 0 {
-        crtc.tick(tStates: realCycles, tStatesPerLine: _tStatesPerLine)
+        if crtc.dynamicTotalScanlines != _scanlines {
+          _scanlines = crtc.dynamicTotalScanlines
+          _tStatesPerFrame = tStatesPerFrame
+        }
+        crtc.tick(tStates: realCycles, tStatesPerFrame: _tStatesPerFrame)
         cassette.tick(tStates: realCycles)
         soundAccum += realCycles
         if soundAccum >= _soundBatchThreshold {
@@ -625,7 +629,7 @@ package final class Machine: @unchecked Sendable {
         let ackReal = realFracAccum / _overclock
         realFracAccum -= ackReal * _overclock
         if ackReal > 0 {
-          crtc.tick(tStates: ackReal, tStatesPerLine: _tStatesPerLine)
+          crtc.tick(tStates: ackReal, tStatesPerFrame: _tStatesPerFrame)
           cassette.tick(tStates: ackReal)
           soundAccum += ackReal
           totalTStates += UInt64(ackReal)
@@ -681,7 +685,19 @@ package final class Machine: @unchecked Sendable {
   private var diagFreezeCount: Int = 0
 
 
-  /// Run for one frame (1/60th second worth of T-states).
+  /// T-states from here to the top of the CRTC's next frame.
+  ///
+  /// The accumulator counts in 1/scanlines of a T-state (`CRTC.tick`), so the
+  /// whole sum is taken in those units and divided once, rounding up: landing
+  /// a T-state early would leave the frame one scanline short.
+  private var tStatesToFrameStart: Int {
+    let lines = crtc.dynamicTotalScanlines
+    guard lines > 0 else { return tStatesPerFrame }
+    let remaining = (lines - crtc.scanline) * tStatesPerFrame - crtc.tStateAccumulator
+    return (remaining + lines - 1) / lines
+  }
+
+  /// Run up to the top of the next CRTC frame.
   @discardableResult
   package func runFrame() -> Int {
     diagFrameCount += 1
@@ -699,7 +715,17 @@ package final class Machine: @unchecked Sendable {
         machineLog.warning("FREEZE detected at PC=0x\(hex(pc))")
       }
     }
-    return run(tStates: tStatesPerFrame)
+    // Stop where the CRTC starts its next frame, rather than after a fixed
+    // number of T-states. The host renders the picture when this returns, so
+    // the boundary decides which instant of the frame it sees; anchored to
+    // scanline 0 it sees the screen the CRTC is about to draw — text fetched
+    // by the DMA during the retrace just gone, palette and mode as the frame
+    // begins. A fixed budget instead left the boundary wherever the last CRTC
+    // reprogramming happened to drop it, so the same software showed a
+    // different instant in the app and in BootTester. Recomputed every frame,
+    // so the T-states an instruction runs past the boundary come off the next
+    // frame instead of accumulating.
+    return run(tStates: max(1, tStatesToFrameStart))
   }
 
   // MARK: - ROM Loading
