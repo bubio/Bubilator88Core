@@ -729,6 +729,66 @@ struct Pc88BusTests {
     #expect(bus.pendingWaitStates == 5)
   }
 
+  /// vraminfo: in V1 mode, having anything other than main RAM in
+  /// 0xC000-0xFFFF slows the CPU down wherever it is running — an empty loop
+  /// at 0xB000 takes 22 seconds against 6 with a plane selected.
+  @Test("V1S opcode fetch pays for a selected plane, wherever it fetches from")
+  func opcodeFetchWaitWhileGvramSelected() {
+    let bus = Pc88Bus()
+    bus.cpuClock8MHz = false
+    bus.dipSw2 &= ~0x40  // V1S / N
+    bus.memoryWaitDip = false
+    bus.graphicsDisplayEnabled = true
+    bus.ioWrite(0x40, value: 0x00)  // GHSM off
+    bus.vrtcFlag = false
+    bus.ramMode = true
+
+    bus.gvramPlane = -1  // main RAM in the window
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 1)  // the V1S M1 wait alone
+
+    bus.gvramPlane = 0  // B plane selected
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 1 + 114 / 4)
+  }
+
+  @Test("the selected-plane fetch wait is V1S only, and off in blanking or GHSM")
+  func opcodeFetchWaitConditions() {
+    let bus = Pc88Bus()
+    bus.cpuClock8MHz = false
+    bus.memoryWaitDip = false
+    bus.graphicsDisplayEnabled = true
+    bus.ioWrite(0x40, value: 0x00)  // GHSM off
+    bus.vrtcFlag = false
+    bus.ramMode = true
+    bus.gvramPlane = 0
+
+    bus.dipSw2 |= 0x40  // V1H / V2: no difference at all (vraminfo)
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 0)
+
+    bus.dipSw2 &= ~0x40  // back to V1S
+    bus.ioWrite(0x40, value: 0x10)  // high-speed mode releases the bus
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 1)
+
+    bus.ioWrite(0x40, value: 0x00)
+    bus.vrtcFlag = true  // nothing is being fetched for the screen
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 1)
+
+    bus.vrtcFlag = false
+    bus.graphicsDisplayEnabled = false  // no graphics on screen
+    bus.pendingWaitStates = 0
+    _ = bus.opcodeRead(0xB000)
+    #expect(bus.pendingWaitStates == 1)
+  }
+
   @Test("Main RAM at 0xC000 8MHz = +1T wait")
   func mainRAMWait8MHz() {
     let bus = Pc88Bus()

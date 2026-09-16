@@ -567,13 +567,9 @@ package final class Pc88Bus: Bus {
       }
       return
     }
-    if bootModeStandard && !port40GHSM && !vrtcFlag {
+    if videoHoldsGvramBus {
       // V1S / N, graphic displayed, video circuit holding the bus.
-      if cpuClock8MHz {
-        pendingWaitStates += monitorType == .khz24 ? 141 : 90
-      } else {
-        pendingWaitStates += monitorType == .khz24 ? 114 : 68
-      }
+      pendingWaitStates += gvramAccessWait
       return
     }
     // V1H/V2, or V1S/N let off by GHSM or vertical blanking.
@@ -582,6 +578,51 @@ package final class Pc88Bus: Bus {
     } else if !vrtcFlag {
       pendingWaitStates += 2
     }
+  }
+
+  /// True while the video circuit is holding the GVRAM bus: V1S/N, graphics
+  /// on screen, GHSM off, and the beam in the active display.
+  @inline(__always)
+  private var videoHoldsGvramBus: Bool {
+    graphicsDisplayEnabled && bootModeStandard && !port40GHSM && !vrtcFlag
+  }
+
+  /// What one GVRAM byte costs while the video circuit has the bus.
+  @inline(__always)
+  private var gvramAccessWait: Int {
+    if cpuClock8MHz {
+      return monitorType == .khz24 ? 141 : 90
+    }
+    return monitorType == .khz24 ? 114 : 68
+  }
+
+  /// What an opcode fetch costs — anywhere in memory — while the video
+  /// circuit has the GVRAM bus and the 0xC000-0xFFFF window is on it.
+  ///
+  /// vraminfo: 「V1 モードでは VRAM を「選択しているだけで」実行速度が
+  /// 遅くなります。メモリ空間の $C000-$FFFF がメイン RAM 以外の状態に
+  /// あるときは実行速度が低下します」. Its test is an empty register loop
+  /// at 0xB000 that never touches 0xC000 and up: 6 seconds with main RAM in
+  /// the window, 22 seconds with a plane selected.
+  ///
+  /// Two measurements on the page put the same number on it, about a quarter
+  /// of what an access itself costs:
+  ///
+  /// - That loop is 36.6 T-states an iteration against 134.1, and it fetches
+  ///   four opcodes an iteration: 24 T-states a fetch averaged over the whole
+  ///   frame. Nothing is held during vertical blanking, and at 24kHz that is
+  ///   48 of the 448 lines, so ~27 while it is held.
+  /// - `LINE (0,0)-(639,199),I,BF` seven times over takes 34 seconds in
+  ///   standard mode against 17 with GHSM on — 202 T-states a byte written.
+  ///   The access wait accounts for 114 - 2 of that; the ~90 left over is
+  ///   BASIC's four-odd fetches a byte at the same figure.
+  ///
+  /// So the 4MHz / 24kHz figure is measured. The other three are the access
+  /// wait scaled by the same quarter, for want of anything to measure them
+  /// against.
+  @inline(__always)
+  private var gvramSelectedFetchWait: Int {
+    gvramAccessWait / 4
   }
 
   /// True when the 0xC000-0xFFFF window is showing GVRAM rather than main
@@ -625,6 +666,12 @@ package final class Pc88Bus: Bus {
   package func opcodeRead(_ addr: UInt16) -> UInt8 {
     let value = memRead(addr)
     addM1Wait(addr)
+    // Selecting GVRAM is enough to slow the CPU down, wherever it happens to
+    // be running from — see `gvramSelectedFetchWait`. Charged per fetch, so
+    // it is the whole program that slows, not just the drawing.
+    if gvramSelected && videoHoldsGvramBus {
+      pendingWaitStates += gvramSelectedFetchWait
+    }
     return value
   }
 
