@@ -35,13 +35,15 @@ package final class FrameCompositor {
       graphicsColorMode: bus.graphicsColorMode,
       graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
       analogPalette: bus.analogPalette,
-      borderColor: bus.borderColor
+      borderColor: bus.borderColor,
+      analogBackground: bus.analogBgPalette
     )
     let textPalette = Self.effectiveTextPalette(
       busPalette: bus.palette,
       graphicsColorMode: bus.graphicsColorMode,
       analogPalette: bus.analogPalette,
-      borderColor: bus.borderColor
+      borderColor: bus.borderColor,
+      analogBackground: bus.analogBgPalette
     )
     let planes = bus.renderGVRAMPlanes()
     let is400 = bus.is400LineMode
@@ -186,15 +188,36 @@ package final class FrameCompositor {
     )
   }
 
+  /// What the "black" of B/W graphics is painted with.
+  ///
+  /// vraminfo, port 0x52: 「グラフィックの白黒モード（200/400ライン共)時に
+  /// 「黒」の部分を任意の 8 色に変えることが出来ます。… $32 の bit5=0
+  /// デジタルモードである必要があります。アナログで背景色を設定するには
+  /// ポート $54 を使いましょう」— so the digital three bits of port 0x52 in
+  /// digital mode, and the separate analog background register (port 0x54
+  /// with bit 7 set, 512 colours) in analog mode. M88M keeps one `bgpal` and
+  /// lets each port write it in its own mode (`Screen::Out52` / `Out54`).
+  package static func backgroundColor(
+    borderColor: UInt8,
+    analogPalette: Bool,
+    analogBackground: (b: UInt8, r: UInt8, g: UInt8)
+  ) -> (r: UInt8, g: UInt8, b: UInt8) {
+    guard analogPalette else { return Self.port52BackgroundColor(borderColor) }
+    return ScreenRenderer.expandPalette([analogBackground])[0]
+  }
+
   package static func effectiveRenderPalette(
     busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
     graphicsColorMode: Bool,
     graphicsDisplayEnabled: Bool,
     analogPalette: Bool,
-    borderColor: UInt8
+    borderColor: UInt8,
+    analogBackground: (b: UInt8, r: UInt8, g: UInt8)
   ) -> [(r: UInt8, g: UInt8, b: UInt8)] {
     let programmablePalette = ScreenRenderer.expandPalette(busPalette)
-    let backgroundColor = Self.port52BackgroundColor(borderColor)
+    let backgroundColor = Self.backgroundColor(
+      borderColor: borderColor, analogPalette: analogPalette,
+      analogBackground: analogBackground)
     var palette = (graphicsColorMode || analogPalette)
       ? programmablePalette
       : ScreenRenderer.defaultPalette
@@ -227,13 +250,16 @@ package final class FrameCompositor {
     busPalette: [(b: UInt8, r: UInt8, g: UInt8)],
     graphicsColorMode: Bool,
     analogPalette: Bool,
-    borderColor: UInt8
+    borderColor: UInt8,
+    analogBackground: (b: UInt8, r: UInt8, g: UInt8)
   ) -> [(r: UInt8, g: UInt8, b: UInt8)] {
     let programmablePalette = ScreenRenderer.expandPalette(busPalette)
-    let backgroundColor = Self.port52BackgroundColor(borderColor)
+    let backgroundColor = Self.backgroundColor(
+      borderColor: borderColor, analogPalette: analogPalette,
+      analogBackground: analogBackground)
     // BubiC keeps text colors on the fixed digital palette except in analog
     // attribute-graphics mode. Entry 0 is still special: hi-color tracks the
-    // programmable palette 0, while non-hi-color uses the port 0x52 background.
+    // programmable palette 0, while non-hi-color uses the background register.
     var palette = analogPalette && !graphicsColorMode
       ? programmablePalette
       : ScreenRenderer.defaultPalette

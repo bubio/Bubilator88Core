@@ -130,7 +130,8 @@ struct FrameCompositorTests {
       graphicsColorMode: true,
       graphicsDisplayEnabled: false,
       analogPalette: false,
-      borderColor: 0x70
+      borderColor: 0x70,
+      analogBackground: (b: 0, r: 0, g: 0)
     )
 
     #expect(palette[0].r == 0x00)
@@ -156,7 +157,8 @@ struct FrameCompositorTests {
       graphicsColorMode: true,
       graphicsDisplayEnabled: true,
       analogPalette: false,
-      borderColor: 0x00
+      borderColor: 0x00,
+      analogBackground: (b: 0, r: 0, g: 0)
     )
 
     #expect(palette[0].r == 0x00)
@@ -182,11 +184,52 @@ struct FrameCompositorTests {
       graphicsColorMode: false,
       graphicsDisplayEnabled: true,
       analogPalette: false,
-      borderColor: 0x50
+      borderColor: 0x50,
+      analogBackground: (b: 0, r: 0, g: 0)
     )
 
     #expect(palette[0].r == 0x00)
     #expect(palette[0].g == 0xFF)
+    #expect(palette[0].b == 0xFF)
+  }
+
+  /// vraminfo: port 0x52 only sets the B/W background in digital mode; in
+  /// analog mode it comes from the separate register behind port 0x54 bit 7,
+  /// and can be any of the 512 colours.
+  @Test("B/W graphics take the background from port 0x54 in analog mode")
+  func effectiveRenderPaletteUsesAnalogBackgroundInAnalogMode() {
+    let busPalette = [(b: UInt8, r: UInt8, g: UInt8)](
+      repeating: (b: 0, r: 0, g: 0), count: 8)
+
+    let palette = FrameCompositor.effectiveRenderPalette(
+      busPalette: busPalette,
+      graphicsColorMode: false,
+      graphicsDisplayEnabled: true,
+      analogPalette: true,
+      borderColor: 0x50,  // ignored: analog mode
+      analogBackground: (b: 2, r: 0, g: 4)
+    )
+
+    #expect(palette[0].r == 0)
+    #expect(palette[0].g == UInt8(4 * 255 / 7))
+    #expect(palette[0].b == UInt8(2 * 255 / 7))
+  }
+
+  @Test("text colour 0 follows the analog background too")
+  func effectiveTextPaletteUsesAnalogBackgroundInAnalogMode() {
+    let busPalette = [(b: UInt8, r: UInt8, g: UInt8)](
+      repeating: (b: 0, r: 0, g: 0), count: 8)
+
+    let palette = FrameCompositor.effectiveTextPalette(
+      busPalette: busPalette,
+      graphicsColorMode: false,
+      analogPalette: true,
+      borderColor: 0x50,
+      analogBackground: (b: 7, r: 0, g: 0)
+    )
+
+    #expect(palette[0].r == 0)
+    #expect(palette[0].g == 0)
     #expect(palette[0].b == 0xFF)
   }
 
@@ -207,7 +250,8 @@ struct FrameCompositorTests {
       busPalette: busPalette,
       graphicsColorMode: true,
       analogPalette: false,
-      borderColor: 0x00
+      borderColor: 0x00,
+      analogBackground: (b: 0, r: 0, g: 0)
     )
 
     #expect(palette[0].r == 0xFF)
@@ -235,7 +279,8 @@ struct FrameCompositorTests {
       busPalette: busPalette,
       graphicsColorMode: false,
       analogPalette: true,
-      borderColor: 0x00
+      borderColor: 0x00,
+      analogBackground: (b: 0, r: 0, g: 0)
     )
 
     #expect(palette[0].r == 0x00)
