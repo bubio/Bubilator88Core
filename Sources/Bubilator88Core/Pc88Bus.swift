@@ -605,24 +605,25 @@ package final class Pc88Bus: Bus {
   /// at 0xB000 that never touches 0xC000 and up: 6 seconds with main RAM in
   /// the window, 22 seconds with a plane selected.
   ///
-  /// Two measurements on the page put the same number on it, about a quarter
-  /// of what an access itself costs:
+  /// The loop sets the figure. It is 36.6 T-states an iteration against
+  /// 134.1, and it fetches four opcodes an iteration; the 36.6 already
+  /// includes the time the text DMA takes (`scheduleTextDMASteal`). Fitting
+  /// the fetch charge so that VRAMTEST V (the same loop) runs 3.65 times
+  /// slower with a plane selected gives 34 T-states at 4MHz / 24kHz, three
+  /// tenths of what an access itself costs.
   ///
-  /// - That loop is 36.6 T-states an iteration against 134.1, and it fetches
-  ///   four opcodes an iteration: 24 T-states a fetch averaged over the whole
-  ///   frame. Nothing is held during vertical blanking, and at 24kHz that is
-  ///   48 of the 448 lines, so ~27 while it is held.
-  /// - `LINE (0,0)-(639,199),I,BF` seven times over takes 34 seconds in
-  ///   standard mode against 17 with GHSM on — 202 T-states a byte written.
-  ///   The access wait accounts for 114 - 2 of that; the ~90 left over is
-  ///   BASIC's four-odd fetches a byte at the same figure.
+  /// The page's other measurement does not agree any more.
+  /// `LINE (0,0)-(639,199),I,BF` seven times over takes 34 seconds in
+  /// standard mode against 17 with GHSM on, 202 T-states a byte written. The
+  /// DMA's share leaves 168 of CPU time, and the access wait explains 112, so
+  /// BASIC's four-odd fetches a byte get only ~14 each. BASIC's fetch count
+  /// is a guess and the loop is a clean measurement, so the loop wins.
   ///
-  /// So the 4MHz / 24kHz figure is measured. The other three are the access
-  /// wait scaled by the same quarter, for want of anything to measure them
-  /// against.
+  /// The other three cases (8MHz, 15kHz) follow the access wait by the same
+  /// ratio, for want of anything to measure them against.
   @inline(__always)
   private var gvramSelectedFetchWait: Int {
-    gvramAccessWait / 4
+    gvramAccessWait * 3 / 10
   }
 
   /// True when the 0xC000-0xFFFF window is showing GVRAM rather than main
@@ -1545,6 +1546,7 @@ package final class Pc88Bus: Bus {
 
     crtc.startDMATransfer()
     scheduleTextDMAEnd()
+    scheduleTextDMASteal()
 
     guard let transferBytes = textDMATransferBytes(), let dma = dma else { return }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
@@ -1593,6 +1595,42 @@ package final class Pc88Bus: Bus {
     }
     let lastRow = (bytesLeft - 1) / crtc.bytesPerDMARow
     crtc.textDMAEndScanline = max(0, lastRow - 1) * Int(crtc.charLinesPerRow)
+  }
+
+  /// Tell the CRTC how many rows this frame's text DMA fetches while the
+  /// display runs, and what each row costs the main CPU.
+  ///
+  /// Only V1S/N: there the text VRAM is main RAM and the DMA takes the bus
+  /// from the CPU to read it. V1H/V2 moved it to a bank of its own for
+  /// exactly this reason (vraminfo: 「何故 V2 モードでテキスト VRAM が分離
+  /// したのかというと、ひとえに遅かったからです」).
+  ///
+  /// A byte costs the i8257's four DMA states plus whatever a main RAM read
+  /// waits. The page's empty loop puts a number on it: 6 seconds for 65536×10
+  /// iterations of a 30 T-state loop is 36.6 T-states an iteration, so the
+  /// CPU loses 18% of its time. 3000 bytes a frame at 4 T-states each is 17%
+  /// of a 4MHz 24kHz frame (5.9 seconds); TIME$ counts whole seconds, which
+  /// leaves anything from about 2.6 to 5.6 in range. Nothing measures 8MHz.
+  package func scheduleTextDMASteal() {
+    guard let crtc = crtc else { return }
+    guard bootModeStandard, crtc.bytesPerDMARow > 0,
+          let transferBytes = textDMATransferBytes() else {
+      crtc.textDMAStealRows = 0
+      crtc.textDMAStealPerRow = 0
+      return
+    }
+    let rowBytes = crtc.bytesPerDMARow
+    crtc.textDMAStealRows = (transferBytes + rowBytes - 1) / rowBytes
+    crtc.textDMAStealPerRow = rowBytes * (Self.dmaStatesPerByte + mainReadWaitStates)
+  }
+
+  /// Clock states the i8257 spends on one transfer (S1-S4).
+  package static let dmaStatesPerByte = 4
+
+  /// What `addMainWait(read: true)` charges, without charging it.
+  private var mainReadWaitStates: Int {
+    if cpuClock8MHz { return memoryWaitDip ? 2 : 1 }
+    return memoryWaitDip ? 1 : 0
   }
 
   /// Read text character data from CRTC DMA buffer.

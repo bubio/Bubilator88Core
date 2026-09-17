@@ -471,6 +471,15 @@ package final class Machine: @unchecked Sendable {
 
   // MARK: - Execution
 
+  /// Hand the time the text DMA held the CPU to the next instruction as wait
+  /// states, so every device sees it pass while the CPU gets nothing done.
+  @inline(__always)
+  private func chargeStolenTStates() {
+    guard crtc.pendingStolenTStates > 0 else { return }
+    bus.pendingWaitStates += crtc.pendingStolenTStates
+    crtc.pendingStolenTStates = 0
+  }
+
   /// Execute one CPU instruction and advance all devices.
   /// Returns the number of T-states consumed.
   @discardableResult
@@ -517,6 +526,7 @@ package final class Machine: @unchecked Sendable {
 
     // Advance all timing-driven devices
     crtc.tick(tStates: totalCycles, tStatesPerFrame: tStatesPerFrame)
+    chargeStolenTStates()
     sound.tick(tStates: totalCycles)
     cassette.tick(tStates: totalCycles)
     driveSub(mainCycles: totalCycles)
@@ -540,6 +550,7 @@ package final class Machine: @unchecked Sendable {
 
       // Advance devices by interrupt acknowledge cycles too
       crtc.tick(tStates: ackCycles, tStatesPerFrame: tStatesPerFrame)
+      chargeStolenTStates()
       sound.tick(tStates: ackCycles)
       cassette.tick(tStates: ackCycles)
       totalTStates += UInt64(ackCycles)
@@ -601,6 +612,7 @@ package final class Machine: @unchecked Sendable {
           _tStatesPerFrame = tStatesPerFrame
         }
         crtc.tick(tStates: realCycles, tStatesPerFrame: _tStatesPerFrame)
+        chargeStolenTStates()
         cassette.tick(tStates: realCycles)
         soundAccum += realCycles
         if soundAccum >= _soundBatchThreshold {
@@ -630,6 +642,7 @@ package final class Machine: @unchecked Sendable {
         realFracAccum -= ackReal * _overclock
         if ackReal > 0 {
           crtc.tick(tStates: ackReal, tStatesPerFrame: _tStatesPerFrame)
+          chargeStolenTStates()
           cassette.tick(tStates: ackReal)
           soundAccum += ackReal
           totalTStates += UInt64(ackReal)
