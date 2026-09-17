@@ -322,6 +322,9 @@ package final class Machine: @unchecked Sendable {
     crtc.onTextDMAEnd = { [weak self] in
       self?.dma.reachTerminalCount(channel: 2)
     }
+    crtc.onFrameStart = { [weak self] in
+      self?.bus.beginRasterFrame()
+    }
 
     // Wire YM2608 timer IRQ → interrupt controller
     sound.onTimerIRQ = { [weak self] in
@@ -393,6 +396,9 @@ package final class Machine: @unchecked Sendable {
     }
     crtc.onTextDMAEnd = { [weak self] in
       self?.dma.reachTerminalCount(channel: 2)
+    }
+    crtc.onFrameStart = { [weak self] in
+      self?.bus.beginRasterFrame()
     }
     sound.onTimerIRQ = { [weak self] in
       self?.interruptBox.controller.request(level: .sound)

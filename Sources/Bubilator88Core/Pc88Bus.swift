@@ -277,6 +277,62 @@ package final class Pc88Bus: Bus {
   /// Controlled by Port 0x32 bit 4 (TMODE): TMODE=0 → tvram enabled, TMODE=1 → mainRAM.
   package var tvramEnabled: Bool = false
 
+  // MARK: - Mid-frame video registers
+
+  /// The registers `RasterVideoState` tracks, as they are now.
+  package var rasterVideoState: RasterVideoState {
+    RasterVideoState(
+      palette: palette,
+      borderColor: borderColor,
+      analogBackground: analogBgPalette,
+      graphicsDisplayEnabled: graphicsDisplayEnabled,
+      graphicsColorMode: graphicsColorMode,
+      mode200Line: mode200Line
+    )
+  }
+
+  /// The frame the CRTC is drawing, and the last one it finished — which is
+  /// the one the host renders. nil until a frame has been logged in full.
+  private var rasterFrameInProgress = RasterFrame(start: Pc88Bus.powerOnRasterState)
+  package private(set) var rasterFrameCompleted: RasterFrame?
+  private var rasterLastState = Pc88Bus.powerOnRasterState
+
+  /// Past this many changes a frame, further ones are dropped. 400 lines of
+  /// all eight palette entries fit with room to spare.
+  private static let rasterLogLimit = 8192
+
+  private static let powerOnRasterState = RasterVideoState(
+    palette: Pc88Bus.defaultPalette, borderColor: 0, analogBackground: (0, 0, 0),
+    graphicsDisplayEnabled: true, graphicsColorMode: true, mode200Line: true)
+
+  /// Log a write to one of the mid-frame registers, with the scan line it
+  /// landed on. Writes that change nothing are not logged.
+  private func noteRasterWrite() {
+    guard let crtc else { return }
+    let now = rasterVideoState
+    guard now != rasterLastState else { return }
+    rasterLastState = now
+    guard rasterFrameInProgress.changes.count < Self.rasterLogLimit else { return }
+    rasterFrameInProgress.changes.append((crtc.scanline, now))
+  }
+
+  /// The CRTC is back at scan line 0: the frame just drawn is complete.
+  package func beginRasterFrame() {
+    rasterFrameInProgress.blankingStart = crtc?.dynamicBlankingStart ?? 0
+    rasterFrameCompleted = rasterFrameInProgress
+    let now = rasterVideoState
+    rasterLastState = now
+    rasterFrameInProgress = RasterFrame(start: now)
+  }
+
+  /// Forget the log, after the registers were set wholesale (reset, load).
+  package func resetRasterLog() {
+    let now = rasterVideoState
+    rasterLastState = now
+    rasterFrameInProgress = RasterFrame(start: now)
+    rasterFrameCompleted = nil
+  }
+
   // MARK: - Palette
 
   /// 8-entry palette. Each entry: (blue, red, green) in 3-bit (0-7) range.
@@ -428,6 +484,7 @@ package final class Pc88Bus: Bus {
     graphicsDisplayEnabled = true
     graphicsColorMode = true
     mode200Line = true
+    resetRasterLog()
     pendingWaitStates = 0
     if !preserveRAM {
       tvram = Array(repeating: 0x00, count: 4096)
@@ -1125,6 +1182,7 @@ package final class Pc88Bus: Bus {
       graphicsDisplayEnabled = (value & 0x08) != 0  // bit 3: GRPH_CTRL_VDISP
       graphicsColorMode = (value & 0x10) != 0       // bit 4: GRPH_CTRL_COLOR
       crtc?.mode200Line = mode200Line
+      noteRasterWrite()
       busLog.debug("Port 0x31 write=0x\(hex(value)) 200L=\(mode200Line) ramMode=\(ramMode) romN88=\(romModeN88) gDisp=\(graphicsDisplayEnabled) gColor=\(graphicsColorMode)")
 
     // Port 0x32: Misc control (QUASI88: MISC_CTRL)
@@ -1191,6 +1249,7 @@ package final class Pc88Bus: Bus {
     // Background/border color
     case 0x52:
       borderColor = value
+      noteRasterWrite()
 
     // Layer display control
     case 0x53:
@@ -1232,6 +1291,7 @@ package final class Pc88Bus: Bus {
         let g: UInt8 = (value & 0x04) != 0 ? 7 : 0
         palette[index] = (b: b, r: r, g: g)
       }
+      noteRasterWrite()
 
     // GVRAM bank select
     case 0x5C: gvramPlane = 0   // Blue
@@ -1940,7 +2000,17 @@ package final class Pc88Bus: Bus {
   /// Port 0x31 bit 3 (GRPH_CTRL_VDISP): master graphics display enable.
   /// Port 0x53 bits 1-3: per-plane suppress (mono/attrib mode only per BubiC).
   /// In color mode (GRPH_CTRL_COLOR=1), Port 0x53 plane suppress is ignored (BubiC confirmed).
+  ///
+  /// The two port 0x31 bits can be given, for a band of the screen drawn with
+  /// the values they had partway down the frame (`RasterFrame`).
   package func renderGVRAMPlanes() -> (blue: [UInt8], red: [UInt8], green: [UInt8]) {
+    renderGVRAMPlanes(graphicsDisplayEnabled: graphicsDisplayEnabled,
+                      graphicsColorMode: graphicsColorMode)
+  }
+
+  package func renderGVRAMPlanes(
+    graphicsDisplayEnabled: Bool, graphicsColorMode: Bool
+  ) -> (blue: [UInt8], red: [UInt8], green: [UInt8]) {
     // Master switch: Port 0x31 bit 3 (GRPH_CTRL_VDISP)
     guard graphicsDisplayEnabled else {
       return (Self.zeroPlane, Self.zeroPlane, Self.zeroPlane)
