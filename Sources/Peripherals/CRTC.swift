@@ -242,6 +242,17 @@ package final class CRTC {
   /// this to the DMAC's terminal count.
   package var onTextDMAEnd: (() -> Void)?
 
+  /// Character rows whose text the DMA fetches during this frame's display,
+  /// and what fetching one row takes away from the main CPU. Zero when the
+  /// DMA does not hold the CPU (V1H/V2, or channel 2 off). Set by the bus at
+  /// each VRTC; not saved (it is recomputed).
+  package var textDMAStealRows: Int = 0
+  package var textDMAStealPerRow: Int = 0
+
+  /// T-states the text DMA has held the main CPU for and that the machine
+  /// has not charged yet. Machine moves them into the CPU's wait states.
+  package var pendingStolenTStates: Int = 0
+
   // MARK: - Init
 
   package init(monitorType: MonitorType = .khz24) {
@@ -316,6 +327,9 @@ package final class CRTC {
     dmaBufferPtr = 0
     dmaUnderrun = true  // No data yet → underrun until first DMA transfer
     textDMAEndScanline = -1
+    textDMAStealRows = 0
+    textDMAStealPerRow = 0
+    pendingStolenTStates = 0
     updateDynamicScanlines()
   }
 
@@ -355,6 +369,17 @@ package final class CRTC {
     // STOP DISPLAY stops the uPD3301's DMA requests, so no terminal count.
     if scanline == textDMAEndScanline && displayEnabled {
       onTextDMAEnd?()
+    }
+
+    // In V1S the text VRAM is main RAM, so the DMA fetching each row holds
+    // the CPU off the bus (vraminfo: 「DMA コントローラがアクセスするために
+    // メイン CPU が止められてしまい」). Charged at the top of each row;
+    // STOP DISPLAY ends the DMA requests and with them the stealing.
+    if textDMAStealRows > 0 && displayEnabled && scanline < dynamicBlankingStart {
+      let pitch = Int(charLinesPerRow)
+      if pitch > 0 && scanline % pitch == 0 && scanline / pitch < textDMAStealRows {
+        pendingStolenTStates += textDMAStealPerRow
+      }
     }
 
     // VRTC flag: active during vertical blanking

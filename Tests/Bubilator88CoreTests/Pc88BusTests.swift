@@ -731,7 +731,7 @@ struct Pc88BusTests {
 
   /// vraminfo: in V1 mode, having anything other than main RAM in
   /// 0xC000-0xFFFF slows the CPU down wherever it is running — an empty loop
-  /// at 0xB000 takes 22 seconds against 6 with a plane selected.
+  /// at 0xB000 takes 22 seconds with a plane selected against 6 without.
   @Test("V1S opcode fetch pays for a selected plane, wherever it fetches from")
   func opcodeFetchWaitWhileGvramSelected() {
     let bus = Pc88Bus()
@@ -751,7 +751,7 @@ struct Pc88BusTests {
     bus.gvramPlane = 0  // B plane selected
     bus.pendingWaitStates = 0
     _ = bus.opcodeRead(0xB000)
-    #expect(bus.pendingWaitStates == 1 + 114 / 4)
+    #expect(bus.pendingWaitStates == 1 + 114 * 3 / 10)
   }
 
   @Test("the selected-plane fetch wait is V1S only, and off in blanking or GHSM")
