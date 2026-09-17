@@ -828,5 +828,6 @@ extension Machine {
     // Not in the stream; derived from the DMAC and CRTC state just loaded.
     bus.scheduleTextDMAEnd()
     bus.scheduleTextDMASteal()
+    bus.resetRasterLog()
   }
 }

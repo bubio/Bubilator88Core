@@ -242,6 +242,9 @@ package final class CRTC {
   /// this to the DMAC's terminal count.
   package var onTextDMAEnd: (() -> Void)?
 
+  /// Called when the scan line counter wraps to 0, the top of a frame.
+  package var onFrameStart: (() -> Void)?
+
   /// Character rows whose text the DMA fetches during this frame's display,
   /// and what fetching one row takes away from the main CPU. Zero when the
   /// DMA does not hold the CPU (V1H/V2, or channel 2 off). Set by the bus at
@@ -364,6 +367,7 @@ package final class CRTC {
     let total = dynamicTotalScanlines
     if scanline >= total {
       scanline = 0
+      onFrameStart?()
     }
 
     // STOP DISPLAY stops the uPD3301's DMA requests, so no terminal count.

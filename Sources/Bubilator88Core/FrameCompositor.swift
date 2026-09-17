@@ -30,65 +30,114 @@ package final class FrameCompositor {
   ) {
     let bus = machine.bus
     let crtc = machine.crtc
+    let frame = Frame(
+      textData: bus.readTextVRAM(),
+      attrData: bus.readTextAttributes(),
+      crtcLines: Int(crtc.linesPerScreen),
+      // Line-skip mode keeps the older cell height; nothing measured says how
+      // it combines with the CRTC's row pitch.
+      rowHeight400: crtc.skipLine || crtc.textRowHeight400 <= 0
+        ? nil : crtc.textRowHeight400,
+      // BubiC pc88.cpp:4179-4181 — cursor toggles twice per blinkRate
+      // window (≈ rate/2 cadence), so the visible cursor blinks roughly
+      // 2× faster than the attribute BLINK rate.
+      cursorVisible: blinkCursor
+        ? crtc.cursorEnabled && !crtc.blinkCursorOff
+        : crtc.cursorEnabled
+    )
+
+    // Registers changed during the display draw the frame in bands, each with
+    // the values it was shown with (vraminfo: palette per scan line, 200/400
+    // lines and graphics on/off from partway down).
+    if let bands = bus.rasterFrameCompleted?.bands() {
+      for band in bands {
+        renderBand(machine, frame: frame, state: band.state, rows: band.rows,
+                   into: &pixelBuffer, textLayerEnabled: textLayerEnabled,
+                   markTextPixels: markTextPixels)
+      }
+    } else {
+      renderBand(machine, frame: frame, state: bus.rasterVideoState, rows: 0..<400,
+                 into: &pixelBuffer, textLayerEnabled: textLayerEnabled,
+                 markTextPixels: markTextPixels)
+    }
+  }
+
+  /// What every band of a frame shares.
+  private struct Frame {
+    let textData: [UInt8]
+    let attrData: [UInt8]
+    let crtcLines: Int
+    let rowHeight400: Int?
+    let cursorVisible: Bool
+  }
+
+  /// Draw output rows `rows` with the mid-frame registers in `state`.
+  private func renderBand(
+    _ machine: Machine,
+    frame: Frame,
+    state: RasterVideoState,
+    rows: Range<Int>,
+    into pixelBuffer: inout [UInt8],
+    textLayerEnabled: Bool,
+    markTextPixels: Bool
+  ) {
+    let bus = machine.bus
+    let crtc = machine.crtc
     let graphicsPalette = Self.effectiveRenderPalette(
-      busPalette: bus.palette,
-      graphicsColorMode: bus.graphicsColorMode,
-      graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+      busPalette: state.palette,
+      graphicsColorMode: state.graphicsColorMode,
+      graphicsDisplayEnabled: state.graphicsDisplayEnabled,
       analogPalette: bus.analogPalette,
-      borderColor: bus.borderColor,
-      analogBackground: bus.analogBgPalette
+      borderColor: state.borderColor,
+      analogBackground: state.analogBackground
     )
     let textPalette = Self.effectiveTextPalette(
-      busPalette: bus.palette,
-      graphicsColorMode: bus.graphicsColorMode,
+      busPalette: state.palette,
+      graphicsColorMode: state.graphicsColorMode,
       analogPalette: bus.analogPalette,
-      borderColor: bus.borderColor,
-      analogBackground: bus.analogBgPalette
+      borderColor: state.borderColor,
+      analogBackground: state.analogBackground
     )
-    let planes = bus.renderGVRAMPlanes()
-    let is400 = bus.is400LineMode
-    let textData = bus.readTextVRAM()
-    let attrData = bus.readTextAttributes()
+    let planes = bus.renderGVRAMPlanes(
+      graphicsDisplayEnabled: state.graphicsDisplayEnabled,
+      graphicsColorMode: state.graphicsColorMode)
     let attributeGraphAttrData = Self.attributeGraphAttributes(
-      from: attrData,
+      from: frame.attrData,
       textDisplayMode: bus.textDisplayMode,
-      textRows: Int(crtc.linesPerScreen),
+      textRows: frame.crtcLines,
       reverseDisplay: crtc.reverseDisplay,
       crtcStopped: !crtc.displayEnabled,
       monoText: !bus.colorMode
     )
-    let crtcLines = Int(crtc.linesPerScreen)
-    // Line-skip mode keeps the older cell height; nothing measured says how
-    // it combines with the CRTC's row pitch.
-    let rowHeight400: Int? = crtc.skipLine || crtc.textRowHeight400 <= 0
-      ? nil : crtc.textRowHeight400
     // B/W graphics: palette[0] above is the background; lit dots take the
     // attribute color, so color 0 gets its own entry.
     var attributeGraphPalette = graphicsPalette
     attributeGraphPalette[0] = Self.attributeGraphColorZero(
-      busPalette: bus.palette,
+      busPalette: state.palette,
       analogPalette: bus.analogPalette
     )
 
-    if bus.graphicsColorMode {
+    if state.graphicsColorMode {
       renderer.renderDoubled(
         blueVRAM: planes.blue,
         redVRAM: planes.red,
         greenVRAM: planes.green,
         palette: graphicsPalette,
+        rows: rows,
         into: &pixelBuffer
       )
-    } else if is400 {
+    } else if state.is400LineMode {
       renderer.renderAttributeGraph400(
         blueVRAM: planes.blue,
         redVRAM: planes.red,
         attrData: attributeGraphAttrData,
         palette: attributeGraphPalette,
         columns80: bus.columns80,
-        textRows: crtcLines,
-        graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        textRows: frame.crtcLines,
+        graphicsDisplayEnabled: state.graphicsDisplayEnabled,
         background: graphicsPalette[0],
-        rowHeight400: rowHeight400,
+        rowHeight400: frame.rowHeight400,
+        rows: rows,
         into: &pixelBuffer
       )
     } else {
@@ -99,27 +148,18 @@ package final class FrameCompositor {
         attrData: attributeGraphAttrData,
         palette: attributeGraphPalette,
         columns80: bus.columns80,
-        textRows: crtcLines,
-        graphicsDisplayEnabled: bus.graphicsDisplayEnabled,
+        textRows: frame.crtcLines,
+        graphicsDisplayEnabled: state.graphicsDisplayEnabled,
         background: graphicsPalette[0],
-        rowHeight400: rowHeight400,
+        rowHeight400: frame.rowHeight400,
+        rows: rows,
         into: &pixelBuffer
       )
     }
 
-    let cursorVisible: Bool
-    if blinkCursor {
-      // BubiC pc88.cpp:4179-4181 — cursor toggles twice per blinkRate
-      // window (≈ rate/2 cadence), so the visible cursor blinks roughly
-      // 2× faster than the attribute BLINK rate.
-      cursorVisible = crtc.cursorEnabled && !crtc.blinkCursorOff
-    } else {
-      cursorVisible = crtc.cursorEnabled
-    }
-
     renderer.renderTextOverlay(
-      textData: textData,
-      attrData: attrData,
+      textData: frame.textData,
+      attrData: frame.attrData,
       fontROM: machine.fontROM,
       palette: textPalette,
       displayEnabled: Self.effectiveTextDisplayEnabled(
@@ -128,18 +168,19 @@ package final class FrameCompositor {
       ),
       columns80: bus.columns80,
       colorMode: bus.colorMode,
-      attributeGraphMode: bus.graphicsDisplayEnabled && !bus.graphicsColorMode,
-      textRows: crtcLines,
+      attributeGraphMode: state.graphicsDisplayEnabled && !state.graphicsColorMode,
+      textRows: frame.crtcLines,
       cursorX: crtc.cursorX,
       cursorY: crtc.cursorY,
-      cursorVisible: cursorVisible,
+      cursorVisible: frame.cursorVisible,
       cursorBlock: (crtc.cursorMode & 0x02) != 0,
       // Always true: the pixel buffer is 640×400 regardless of display mode
       // (200-line output is line-doubled into it), so text is drawn at the
       // 400-line cell height to match. Nothing to do with the monitor type.
       is400Line: true,
       skipLine: crtc.skipLine,
-      rowHeight400: rowHeight400,
+      rowHeight400: frame.rowHeight400,
+      rows: rows,
       markTextPixels: markTextPixels,
       into: &pixelBuffer
     )

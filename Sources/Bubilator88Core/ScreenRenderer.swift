@@ -243,11 +243,15 @@ package struct ScreenRenderer {
 
   /// Render 200-line GVRAM into a 400-line buffer by doubling each scanline.
   /// Each 200-line row is written twice (row*2 and row*2+1).
+  ///
+  /// Only output rows in `rows` are written, so a frame can be drawn in bands
+  /// with different registers (`RasterFrame`).
   package func renderDoubled(
     blueVRAM: [UInt8],
     redVRAM: [UInt8],
     greenVRAM: [UInt8],
     palette: [(r: UInt8, g: UInt8, b: UInt8)],
+    rows: Range<Int> = 0..<400,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80  // 640 / 8
@@ -263,8 +267,9 @@ package struct ScreenRenderer {
                 let dst = UnsafeMutableRawPointer(bufPtr.baseAddress!)
                   .assumingMemoryBound(to: UInt32.self)
 
-                for line in 0..<Self.height {
-                  let dstRow = dst + line * 2 * Self.width
+                for line in Self.sourceLines(doubledInto: rows) {
+                  let (first, second) = Self.doubledRows(line, in: rows)
+                  let dstRow = dst + (first ? line * 2 : line * 2 + 1) * Self.width
                   Self.renderColorScanline(
                     blue: bluePtr.baseAddress!,
                     red: redPtr.baseAddress!,
@@ -277,8 +282,10 @@ package struct ScreenRenderer {
                   )
 
                   // Copy row to the doubled line below
-                  UnsafeMutableRawPointer(dstRow + Self.width)
-                    .copyMemory(from: UnsafeRawPointer(dstRow), byteCount: rowBytes)
+                  if first && second {
+                    UnsafeMutableRawPointer(dstRow + Self.width)
+                      .copyMemory(from: UnsafeRawPointer(dstRow), byteCount: rowBytes)
+                  }
                 }
               }
             }
@@ -286,6 +293,21 @@ package struct ScreenRenderer {
         }
       }
     }
+  }
+
+  /// The 200-line source lines with at least one of their two output rows
+  /// in `rows`.
+  @inline(__always)
+  static func sourceLines(doubledInto rows: Range<Int>) -> Range<Int> {
+    let lower = max(0, rows.lowerBound) / 2
+    let upper = min(height, (min(height400, rows.upperBound) + 1) / 2)
+    return lower..<max(lower, upper)
+  }
+
+  /// Whether each of a 200-line source line's two output rows is in `rows`.
+  @inline(__always)
+  static func doubledRows(_ line: Int, in rows: Range<Int>) -> (Bool, Bool) {
+    (rows.contains(line * 2), rows.contains(line * 2 + 1))
   }
 
   /// Render 640x200 attribute graphics into a 400-line buffer by doubling each scanline.
@@ -301,6 +323,7 @@ package struct ScreenRenderer {
     graphicsDisplayEnabled: Bool = true,
     background: (r: UInt8, g: UInt8, b: UInt8)? = nil,
     rowHeight400: Int? = nil,
+    rows: Range<Int> = 0..<400,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
@@ -339,11 +362,12 @@ package struct ScreenRenderer {
               let gSrc = greenPtr.baseAddress!
               let spread = spreadPtr.baseAddress!
 
-              for line in 0..<Self.height {
+              for line in Self.sourceLines(doubledInto: rows) {
+                let (first, second) = Self.doubledRows(line, in: rows)
                 let attrRow = rowHeight400.map { line * 2 / $0 } ?? line / cellHeight
                 let attrBase = min(attrRow, attrRows - 1) * bytesPerLine
                 let srcOffset = line * bytesPerLine
-                let dstRow0 = line * 2 * rowPixels
+                let dstRow0 = (first ? line * 2 : line * 2 + 1) * rowPixels
                 var pixelOffset = dstRow0
 
                 for byteIndex in 0..<bytesPerLine {
@@ -371,8 +395,10 @@ package struct ScreenRenderer {
                 }
 
                 // Copy the completed row to the doubled line below.
-                UnsafeMutableRawPointer(dst + dstRow0 + rowPixels)
-                  .copyMemory(from: UnsafeRawPointer(dst + dstRow0), byteCount: rowBytes)
+                if first && second {
+                  UnsafeMutableRawPointer(dst + dstRow0 + rowPixels)
+                    .copyMemory(from: UnsafeRawPointer(dst + dstRow0), byteCount: rowBytes)
+                }
               }
             }
           }
@@ -394,6 +420,7 @@ package struct ScreenRenderer {
     graphicsDisplayEnabled: Bool = true,
     background: (r: UInt8, g: UInt8, b: UInt8)? = nil,
     rowHeight400: Int? = nil,
+    rows: Range<Int> = 0..<400,
     into buffer: inout [UInt8]
   ) {
     let bytesPerLine = 80
@@ -428,7 +455,7 @@ package struct ScreenRenderer {
             let rSrc = redPtr.baseAddress!
             let spread = spreadPtr.baseAddress!
 
-            for line in 0..<Self.height400 {
+            for line in rows.clamped(to: 0..<Self.height400) {
               let attrRow = rowHeight400.map { line / $0 } ?? (line / 2) / cellHeight
               let attrBase = min(attrRow, attrRows - 1) * bytesPerLine
               let srcLine = line < Self.height ? line : (line - Self.height)
@@ -514,6 +541,7 @@ package struct ScreenRenderer {
     is400Line: Bool = false,
     skipLine: Bool = false,
     rowHeight400: Int? = nil,
+    rows: Range<Int> = 0..<400,
     markTextPixels: Bool = false,
     into buffer: inout [UInt8]
   ) {
@@ -547,6 +575,9 @@ package struct ScreenRenderer {
       let dst = bufPtr.baseAddress!
 
       for row in 0..<textRows {
+        // Only the rows that reach into this band.
+        if row * cellHeight >= rows.upperBound { break }
+        if (row + 1) * cellHeight <= rows.lowerBound { continue }
         for col in 0..<textCols {
           let charIndex = columns80 ? (row * dataCols + col) : (row * dataCols + col * 2)
           guard charIndex < textCount else { continue }
@@ -610,7 +641,8 @@ package struct ScreenRenderer {
 
           for cellRow in 0..<cellHeight {
             let screenY = row * cellHeight + cellRow
-            guard screenY < screenHeight else { break }
+            guard screenY < screenHeight, screenY < rows.upperBound else { break }
+            guard screenY >= rows.lowerBound else { continue }
 
             // In 400-line mode, each font row is drawn twice
             let fontRow = is400Line ? cellRow / 2 : cellRow
@@ -666,7 +698,7 @@ package struct ScreenRenderer {
       let coveredLines = textRows * cellHeight
       if coveredLines < screenHeight {
         let bg = palette[0]
-        for screenY in coveredLines..<screenHeight {
+        for screenY in (coveredLines..<screenHeight).clamped(to: rows) {
           let rowBase = screenY * Self.width
           for x in 0..<Self.width {
             let off = (rowBase + x) * Self.bytesPerPixel
