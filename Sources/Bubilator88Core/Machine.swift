@@ -719,6 +719,43 @@ package final class Machine: @unchecked Sendable {
   /// Run up to the top of the next CRTC frame.
   @discardableResult
   package func runFrame() -> Int {
+    noteFrameStart()
+    // Stop where the CRTC starts its next frame, rather than after a fixed
+    // number of T-states. The host renders the picture when this returns, so
+    // the boundary decides which instant of the frame it sees; anchored to
+    // scanline 0 it sees the screen the CRTC is about to draw — text fetched
+    // by the DMA during the retrace just gone, palette and mode as the frame
+    // begins. A fixed budget instead left the boundary wherever the last CRTC
+    // reprogramming happened to drop it, so the same software showed a
+    // different instant in the app and in BootTester. Recomputed every frame,
+    // so the T-states an instruction runs past the boundary come off the next
+    // frame instead of accumulating.
+    return run(tStates: max(1, tStatesToFrameStart))
+  }
+
+  /// Run slice `index` of `count` roughly equal slices of the current frame,
+  /// and report whether the frame has ended — the same boundary `runFrame()`
+  /// stops at.
+  ///
+  /// Each slice takes its share of whatever is left to the frame boundary, so
+  /// the T-states one slice runs past its budget come off the later ones and
+  /// the frame still ends at the top of the CRTC frame. The last slice
+  /// (`index == count - 1`) always ends the frame. A slice ends it early if it
+  /// runs past the boundary or a debugger breakpoint stops it; the caller then
+  /// starts over at slice 0.
+  package func runFrameSlice(_ index: Int, of count: Int) -> Bool {
+    if index == 0 { noteFrameStart() }
+    let remaining = max(1, tStatesToFrameStart)
+    let slicesLeft = count - index
+    guard slicesLeft > 1 else {
+      run(tStates: remaining)
+      return true
+    }
+    let executed = run(tStates: (remaining + slicesLeft - 1) / slicesLeft)
+    return executed >= remaining || (debugger?.isPaused ?? false)
+  }
+
+  private func noteFrameStart() {
     diagFrameCount += 1
     // Detect freeze: same PC for 3 consecutive checks (every ~1s)
     if diagFrameCount % 60 == 0 {
@@ -734,17 +771,6 @@ package final class Machine: @unchecked Sendable {
         machineLog.warning("FREEZE detected at PC=0x\(hex(pc))")
       }
     }
-    // Stop where the CRTC starts its next frame, rather than after a fixed
-    // number of T-states. The host renders the picture when this returns, so
-    // the boundary decides which instant of the frame it sees; anchored to
-    // scanline 0 it sees the screen the CRTC is about to draw — text fetched
-    // by the DMA during the retrace just gone, palette and mode as the frame
-    // begins. A fixed budget instead left the boundary wherever the last CRTC
-    // reprogramming happened to drop it, so the same software showed a
-    // different instant in the app and in BootTester. Recomputed every frame,
-    // so the T-states an instruction runs past the boundary come off the next
-    // frame instead of accumulating.
-    return run(tStates: max(1, tStatesToFrameStart))
   }
 
   // MARK: - ROM Loading

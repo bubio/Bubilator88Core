@@ -208,6 +208,50 @@ struct MachineTests {
     }
   }
 
+  /// Sliced frames end on the same CRTC boundary as whole ones, and each
+  /// slice gets a real share of the frame rather than one taking it all.
+  @Test func frameSlicesEndAtTheTopOfTheCRTCFrame() {
+    let machine = Machine()
+    machine.clock8MHz = false
+    machine.reset()
+    let frame = machine.tStatesPerFrame
+
+    for _ in 0..<300 {
+      var index = 0
+      while true {
+        let before = machine.totalTStates
+        let ended = machine.runFrameSlice(index, of: 4)
+        let ran = Int(machine.totalTStates - before)
+        if !ended {
+          #expect(ran > frame / 8 && ran < frame / 2)
+          #expect(machine.crtc.scanline > 0)
+        }
+        index += 1
+        if ended { break }
+        #expect(index < 4)
+      }
+      #expect(machine.crtc.scanline == 0)
+    }
+  }
+
+  /// A sliced frame covers the same T-states as `runFrame()`: the machine
+  /// reaches the same frame boundaries at the same totals.
+  @Test func frameSlicesCoverTheSameTimeAsWholeFrames() {
+    let whole = Machine()
+    let sliced = Machine()
+    for m in [whole, sliced] {
+      m.clock8MHz = false
+      m.reset()
+    }
+    for _ in 0..<120 {
+      whole.runFrame()
+      var index = 0
+      while !sliced.runFrameSlice(index, of: 4) { index += 1 }
+      let drift = abs(Int(whole.totalTStates) - Int(sliced.totalTStates))
+      #expect(drift < 64)  // at most an instruction or two past the boundary
+    }
+  }
+
   /// SHG (port 0x40 bit 1) is the read-back for the monitor DIP. `.khz24`
   /// stays the default so software sees exactly what it saw before 1.5.0.
   @Test func monitorTypeSurfacesOnPort40() {

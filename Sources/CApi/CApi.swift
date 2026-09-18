@@ -379,6 +379,21 @@ public func b88_run_frame(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   return Int32(truncatingIfNeeded: c.pc88.runFrame())
 }
 
+/// Run slice `index` of `count` slices of the current frame
+/// (`PC88.runFrameSlice`). Returns 1 once the frame has ended (render then,
+/// and start the next frame at slice 0), 0 if it hasn't, -1 for a bad
+/// handle or an index outside `0..<count`.
+///
+/// Pace the calls at `count × frame rate` and drain audio after each one: the
+/// point is to spread the writes over the frame, so running all slices
+/// back-to-back gains nothing over `b88_run_frame`.
+@_cdecl("b88_run_frame_slice")
+public func b88_run_frame_slice(_ handle: UnsafeMutableRawPointer?,
+                                _ index: Int32, _ count: Int32) -> Int32 {
+  guard let c = context(handle), count > 0, index >= 0, index < count else { return -1 }
+  return c.pc88.runFrameSlice(Int(index), of: Int(count)) ? 1 : 0
+}
+
 // MARK: - Input (15-row keyboard matrix, active-low)
 
 @_cdecl("b88_press_key")

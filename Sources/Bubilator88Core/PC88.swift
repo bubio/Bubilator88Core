@@ -73,6 +73,22 @@ public final class PC88: @unchecked Sendable {
     machine.runFrame()
   }
 
+  /// Run slice `index` (0-based) of `count` roughly equal slices of the
+  /// current frame. Returns `true` once the frame has ended, at the same
+  /// boundary `runFrame()` stops at.
+  ///
+  /// For hosts that want audio in smaller pieces than a frame: pace the slices
+  /// at `count × frameRate`, take `takeAudioSamples()` after each one, and
+  /// render when this returns `true`. The last slice always ends the frame;
+  /// an earlier one can too (it ran past the boundary, or a debugger
+  /// breakpoint stopped it), so start the next frame at slice 0 whenever this
+  /// returns `true`. Starting at slice 0 mid-frame (after a state load, say)
+  /// is fine: the slices split whatever is left.
+  public func runFrameSlice(_ index: Int, of count: Int) -> Bool {
+    precondition(count > 0 && (0..<count).contains(index), "slice \(index) of \(count)")
+    return machine.runFrameSlice(index, of: count)
+  }
+
   /// VSYNC frequency in Hz — what the host should pace `runFrame()` at.
   /// Never exactly 60: 55.42Hz on a 24kHz monitor, 62.42Hz on a 15kHz one.
   public var frameRate: Double {
