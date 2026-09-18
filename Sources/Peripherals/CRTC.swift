@@ -139,6 +139,10 @@ package final class CRTC {
   /// Attribute mode: false = transparent (position/value pairs), true = non-transparent
   package var attrNonTransparent: Bool = false
 
+  /// AT1-AT0,SC: the settings with SC=0 (00,0 / 01,0 / 10,0) let a special
+  /// control character in the attribute area stop the display or the DMA.
+  package var specialControlEnabled: Bool { (displayMode & 0x01) == 0 }
+
   /// Height of a text row in lines of a 400-line screen: the lines per row
   /// the CRTC was given, doubled on a 15kHz monitor (200 lines shown twice).
   /// vraminfo: 「25 行の時に 1 文字は 400/25=16 ドットだったのが倍の 50 行のときは
@@ -265,6 +269,14 @@ package final class CRTC {
 
   // MARK: - DMA Buffer Operations
 
+  /// Buffer offset the display stops at.
+  ///
+  /// A special control character with V=1 stops the display below the row it
+  /// sits in, down to the last row (vraminfo). Everything from here on reads
+  /// back as 0, so both the characters and the attributes of those rows go
+  /// blank. `Int.max` while no special control character stopped the display.
+  package var displayStopOffset: Int = Int.max
+
   /// Prepare buffer for new frame DMA transfer (called at VRTC start).
   package func startDMATransfer() {
     dmaBuffer.withUnsafeMutableBufferPointer { buf in
@@ -272,6 +284,7 @@ package final class CRTC {
     }
     dmaBufferPtr = 0
     dmaUnderrun = false
+    displayStopOffset = Int.max
   }
 
   /// Write one byte into DMA buffer (called during DMA transfer).
@@ -284,7 +297,7 @@ package final class CRTC {
   /// Read one byte from DMA buffer (called by renderer). Returns 0 if offset exceeds written data.
   @inline(__always)
   package func readDMABuffer(at offset: Int) -> UInt8 {
-    if offset < dmaBufferPtr {
+    if offset < dmaBufferPtr && offset < displayStopOffset {
       return dmaBuffer[offset]
     }
     return 0
@@ -295,6 +308,7 @@ package final class CRTC {
   /// `monitorType` is *not* cleared here — it is a DIP switch, so the caller
   /// sets it before resetting and it survives the reset.
   package func reset() {
+    displayStopOffset = Int.max
     scanline = 0
     vrtcFlag = false
     tStateAccumulator = 0

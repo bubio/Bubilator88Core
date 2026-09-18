@@ -1610,11 +1610,86 @@ package final class Pc88Bus: Bus {
 
     guard let transferBytes = textDMATransferBytes(), let dma = dma else { return }
     let expectedBytes = Int(crtc.linesPerScreen) * crtc.bytesPerDMARow
+    let rowBytes = crtc.bytesPerDMARow
+    let bytesToTerminalCount = Int(dma.textVRAMCount) + 1 - dma.textOffset
 
-    for _ in 0..<transferBytes {
-      crtc.writeDMABuffer(readDMAByte(Int(dma.nextTextDMAAddress())))
+    // Row by row, because a special control character in a row's attribute
+    // area acts on everything below it and can stop the transfer itself.
+    var transferred = 0
+    while transferred < transferBytes {
+      let chunk = rowBytes > 0 ? min(rowBytes, transferBytes - transferred) : transferBytes
+      for _ in 0..<chunk {
+        crtc.writeDMABuffer(readDMAByte(Int(dma.nextTextDMAAddress())))
+      }
+      transferred += chunk
+      guard chunk == rowBytes,
+            let control = specialControl(bufferRow: transferred / rowBytes - 1) else { continue }
+      // I (bit 2) is left out on purpose: vraminfo set it on hardware and
+      // 「何もおきません」 — status N and E stayed 0.
+      if control & 0x02 != 0, crtc.displayStopOffset == Int.max {
+        crtc.displayStopOffset = transferred  // V: display stops below this row
+      }
+      if control & 0x01 != 0 { break }  // D: the DMA stops here
     }
+
+    // The underrun flag still follows the planned count: rows the CRTC cut
+    // itself are not data it asked for and missed.
     crtc.dmaUnderrun = transferBytes < expectedBytes
+
+    // A D bit cut the frame short: the terminal count is never reached (so no
+    // TC2 and no auto-load reload this frame), and the rows that were not
+    // fetched cost the CPU nothing.
+    if transferred < min(transferBytes, bytesToTerminalCount) {
+      crtc.textDMAEndScanline = -1
+    }
+    if transferred < transferBytes, rowBytes > 0 {
+      crtc.textDMAStealRows = (transferred + rowBytes - 1) / rowBytes
+    }
+  }
+
+  /// The special control character a row's attribute area carries, if any.
+  ///
+  /// vraminfo: the pair's first byte — normally the column the attribute
+  /// starts at — is written `$E0` or `$60`, a column that cannot exist, and
+  /// the second byte holds I/V/D. It uses one of the row's attribute slots
+  /// (「20 以上は指定禁止。特殊制御文字も含む」), so any slot can hold one;
+  /// M88 looks at the last slot only, with the loop over all of them left
+  /// disabled as unverified.
+  ///
+  /// Non-transparent mode is skipped: it needs two bytes a row of its own
+  /// (「特殊制御文字を有効にした場合、各行 2byte 余分に」) which the row size
+  /// does not carry yet.
+  private func specialControl(bufferRow: Int) -> UInt8? {
+    guard let crtc = crtc, crtc.specialControlEnabled, !crtc.attrNonTransparent else { return nil }
+    let attrsPerLine = Int(crtc.attrsPerLine)
+    guard attrsPerLine > 0, crtc.bytesPerDMARow > 0 else { return nil }
+    let attrBase = bufferRow * crtc.bytesPerDMARow + Int(crtc.charsPerLine)
+    for i in 0..<attrsPerLine {
+      let offset = attrBase + i * 2
+      // Read the buffer directly: a V bit further up already blanks what
+      // `readDMABuffer` returns, and a D bit below it still has to be seen.
+      guard offset + 1 < crtc.dmaBufferPtr else { return nil }
+      if crtc.dmaBuffer[offset] & 0x7F == 0x60 {
+        return crtc.dmaBuffer[offset + 1]
+      }
+    }
+    return nil
+  }
+
+  /// Re-derive where the display stops from the DMA buffer, for a save state
+  /// loaded mid-frame (the buffer is saved, the derived stop is not).
+  package func recomputeTextDisplayStop() {
+    guard let crtc = crtc, crtc.bytesPerDMARow > 0 else { return }
+    crtc.displayStopOffset = Int.max
+    let rows = crtc.dmaBufferPtr / crtc.bytesPerDMARow
+    for row in 0..<rows {
+      guard let control = specialControl(bufferRow: row) else { continue }
+      if control & 0x02 != 0 {
+        crtc.displayStopOffset = (row + 1) * crtc.bytesPerDMARow
+        return
+      }
+      if control & 0x01 != 0 { return }
+    }
   }
 
   /// Bytes the text DMA moves in one frame, or nil when it does not run.
@@ -1774,12 +1849,15 @@ package final class Pc88Bus: Bus {
 
         let attrBase = rowBase + cols
         var flags = Array(repeating: false, count: 128)
+        let specialControlOn = crtc.specialControlEnabled
 
         // vraminfo: in 40-column mode a pair at an odd X is ignored —
-        // neither its position nor its value takes effect. Returns nil for
-        // an ignored pair.
+        // neither its position nor its value takes effect. A special control
+        // character ($E0/$60 in the position byte) is ignored the same way:
+        // it takes a slot but is not an attribute. Returns nil for both.
         func column(ofPair i: Int) -> Int? {
           let x = Int(crtc.readDMABuffer(at: attrBase + i * 2) & 0x7F)
+          if specialControlOn && x == 0x60 { return nil }
           return !columns80 && (x & 1) != 0 ? nil : x
         }
 
