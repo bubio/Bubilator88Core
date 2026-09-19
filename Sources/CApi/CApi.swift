@@ -260,6 +260,13 @@ public func b88_set_pseudo_stereo(_ handle: UnsafeMutableRawPointer?, _ enabled:
   context(handle)?.pc88.pseudoStereoEnabled = enabled != 0
 }
 
+/// Enable/disable the CD mix output stage (low-pass + stereo reverb).
+/// Mirrors macOS `EmulatorViewModel.cdMix` → `PC88.cdMixEnabled`.
+@_cdecl("b88_set_cd_mix")
+public func b88_set_cd_mix(_ handle: UnsafeMutableRawPointer?, _ enabled: Int32) {
+  context(handle)?.pc88.cdMixEnabled = enabled != 0
+}
+
 // MARK: - Machine control
 
 /// Set DIP SW1 raw value (e.g. 0xC3 = N88-BASIC, 0xC2 = N-BASIC).
