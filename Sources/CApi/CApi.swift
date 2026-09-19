@@ -308,6 +308,36 @@ public func b88_get_clock_8mhz(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   (context(handle)?.pc88.clock8MHz ?? true) ? 1 : 0
 }
 
+/// Select the monitor (SW1-8): 0 = 15kHz, 1 = 24kHz (`MonitorType` raw
+/// values). It decides the CRTC's reset geometry, so set it before
+/// `b88_reset`. Other values are ignored.
+@_cdecl("b88_set_monitor_type")
+public func b88_set_monitor_type(_ handle: UnsafeMutableRawPointer?, _ type: Int32) {
+  guard let c = context(handle), let t = MonitorType(rawValue: Int(type)) else { return }
+  c.pc88.monitorType = t
+}
+
+/// Query the monitor: 0 = 15kHz, 1 = 24kHz. Returns 1 for a bad handle.
+@_cdecl("b88_get_monitor_type")
+public func b88_get_monitor_type(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+  Int32(context(handle)?.pc88.monitorType.rawValue ?? MonitorType.khz24.rawValue)
+}
+
+/// Memory wait DIP (SW1-6): 1 = on, 0 = off. Set before `b88_reset`,
+/// alongside the monitor type.
+@_cdecl("b88_set_memory_wait_dip")
+public func b88_set_memory_wait_dip(_ handle: UnsafeMutableRawPointer?, _ on: Int32) {
+  context(handle)?.pc88.memoryWaitDip = (on != 0)
+}
+
+/// CPU overclock multiplier: the CPU runs `multiplier`× faster while the
+/// CRTC, sound and RTC keep real time. 1 = real speed; values below 1 are
+/// clamped to 1.
+@_cdecl("b88_set_cpu_overclock")
+public func b88_set_cpu_overclock(_ handle: UnsafeMutableRawPointer?, _ multiplier: Int32) {
+  context(handle)?.pc88.cpuOverclock = max(1, Int(multiplier))
+}
+
 /// Query the current line mode (1 = native 400-line, 0 = 200-line doubled).
 /// The renderer always emits a 640×400 buffer (200-line content is row-doubled),
 /// so the host needs this to feed video filters the correct content resolution:
@@ -372,7 +402,8 @@ public func b88_load_state(_ handle: UnsafeMutableRawPointer?,
   }
 }
 
-/// Run one 1/60s frame. Returns T-states executed.
+/// Run one frame, up to the top of the CRTC's next frame (one period of
+/// `b88_frame_rate`, not 1/60s). Returns T-states executed.
 @_cdecl("b88_run_frame")
 public func b88_run_frame(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   guard let c = context(handle) else { return 0 }
@@ -392,6 +423,17 @@ public func b88_run_frame_slice(_ handle: UnsafeMutableRawPointer?,
                                 _ index: Int32, _ count: Int32) -> Int32 {
   guard let c = context(handle), count > 0, index >= 0, index < count else { return -1 }
   return c.pc88.runFrameSlice(Int(index), of: Int(count)) ? 1 : 0
+}
+
+/// VSYNC frequency in Hz (`PC88.frameRate`) — about 55.42Hz on a 24kHz
+/// monitor and 62.42Hz on a 15kHz one, never exactly 60. Follows the CRTC's
+/// programming, so re-read it every frame and pace `b88_run_frame` (or the
+/// slices) from it. Returns 0 for a bad handle or before the CRTC is set up;
+/// fall back to 60Hz then.
+@_cdecl("b88_frame_rate")
+public func b88_frame_rate(_ handle: UnsafeMutableRawPointer?) -> Double {
+  guard let c = context(handle) else { return 0 }
+  return c.pc88.frameRate
 }
 
 // MARK: - Input (15-row keyboard matrix, active-low)
