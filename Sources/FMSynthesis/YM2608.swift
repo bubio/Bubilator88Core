@@ -1481,13 +1481,22 @@ package final class YM2608 {
         }
       }
 
+    // Delta-N keeps the register pair exactly as written. The 256 floor is
+    // fmgen's, and fmgen applies it to the value it derives from the two
+    // registers (`deltan = adpcmreg[5]*256+adpcmreg[4]; deltan = Max(256,
+    // deltan)`), never to the stored bytes — see `updateADPCMPlaybackDelta()`.
+    // Clamping the stored pair instead destroys the low byte whenever software
+    // writes the low register first with a value under 256, because 256 is
+    // 0x0100 and its low byte is zero. あたしのぱ・ぴ・ぷ・ぺ・ぽ writes
+    // 0x09=0xDD then 0x0A=0x24, and lost that 0xDD: delta-N became 0x2400
+    // instead of 0x24DD, playing its one 256KB ADPCM stream 2.3% slow while
+    // the 600Hz RTC tick the animation counts stayed correct, so the picture
+    // drifted ahead of the song by about 1.5s over its 66 seconds.
     case 0x09:
       adpcmDeltaN = (adpcmDeltaN & 0xFF00) | UInt16(value)
-      adpcmDeltaN = max(256, adpcmDeltaN)  // fmgen: deltan = Max(256, deltan)
       updateADPCMPlaybackDelta()
     case 0x0A:
       adpcmDeltaN = (adpcmDeltaN & 0x00FF) | (UInt16(value) << 8)
-      adpcmDeltaN = max(256, adpcmDeltaN)  // fmgen: deltan = Max(256, deltan)
       updateADPCMPlaybackDelta()
 
     case 0x0B:
