@@ -401,10 +401,21 @@ package final class YM2608 {
   package var pseudoStereoEnabled: Bool = false
 
   /// Set to true when any FM channel's pan register (0xB4) is written with non-center value.
-  /// Once set, pseudo-stereo is suppressed for FM until reset.
+  /// Once set, pseudo-stereo is suppressed until reset — for SSG as well as FM: a program
+  /// that places its FM channels itself authored a stereo image, and widening the SSG
+  /// underneath it would fight that image rather than complement it.
+  ///
+  /// Tracked unconditionally, not only while `pseudoStereoEnabled` is set, so that
+  /// enabling pseudo-stereo mid-tune still sees the pans the program wrote earlier.
   package private(set) var fmPanDetected: Bool = false
   package var chorusFM = ChorusEffect()                    // L=dry, R=delayed
   package var chorusSSG = ChorusEffect(delayLeft: true)    // L=delayed, R=dry
+
+  /// Rebuild `fmPanDetected` from the current channel pans. Used after a save
+  /// state load, where the latch itself is not stored but the pans are.
+  package func refreshPanDetection() {
+    fmPanDetected = (0..<6).contains { !(fmSynth.ch[$0].panLeft && fmSynth.ch[$0].panRight) }
+  }
 
   /// Audio sample rate for output (default 44100 Hz)
   package static let sampleRate = 44100
@@ -720,9 +731,10 @@ package final class YM2608 {
 
     if mask.contains(.ssg) {
       let ssgScaled = Int((ssgSample * 16384.0).rounded())
-      // Immersive takes priority: never apply pseudo-stereo chorus when
-      // spatial output is active (the two modes are mutually exclusive).
-      if pseudoStereoEnabled && !immersiveOutputEnabled {
+      // Same gating as the FM path in generateFMSamples(): suppressed once the
+      // program pans an FM channel itself, and immersive takes priority (the
+      // two modes are mutually exclusive).
+      if pseudoStereoEnabled && !fmPanDetected && !immersiveOutputEnabled {
         let (sl, sr) = chorusSSG.process(monoSample: ssgScaled)
         mixL = Self.storeSample16(mixL, sl)
         mixR = Self.storeSample16(mixR, sr)

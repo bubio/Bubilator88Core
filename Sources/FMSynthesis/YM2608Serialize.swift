@@ -235,11 +235,20 @@ extension YM2608 {
     adpcmReadPrefetch = pos < data.count ? data[pos] : 0
     if pos < data.count { pos += 1 }
 
-    // Clear transient audio buffer. The CD-mix delay lines are not part of the
-    // save state either, so drop their contents rather than carrying a tail
-    // from the pre-load audio into the restored scene.
+    // Clear transient audio buffer. The CD-mix and chorus delay lines are not
+    // part of the save state either, so drop their contents rather than
+    // carrying a tail from the pre-load audio into the restored scene.
     audioBuffer.removeAll()
     resetPostProcessors()
+    chorusFM.reset()
+    chorusSSG.reset()
+
+    // Rebuild the pan latch from the restored channels instead of storing it:
+    // FMCh.panLeft/panRight are part of the FMSynthesizer blob, so a load can
+    // recover it without a format change. A tune that pans a channel and later
+    // returns it to centre loses the latch across a load; the register writes
+    // that follow set it again.
+    refreshPanDetection()
 
     return true
   }
