@@ -513,6 +513,15 @@ public final class PC88: @unchecked Sendable {
     set { machine.sound.immersiveOutputEnabled = newValue }
   }
 
+  /// Synthesise audio at all. Turning it off skips FM, SSG, rhythm and the
+  /// mix, and `takeAudioSamples()` then returns nothing; timers and ADPCM
+  /// status keep running, so programs behave the same. For headless runs
+  /// such as thumbnail capture, where synthesis is most of the cost.
+  public var audioOutputEnabled: Bool {
+    get { machine.sound.audioOutputEnabled }
+    set { machine.sound.audioOutputEnabled = newValue }
+  }
+
   /// Report the sound board as YM2203 (OPN) so programs skip OPNA features.
   public var forceOPNMode: Bool {
     get { machine.sound.forceOPNMode }
