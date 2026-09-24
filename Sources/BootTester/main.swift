@@ -25,12 +25,13 @@ let requestedDiskPath: String? = {
   if first == "--help" || first == "-h" {
     print("Usage: swift run BootTester [disk.d88]")
     print("       swift run BootTester --script <file.txt>   # タイムラインスクリプト再生")
+    print("       swift run BootTester --snapshot <disk.d88>...  # Quick Look thumbnail capture")
     exit(0)
   }
   if first.hasPrefix("--") {
     // Flags are not disk paths. Unknown flags other than --script are warned
     // about rather than silently ignored.
-    if first != "--script" {
+    if first != "--script" && first != "--snapshot" {
       FileHandle.standardError.write(
         Data("warning: 未知のオプション \(first) を無視します\n".utf8))
     }
@@ -484,6 +485,10 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
   if ProcessInfo.processInfo.environment["BOOTTEST_FORCE_OPN"] != nil {
     machine.sound.forceOPNMode = true
   }
+  // BOOTTEST_AUDIO=0 skips synthesis, as a headless capture does.
+  if ProcessInfo.processInfo.environment["BOOTTEST_AUDIO"] == "0" {
+    machine.sound.audioOutputEnabled = false
+  }
   if let tapePath = ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"],
      !tapePath.isEmpty,
      let tapeData = try? Data(contentsOf: URL(fileURLWithPath: tapePath)) {
@@ -614,6 +619,70 @@ func runScriptMode(scriptPath: String) -> Never {
 
 if let sp = scriptPath {
   runScriptMode(scriptPath: sp)
+}
+
+// ============================================================
+// Snapshot mode: run BootSnapshot, the Quick Look thumbnail capture, on each
+// disk and report how long it took and why it stopped.
+//   BOOTTEST_SNAPSHOT_DIR       directory for <disk name>.ppm (optional)
+//   BOOTTEST_SNAPSHOT_DEADLINE  wall-clock budget per disk in seconds (default 3)
+// ============================================================
+func runSnapshotMode(diskPaths: [String]) -> Never {
+  let env = ProcessInfo.processInfo.environment
+  var roms: [(PC88.ROM, [UInt8])] = [(.n88Basic, Array(romData))]
+  let optional: [(PC88.ROM, String)] = [
+    (.nBasic, "N80.ROM"), (.font, "FONT.ROM"), (.disk, "DISK.ROM"),
+    (.kanji1, "KANJI1.ROM"), (.kanji2, "KANJI2.ROM"),
+  ] + (0..<4).map { (.n88Ext(bank: $0), "N88_\($0).ROM") }
+  for (rom, name) in optional {
+    if let data = try? Data(contentsOf: appSupport.appendingPathComponent(name)) {
+      roms.append((rom, Array(data)))
+    }
+  }
+  let budget = Double(env["BOOTTEST_SNAPSHOT_DEADLINE"] ?? "") ?? 3
+  // BOOTTEST_SNAPSHOT_PARAMS="settledIdle=4,stable=4,idle=10,minContent=0.02,max=90,opn=1"
+  var parameters = BootSnapshot.Parameters()
+  for pair in (env["BOOTTEST_SNAPSHOT_PARAMS"] ?? "").split(separator: ",") {
+    let kv = pair.split(separator: "=")
+    guard kv.count == 2, let v = Double(kv[1]) else { continue }
+    switch kv[0] {
+    case "settledIdle": parameters.settledIdleSeconds = v
+    case "stable": parameters.stableSeconds = v
+    case "idle": parameters.idleSeconds = v
+    case "minContent": parameters.minContent = v
+    case "max": parameters.maxEmulatedSeconds = v
+    case "opn": parameters.hideSoundBoard2 = v != 0
+    default: print("unknown parameter \(kv[0])")
+    }
+  }
+  let outDir = env["BOOTTEST_SNAPSHOT_DIR"]
+  for path in diskPaths {
+    let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+      print("\(name): unreadable")
+      continue
+    }
+    let disks = D88Disk.parseAll(data: Array(data))
+    let start = ContinuousClock.now
+    let frame = BootSnapshot.capture(roms: roms, disks: disks, parameters: parameters,
+                                     deadline: start + .milliseconds(Int(budget * 1000)))
+    let wall = (ContinuousClock.now - start).components
+    let wallSeconds = Double(wall.seconds) + Double(wall.attoseconds) / 1e18
+    let wallText = String(format: "%.2f", wallSeconds)
+    guard let frame else {
+      print("\(name): no frame  wall=\(wallText)s")
+      continue
+    }
+    print("\(name): \(frame.reason.rawValue)  emulated=\(String(format: "%.1f", frame.emulatedSeconds))s  wall=\(wallText)s  content=\(String(format: "%.4f", frame.content))")
+    if let outDir {
+      try? writePPMScreenshot(path: "\(outDir)/\(name).ppm", pixels: frame.pixels)
+    }
+  }
+  exit(0)
+}
+
+if let i = bootArgs.firstIndex(of: "--snapshot") {
+  runSnapshotMode(diskPaths: Array(bootArgs[(i + 1)...]))
 }
 
 // ============================================================

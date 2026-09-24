@@ -321,6 +321,12 @@ package final class YM2608 {
   /// Format: [L, R, L, R, ...]. Accumulated during tick(), consumed by audio output.
   package var audioBuffer: [Float] = []
 
+  /// When false, `tick` skips synthesis and mixing and appends nothing to
+  /// the output buffers. Timers, busy status and ADPCM playback (whose EOS
+  /// flag programs poll) keep running, so the CPU sees no difference. For
+  /// headless runs, where the samples would only be thrown away.
+  package var audioOutputEnabled: Bool = true
+
   // MARK: - Immersive Audio Output
 
   /// When true, per-channel stereo buffers are populated alongside audioBuffer.
@@ -610,6 +616,9 @@ package final class YM2608 {
       // ADPCM-B decode/interpolate at audio output rate (fmgen
       // ADPCMBMix runs at output `r`, with adplbase scaled to `r`).
       advanceADPCM()
+      // Everything below only produces sound. ADPCM above stays: programs
+      // poll its EOS flag.
+      guard audioOutputEnabled else { continue }
       generateFMSamples()
       advanceRhythm()
       let ssg = generateSSGSample()
