@@ -707,7 +707,7 @@ extension Machine {
   /// Unknown tags are ignored by `loadSaveState`, so adding one does not
   /// require a format version bump.
   package func createSaveState(thumbnail: [UInt8]? = nil,
-                              extraSections: [(tag: UInt32, data: [UInt8])] = []) -> [UInt8] {
+                               extraSections: [(tag: UInt32, data: [UInt8])] = []) -> [UInt8] {
     var w = SaveStateWriter()
     writeSaveState(to: &w)
     let mainSection = (tag: SaveStateFile.fourCC("MAIN"), data: w.data)
