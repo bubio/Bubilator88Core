@@ -150,6 +150,18 @@ struct PC88Tests {
     #expect(restored.machine.bus.mainRAM[0x9000] == 0x5A)
   }
 
+  @Test func loadingOverAMountedDiskSeatsTheStateDiskImmediately() throws {
+    let pc88 = PC88()
+    pc88.reset()
+    pc88.mountDisk(drive: 0, disk: D88Disk())
+    let state = pc88.createSaveState()
+
+    // A second load lands on a drive that already holds a disk; the caller
+    // reads `mountedDisk` as soon as the load returns.
+    try pc88.loadSaveState(state)
+    #expect(pc88.mountedDisk(drive: 0) != nil)
+  }
+
   @Test func renderFillsTheWholeFrame() {
     let pc88 = PC88()
     pc88.reset()

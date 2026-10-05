@@ -759,6 +759,10 @@ extension Machine {
     // Restore disk images
     if let d88Data = sections[SaveStateFile.fourCC("DSK0")] {
       if let disk = D88Disk.parse(data: d88Data) {
+        // Eject first: mounting over a disk starts the door-open swap delay,
+        // leaving the drive empty until the sub-CPU runs, and a state load
+        // must have the disk seated when it returns.
+        subSystem.ejectDisk(drive: 0)
         subSystem.mountDisk(drive: 0, disk: disk)
       }
     } else {
@@ -767,6 +771,10 @@ extension Machine {
 
     if let d88Data = sections[SaveStateFile.fourCC("DSK1")] {
       if let disk = D88Disk.parse(data: d88Data) {
+        // Eject first: mounting over a disk starts the door-open swap delay,
+        // leaving the drive empty until the sub-CPU runs, and a state load
+        // must have the disk seated when it returns.
+        subSystem.ejectDisk(drive: 1)
         subSystem.mountDisk(drive: 1, disk: disk)
       }
     } else {
