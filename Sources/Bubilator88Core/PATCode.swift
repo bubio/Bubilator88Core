@@ -28,10 +28,15 @@ public struct PATCode: Equatable, Hashable, Sendable {
 public struct PATGroup: Equatable, Hashable, Sendable {
   public var name: String
   public var codes: [PATCode]
+  /// The `;` comment lines between the `#` line and the group's first code,
+  /// without the `;`: what the group does, as the published lists describe
+  /// it. pat.dll ignores them.
+  public var notes: [String]
 
-  public init(name: String, codes: [PATCode]) {
+  public init(name: String, codes: [PATCode], notes: [String] = []) {
     self.name = name
     self.codes = codes
+    self.notes = notes
   }
 }
 
@@ -68,7 +73,8 @@ public enum PATFile {
   ///
   /// Mirrors pat.dll's reader:
   /// - A line starting with `;` is a comment. A line starting with `#` begins
-  ///   a group named by the rest of the line.
+  ///   a group named by the rest of the line; comments between it and the
+  ///   group's first code become the group's `notes`.
   /// - A line starting with a hex digit or one of `wW+-=!<>` is a code; any
   ///   other line is dropped silently, leading spaces included.
   /// - A code is read as eight characters then four, each after skipping
@@ -79,7 +85,13 @@ public enum PATFile {
     let lines = text.split(omittingEmptySubsequences: true) { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }
     for line in lines {
       guard let first = line.unicodeScalars.first else { continue }
-      if first == ";" { continue }
+      if first == ";" {
+        if let last = groups.indices.last, groups[last].codes.isEmpty {
+          let note = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+          if !note.isEmpty { groups[last].notes.append(note) }
+        }
+        continue
+      }
       if first == "#" {
         guard groups.count < maxGroups else { break }
         let name = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)

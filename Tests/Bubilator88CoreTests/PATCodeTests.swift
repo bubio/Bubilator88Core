@@ -50,6 +50,21 @@ struct PATFileTests {
     #expect(groups[1].codes == [PATCode(opcode: 0x30, area: 0x02, address: 0xF224, value: 0x0190)])
   }
 
+  @Test func commentsBeforeAGroupsFirstCodeAreItsNotes() {
+    let groups = PATFile.parse("""
+    ; about the file
+    # EXPいっぱい
+    ; 戦闘勝利時に増えます
+    ;
+    ; 以降１戦闘毎にLvUP
+    D0009C98 97FE
+    ; after the codes
+    80009C98 963E
+    """)
+    #expect(groups.map(\.notes) == [["戦闘勝利時に増えます", "以降１戦闘毎にLvUP"]])
+    #expect(groups[0].codes.count == 2)
+  }
+
   @Test func codesBeforeTheFirstGroupGoIntoAnUnnamedOne() {
     let groups = PATFile.parse("8000E50C 0004\r\n# A\r\n3000E50C 0004\r\n")
     #expect(groups.map(\.name) == [PATFile.unnamedGroupName, "A"])
