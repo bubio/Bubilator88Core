@@ -417,6 +417,26 @@ public func b88_run_frame(_ handle: UnsafeMutableRawPointer?) -> Int32 {
   return Int32(truncatingIfNeeded: c.pc88.runFrame())
 }
 
+/// Apply one group of 88PAR cheat codes to memory, once (`PC88.runPATCodes`).
+///
+/// `codes` holds `count` codes of 6 bytes each, little-endian:
+/// `opcode`, `area`, `address` (2 bytes), `value` (2 bytes) - the fields of
+/// `PATCode`. Parsing `.pat` text is left to the caller. Call it once per
+/// frame for each enabled group, between frames, from the thread that runs
+/// them (the same one that calls `b88_run_frame`).
+@_cdecl("b88_pat_run")
+public func b88_pat_run(_ handle: UnsafeMutableRawPointer?,
+                        _ codes: UnsafePointer<UInt8>?, _ count: Int32) {
+  guard let c = context(handle), let codes, count > 0 else { return }
+  let list = (0..<Int(count)).map { i -> PATCode in
+    let p = codes + i * 6
+    return PATCode(opcode: p[0], area: p[1],
+                   address: UInt16(p[2]) | UInt16(p[3]) << 8,
+                   value: UInt16(p[4]) | UInt16(p[5]) << 8)
+  }
+  c.pc88.runPATCodes(list)
+}
+
 /// Run slice `index` of `count` slices of the current frame
 /// (`PC88.runFrameSlice`). Returns 1 once the frame has ended (render then,
 /// and start the next frame at slice 0), 0 if it hasn't, -1 for a bad
