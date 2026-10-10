@@ -327,6 +327,13 @@ public final class PC88: @unchecked Sendable {
     machine.cassette.isLoaded
   }
 
+  /// Whether the cassette motor is turning with a tape loaded, for drive
+  /// sound effects. Software switches the motor on and off, so this follows
+  /// the machine rather than the host's transport.
+  public var isTapeMotorRunning: Bool {
+    machine.cassette.motorOn && machine.cassette.isLoaded
+  }
+
   /// Playback position, 0.0-1.0 (0 with no tape).
   public var tapeProgress: Double {
     machine.cassette.progress
