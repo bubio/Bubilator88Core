@@ -38,11 +38,27 @@ package final class CassetteDeck {
   /// O(1) lookup mirror of `dataCarriers` for the hot path in `tick()`.
   private var dataCarrierSet: Set<Int> = []
 
+  /// CPU clock in Hz, to turn T88 time stamps (1/4800 s ticks) into T-states.
+  /// The machine keeps it in step with its 4/8 MHz setting.
+  package var cpuClockHz: Double = 3_993_624.0
+
+  /// For a T88 tape, the silence before the data block that starts at each
+  /// buffer position, in 1/4800 s ticks (end of the previous block to the start
+  /// of this one, which covers the space and mark tags between them). The first
+  /// block's entry is the lead-in. A raw CMT has none and uses
+  /// `primeDelayTStates` throughout.
+  package private(set) var carrierGapTicks: [Int: Int] = [:]
+
   package var motorOn: Bool = false {
     didSet {
       if !motorOn {
-        tickAccum = 0
-        phase = .carrierPrime
+        // The tape stops with the motor. In a gap it keeps the time already
+        // run, so the rest of the gap is what is left when the motor restarts;
+        // anywhere else it falls back to waiting for a carrier.
+        if phase != .carrierPrime {
+          tickAccum = 0
+          phase = .carrierPrime
+        }
       }
     }
   }
@@ -91,9 +107,11 @@ package final class CassetteDeck {
   package func loadT88(data: Data) {
     buffer.removeAll(keepingCapacity: false)
     dataCarriers.removeAll(keepingCapacity: false)
+    carrierGapTicks.removeAll(keepingCapacity: false)
     bufPtr = 0
     tickAccum = 0
     phase = .carrierPrime
+    var lastEndTick = 0
 
     // Signature is 23 bytes of ASCII followed by 0x1A; skip 24.
     var p = 24
@@ -107,9 +125,13 @@ package final class CassetteDeck {
       if payloadEnd > bytes.count { break }
       switch tag {
       case 0x0101:
-        // First 12 bytes of payload are meta (length, position,
-        // flags in the T88 spec); skip them and append the rest.
+        // First 12 bytes of payload are meta: begin tick (u32), length in
+        // ticks (u32), data size (u16), data type (u16). The data follows.
         if len > 12 {
+          let begin = CassetteDeck.readU32LE(bytes, at: p)
+          let span = CassetteDeck.readU32LE(bytes, at: p + 4)
+          carrierGapTicks[buffer.count] = max(0, begin - lastEndTick)
+          lastEndTick = begin + span
           buffer.append(contentsOf: bytes[(p + 12)..<payloadEnd])
         }
       case 0x0102, 0x0103:
@@ -124,7 +146,20 @@ package final class CassetteDeck {
     dataCarrierSet = Set(dataCarriers)
   }
 
+  private static func readU32LE(_ bytes: [UInt8], at p: Int) -> Int {
+    Int(bytes[p]) | Int(bytes[p + 1]) << 8 | Int(bytes[p + 2]) << 16 | Int(bytes[p + 3]) << 24
+  }
+
+  /// How long the carrier lasts before the byte at `bufPtr`, in T-states.
+  /// Never shorter than `primeDelayTStates`, which BASIC's LOAD needs to set up
+  /// its receive loop.
+  private func carrierDelayTStates() -> Int {
+    guard let ticks = carrierGapTicks[bufPtr] else { return primeDelayTStates }
+    return max(primeDelayTStates, Int(Double(ticks) * cpuClockHz / 4800.0))
+  }
+
   package func loadCMT(data: Data) {
+    carrierGapTicks.removeAll(keepingCapacity: false)
     buffer = Array(data)
     dataCarriers = CassetteDeck.scanCarriers(buffer)
     dataCarrierSet = Set(dataCarriers)
@@ -145,6 +180,7 @@ package final class CassetteDeck {
     buffer.removeAll(keepingCapacity: false)
     dataCarriers.removeAll(keepingCapacity: false)
     dataCarrierSet.removeAll()
+    carrierGapTicks.removeAll(keepingCapacity: false)
     bufPtr = 0
     tickAccum = 0
     phase = .carrierPrime
@@ -200,8 +236,9 @@ package final class CassetteDeck {
         // DCD is high during the carrier-detect window; wait it
         // out so BASIC's LOAD handler has time to set up its
         // receive loop before the first byte arrives.
-        if tickAccum < primeDelayTStates { return }
-        tickAccum -= primeDelayTStates
+        let delay = carrierDelayTStates()
+        if tickAccum < delay { return }
+        tickAccum -= delay
         phase = .streaming
       case .streaming:
         if tickAccum < bytePeriodTStates { return }
@@ -305,6 +342,12 @@ package final class CassetteDeck {
     out.append(contentsOf: buffer)
     CassetteDeck.appendU32(&out, UInt32(dataCarriers.count))
     for c in dataCarriers { CassetteDeck.appendI64(&out, Int64(c)) }
+    // Optional tail, after everything an older reader looks at: the T88 gaps.
+    CassetteDeck.appendU32(&out, UInt32(carrierGapTicks.count))
+    for (pos, ticks) in carrierGapTicks.sorted(by: { $0.key < $1.key }) {
+      CassetteDeck.appendI64(&out, Int64(pos))
+      CassetteDeck.appendI64(&out, Int64(ticks))
+    }
     return out
   }
 
@@ -344,6 +387,16 @@ package final class CassetteDeck {
     }
     dataCarriers = carriers
     dataCarrierSet = Set(carriers)
+    carrierGapTicks.removeAll()
+    if p + 4 <= data.count {
+      let gapCount = Int(CassetteDeck.readU32(data, at: &p))
+      if p + gapCount * 16 <= data.count {
+        for _ in 0..<gapCount {
+          let pos = Int(CassetteDeck.readI64(data, at: &p))
+          carrierGapTicks[pos] = Int(CassetteDeck.readI64(data, at: &p))
+        }
+      }
+    }
     motorOn = savedMotor
   }
 

@@ -755,6 +755,16 @@ if ProcessInfo.processInfo.environment["BOOTTEST_CMT_PORT_STATS"] == "1" {
 // BOOTTEST_TAPE_AUTORUN=1 drives TapeAutoBoot (LOAD "CAS:" then RUN) against
 // the tape in BOOTTEST_TAPE_PATH. Set BOOTTEST_FRAMES high enough for the load
 // and BOOTTEST_DIPSW1/DIPSW2 for the boot mode (V1S: C3 / B9).
+// BOOTTEST_TYPE="<frame>=<text>|<frame>=<text>" types text through TextPasteQueue
+// at the given frames; "\\n" in the text is Return.
+var typeEvents: [Int: String] = [:]
+for item in (ProcessInfo.processInfo.environment["BOOTTEST_TYPE"] ?? "").split(separator: "|") {
+  let parts = item.split(separator: "=", maxSplits: 1)
+  if parts.count == 2, let f = Int(parts[0]) {
+    typeEvents[f] = String(parts[1]).replacingOccurrences(of: "\\n", with: "\n")
+  }
+}
+let typePaste = TextPasteQueue()
 let tapeAutorun = ProcessInfo.processInfo.environment["BOOTTEST_TAPE_AUTORUN"] == "1"
 let autoBoot = TapeAutoBoot()
 let autoPaste = TextPasteQueue()
@@ -762,6 +772,18 @@ if tapeAutorun { autoBoot.start() }
 
 for frame in 0..<coldBootLoopFrames {
   let subBefore = m.subSystem.subCpuTStates
+
+  if let text = typeEvents[frame] {
+    typePaste.enqueue(text)
+    print("  Type frame \(frame): \(text.debugDescription)")
+  }
+  typePaste.tick { event in
+    if event.down {
+      m.keyboard.pressKey(row: event.key.row, bit: event.key.bit)
+    } else {
+      m.keyboard.releaseKey(row: event.key.row, bit: event.key.bit)
+    }
+  }
 
   if tapeAutorun {
     autoPaste.tick { event in

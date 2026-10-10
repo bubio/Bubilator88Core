@@ -195,6 +195,7 @@ package final class Machine: @unchecked Sendable {
     didSet {
       bus.cpuClock8MHz = clock8MHz
       sound.clock8MHz = clock8MHz
+      cassette.cpuClockHz = cpuClock
     }
   }
 
@@ -297,6 +298,7 @@ package final class Machine: @unchecked Sendable {
     self.calendar = UPD1990A()
     self.usart = I8251()
     self.cassette = CassetteDeck(usart: usart)
+    self.cassette.cpuClockHz = 7_987_248.0  // `clock8MHz` starts true
     self.mouse = Mouse()
 
     // Wire up: Bus holds weak refs to components
