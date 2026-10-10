@@ -752,8 +752,41 @@ if ProcessInfo.processInfo.environment["BOOTTEST_CMT_PORT_STATS"] == "1" {
   }
 }
 
+// BOOTTEST_TAPE_AUTORUN=1 drives TapeAutoBoot (LOAD "CAS:" then RUN) against
+// the tape in BOOTTEST_TAPE_PATH. Set BOOTTEST_FRAMES high enough for the load
+// and BOOTTEST_DIPSW1/DIPSW2 for the boot mode (V1S: C3 / B9).
+let tapeAutorun = ProcessInfo.processInfo.environment["BOOTTEST_TAPE_AUTORUN"] == "1"
+let autoBoot = TapeAutoBoot()
+let autoPaste = TextPasteQueue()
+if tapeAutorun { autoBoot.start() }
+
 for frame in 0..<coldBootLoopFrames {
   let subBefore = m.subSystem.subCpuTStates
+
+  if tapeAutorun {
+    autoPaste.tick { event in
+      if event.down {
+        m.keyboard.pressKey(row: event.key.row, bit: event.key.bit)
+      } else {
+        m.keyboard.releaseKey(row: event.key.row, bit: event.key.bit)
+      }
+    }
+    let before = autoBoot.phase
+    if let text = autoBoot.tick(
+      motorRunning: m.cassette.motorOn && m.cassette.isLoaded,
+      typingIdle: autoPaste.isEmpty,
+      screen: { m.copyTextAsUnicode() }
+    ) {
+      autoPaste.enqueue(text)
+      print("  AutoBoot frame \(frame): typing \(text.debugDescription)")
+    }
+    if autoBoot.phase != before {
+      print("  AutoBoot frame \(frame): \(before) -> \(autoBoot.phase)")
+      if case .failed = autoBoot.phase {
+        print("  Screen at failure:\n" + m.copyTextAsUnicode().debugDescription)
+      }
+    }
+  }
 
   // Scripted key events (shared with the disk-boot path). Taps are
   // released two frames after press. Used to type e.g. CLOAD + RETURN
@@ -777,7 +810,7 @@ for frame in 0..<coldBootLoopFrames {
   }
 
   // Detect "How many files?" in text VRAM (scan once per frame)
-  if howManyFilesFrame < 0 {
+  if howManyFilesFrame < 0 && !tapeAutorun {
     let td = m.bus.readTextVRAM()
     // Check for "How" at start of some row
     for row in 0..<25 {
