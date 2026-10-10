@@ -1127,7 +1127,7 @@ package final class Pc88Bus: Bus {
 
     default:
       if unimplementedReadPorts.insert(port8).inserted {
-        busLog.warning("Unimplemented I/O READ port 0x\(hex(port8))")
+        busLog.debug("Unimplemented I/O READ port 0x\(hex(port8))")
       }
       return 0xFF  // Unmapped ports return 0xFF
     }
@@ -1391,7 +1391,7 @@ package final class Pc88Bus: Bus {
 
     default:
       if unimplementedWritePorts.insert(port8).inserted {
-        busLog.warning("Unimplemented I/O WRITE port 0x\(hex(port8)) val=0x\(hex(value))")
+        busLog.debug("Unimplemented I/O WRITE port 0x\(hex(port8)) val=0x\(hex(value))")
       }
       break  // Unmapped port writes are ignored
     }
