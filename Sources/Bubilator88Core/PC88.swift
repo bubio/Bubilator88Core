@@ -327,6 +327,16 @@ public final class PC88: @unchecked Sendable {
     machine.cassette.isLoaded
   }
 
+  /// Whether the cassette motor is turning with a tape loaded, for drive
+  /// sound effects. Software switches the motor on and off, so this follows
+  /// the machine rather than the host's transport. A real deck stops at the
+  /// end of the tape whatever the software asks for, so this is false once the
+  /// tape has been read to its end; the emulated motor bit is not touched.
+  public var isTapeMotorRunning: Bool {
+    let deck = machine.cassette
+    return deck.motorOn && deck.isLoaded && deck.progress < 1
+  }
+
   /// Playback position, 0.0-1.0 (0 with no tape).
   public var tapeProgress: Double {
     machine.cassette.progress

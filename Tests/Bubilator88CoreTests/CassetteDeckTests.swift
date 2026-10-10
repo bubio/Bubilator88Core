@@ -332,3 +332,98 @@ struct CassetteDeckTests {
     #expect(dst.dcd)               // exhausted phase preserved
   }
 }
+
+/// T88 time stamps: the silence between data blocks.
+@Suite("CassetteDeck T88 gap Tests")
+struct CassetteDeckT88GapTests {
+
+  /// A T88 of data blocks at the given (begin, length) ticks, one byte each,
+  /// with the space and mark tags a real image has between them.
+  private func makeT88(blocks: [(begin: Int, length: Int, byte: UInt8)]) -> Data {
+    func u16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF)] }
+    func u32(_ v: Int) -> [UInt8] { u16(v & 0xFFFF) + u16((v >> 16) & 0xFFFF) }
+    var out: [UInt8] = Array("PC-8801 Tape Image(T88)".utf8)
+    out.append(0x1A)
+    var last = 0
+    for b in blocks {
+      if b.begin > last {
+        out += u16(0x0103) + u16(8) + u32(last) + u32(b.begin - last)
+      }
+      let meta = u32(b.begin) + u32(b.length) + u16(1) + u16(0xCC)
+      out += u16(0x0101) + u16(meta.count + 1) + meta + [b.byte]
+      last = b.begin + b.length
+    }
+    out += [0, 0, 0, 0]
+    return Data(out)
+  }
+
+  /// A deck at 4800 Hz, so one T88 tick is one T-state, with instant bytes.
+  private func makeDeck(_ blocks: [(begin: Int, length: Int, byte: UInt8)])
+    -> (CassetteDeck, I8251)
+  {
+    let u = I8251()
+    let d = CassetteDeck(usart: u)
+    d.cpuClockHz = 4800
+    d.bytePeriodTStates = 1
+    d.primeDelayTStates = 10
+    d.load(data: makeT88(blocks: blocks))
+    d.cmtSelected = true
+    return (d, u)
+  }
+
+  @Test func recordsTheGapBeforeEachBlock() {
+    let (d, _) = makeDeck([(begin: 500, length: 8, byte: 1), (begin: 2000, length: 8, byte: 2)])
+    #expect(d.carrierGapTicks[0] == 500)  // lead-in
+    #expect(d.carrierGapTicks[1] == 2000 - 508)
+  }
+
+  @Test func holdsTheNextBlockBackForTheWholeGap() {
+    let (d, u) = makeDeck([(begin: 100, length: 8, byte: 0xA1), (begin: 1000, length: 8, byte: 0xA2)])
+    d.motorOn = true
+    d.tick(tStates: 99)
+    #expect(d.bufPtr == 0)             // still in the lead-in
+    d.tick(tStates: 2)
+    #expect(d.bufPtr == 1)
+    #expect(u.readData() == 0xA1)
+    // 892 ticks of gap follow the first block.
+    d.tick(tStates: 891)
+    #expect(d.bufPtr == 1)
+    #expect(d.dcd)
+    d.tick(tStates: 3)
+    #expect(d.bufPtr == 2)
+    #expect(u.readData() == 0xA2)
+  }
+
+  @Test func theGapKeepsRunningWhileTheMotorIsOffAndOnAgain() {
+    let (d, u) = makeDeck([(begin: 10, length: 8, byte: 0xA1), (begin: 1000, length: 8, byte: 0xA2)])
+    d.motorOn = true
+    d.tick(tStates: 12)
+    _ = u.readData()
+    d.tick(tStates: 600)               // 600 of the 982 ticks of gap
+    d.motorOn = false
+    d.motorOn = true
+    d.tick(tStates: 300)               // 900 in all: not yet
+    #expect(d.bufPtr == 1)
+    d.tick(tStates: 100)
+    #expect(d.bufPtr == 2)
+  }
+
+  @Test func aShortGapStillWaitsOutThePrimeDelay() {
+    let (d, u) = makeDeck([(begin: 3, length: 8, byte: 0xA1)])
+    d.primeDelayTStates = 50
+    d.motorOn = true
+    d.tick(tStates: 40)
+    #expect(d.bufPtr == 0)
+    d.tick(tStates: 20)
+    #expect(d.bufPtr == 1)
+    #expect(u.readData() == 0xA1)
+  }
+
+  @Test func theGapsSurviveASaveState() {
+    let (d, _) = makeDeck([(begin: 100, length: 8, byte: 1), (begin: 1000, length: 8, byte: 2)])
+    let restored = CassetteDeck(usart: I8251())
+    restored.deserializeState(d.serializeState())
+    #expect(restored.carrierGapTicks == d.carrierGapTicks)
+    #expect(restored.buffer == d.buffer)
+  }
+}
