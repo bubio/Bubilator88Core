@@ -6,12 +6,12 @@ struct TapeAutoBootTests {
 
   /// Run ticks with fixed machine state, returning every string typed.
   private func run(
-    _ boot: TapeAutoBoot, frames: Int, motor: Bool = false, typingIdle: Bool = true,
+    _ boot: TapeAutoBoot, frames: Int, motor: Bool = false, progress: Double = 0.5, typingIdle: Bool = true,
     screen: String
   ) -> [String] {
     var typed: [String] = []
     for _ in 0..<frames {
-      if let text = boot.tick(motorRunning: motor, typingIdle: typingIdle, screen: { screen }) {
+      if let text = boot.tick(motorRunning: motor, tapeProgress: progress, typingIdle: typingIdle, screen: { screen }) {
         typed.append(text)
       }
     }
@@ -29,7 +29,7 @@ struct TapeAutoBootTests {
     boot.start()
     var typed: String?
     for _ in 0..<60 where typed == nil {
-      typed = boot.tick(motorRunning: false, typingIdle: true, screen: { "NEC PC-8801\nOk" })
+      typed = boot.tick(motorRunning: false, tapeProgress: 0, typingIdle: true, screen: { "NEC PC-8801\nOk" })
     }
     #expect(typed == "LOAD \"CAS:\"\n")
     #expect(boot.phase == .typingLoad)
@@ -121,6 +121,19 @@ struct TapeAutoBootTests {
     let typed = run(boot, frames: 60, screen: "Ok\nDevice I/O error\nOk\nDevice I/O error")
     #expect(typed.isEmpty)
     #expect(boot.phase == .failed(.basicError))
+  }
+
+  @Test func tapeReadToTheEndWithoutOkFails() {
+    let boot = loading()
+    // The deck stops at the end of the tape, so the motor reads as off.
+    _ = run(boot, frames: TapeAutoBoot.tapeEndedFrames + 10, progress: 1, screen: "Found:TEST")
+    #expect(boot.phase == .failed(.tapeEnded))
+  }
+
+  @Test func motorStoppingAtTheEndOfTheTapeStillFinishes() {
+    let boot = loading()
+    _ = run(boot, frames: 30, motor: true, progress: 1, screen: "Found:TEST")
+    #expect(run(boot, frames: 100, progress: 1, screen: "Found:TEST\nOk") == ["RUN\n"])
   }
 
   @Test func cancelStops() {

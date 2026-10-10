@@ -252,3 +252,29 @@ struct PC88Tests {
     #expect(pc88.glyph(for: 0x41).first == 0x18)
   }
 }
+
+@Suite("PC88 tape motor Tests")
+struct PC88TapeMotorTests {
+
+  @Test func motorReadsAsStoppedOnceTheTapeIsReadToItsEnd() {
+    let pc88 = PC88()
+    let deck = pc88.machine.cassette
+    deck.bytePeriodTStates = 10
+    deck.primeDelayTStates = 0
+    pc88.mountTape(data: Data([0x01, 0x02]))
+    deck.motorOn = true
+    deck.cmtSelected = true
+    #expect(pc88.isTapeMotorRunning)
+
+    // Feed both bytes through; the deck waits for each to be read.
+    for _ in 0..<2 {
+      deck.tick(tStates: 10)
+      _ = pc88.machine.usart.readData()
+    }
+    deck.tick(tStates: 10)
+    #expect(pc88.tapeProgress >= 1)
+    #expect(!pc88.isTapeMotorRunning)
+    // The software's motor bit is left alone.
+    #expect(deck.motorOn)
+  }
+}

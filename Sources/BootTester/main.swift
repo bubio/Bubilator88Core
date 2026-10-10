@@ -774,6 +774,7 @@ for frame in 0..<coldBootLoopFrames {
     let before = autoBoot.phase
     if let text = autoBoot.tick(
       motorRunning: m.cassette.motorOn && m.cassette.isLoaded,
+      tapeProgress: m.cassette.progress,
       typingIdle: autoPaste.isEmpty,
       screen: { m.copyTextAsUnicode() }
     ) {

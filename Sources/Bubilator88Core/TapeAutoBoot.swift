@@ -48,6 +48,10 @@ public final class TapeAutoBoot {
     case motorTimeout
     /// The load never finished.
     case loadTimeout
+    /// The whole tape was read and BASIC never got back to `Ok`, as when
+    /// `LOAD "CAS:"` searches a machine-language tape for a BASIC file that
+    /// is not there.
+    case tapeEnded
     /// BASIC reported an error.
     case basicError
   }
@@ -69,6 +73,9 @@ public final class TapeAutoBoot {
   static let motorTimeoutFrames = 600
   /// Frames to wait for a load to finish.
   static let loadTimeoutFrames = 36000
+  /// Frames BASIC gets, after the tape has been read to its end, to get back
+  /// to `Ok` before the load is given up.
+  static let tapeEndedFrames = 120
   /// Frames the motor must stay off, after running, to count as finished. It
   /// must be longer than any pause BASIC leaves between a header block and its
   /// body.
@@ -79,6 +86,7 @@ public final class TapeAutoBoot {
   private var frames = 0
   private var motorSeen = false
   private var motorOffCount = 0
+  private var atTapeEndCount = 0
   private var answeredFileCount = false
 
   /// An idle sequencer.
@@ -90,6 +98,7 @@ public final class TapeAutoBoot {
     frames = 0
     motorSeen = false
     motorOffCount = 0
+    atTapeEndCount = 0
     answeredFileCount = false
   }
 
@@ -102,12 +111,13 @@ public final class TapeAutoBoot {
   ///
   /// - Parameters:
   ///   - motorRunning: ``PC88/isTapeMotorRunning``.
+  ///   - tapeProgress: ``PC88/tapeProgress``.
   ///   - typingIdle: Whether the paste queue has nothing left to type.
   ///   - screen: The text screen, as ``PC88/copyTextAsUnicode()`` returns it.
   ///     Only called when the sequencer needs to look.
   /// - Returns: Text for the host to type, or nil.
   public func tick(
-    motorRunning: Bool, typingIdle: Bool, screen: () -> String
+    motorRunning: Bool, tapeProgress: Double, typingIdle: Bool, screen: () -> String
   ) -> String? {
     guard isActive else { return nil }
     frames += 1
@@ -158,6 +168,11 @@ public final class TapeAutoBoot {
         motorOffCount = 0
       } else {
         motorOffCount += 1
+      }
+      atTapeEndCount = tapeProgress >= 1 ? atTapeEndCount + 1 : 0
+      if atTapeEndCount > Self.tapeEndedFrames {
+        phase = .failed(.tapeEnded)
+        return nil
       }
       if frames > Self.loadTimeoutFrames {
         phase = .failed(.loadTimeout)
