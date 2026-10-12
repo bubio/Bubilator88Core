@@ -38,12 +38,16 @@ public final class TextPasteQueue {
   /// can latch the modifier state before the letter appears. Without this
   /// gap, simultaneous shift+letter pressed on the same tick is sometimes
   /// sampled as lowercase by the keyboard scanner.
-  private static let modifierDownTick = 2
-  private static let keyDownTick = 3
-  private static let keyUpTick = 9
+  private static let modifierDownTick = 0
+  private static let keyDownTick = 1
+  /// When Shift changes, N88-BASIC redraws the function key row and reads no
+  /// keys until it is done: about seven frames at worst (V1S, 4MHz, 15kHz,
+  /// memory wait on). Holding the main key ten ticks past the modifier
+  /// leaves a margin; releasing it after six lost the letter.
+  private static let keyUpTick = 10
   /// Release the modifier one tick after the main key so the letter has
   /// finished releasing before Shift goes up.
-  private static let modifierUpTick = 10
+  private static let modifierUpTick = 11
 
   private var queue: [UInt16] = []
   private var tickCount = 0

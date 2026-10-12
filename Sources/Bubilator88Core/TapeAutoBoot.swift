@@ -222,9 +222,12 @@ public final class TapeAutoBoot {
     return last == "Ok" || last == "Ok."
   }
 
-  /// Whether the last thing printed is a BASIC error message.
+  /// Whether BASIC has just reported an error: the last thing printed is an
+  /// error message, or the `Ok` BASIC prints right after one.
   static func lastLineIsError(_ lines: [String]) -> Bool {
-    guard let last = lines.last?.lowercased() else { return false }
+    var tail = lines[...]
+    if promptIsOk(lines) { tail = tail.dropLast() }
+    guard let last = tail.last?.lowercased() else { return false }
     return last.contains("error") || last.contains("bad file name")
   }
 }

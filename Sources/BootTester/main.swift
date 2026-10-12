@@ -452,6 +452,10 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
   }
   machine.bus.dipSw1 = dipSwOverride("BOOTTEST_DIPSW1", fallback: dipSw1)
   machine.bus.dipSw2 = dipSwOverride("BOOTTEST_DIPSW2", fallback: dipSw2)
+  // BOOTTEST_MEMWAIT=1 turns the memory-wait DIP (SW1-6) on.
+  if ProcessInfo.processInfo.environment["BOOTTEST_MEMWAIT"] == "1" {
+    machine.memoryWaitDip = true
+  }
   machine.loadN88BasicROM(Array(romData))
   if let data = try? Data(contentsOf: appSupport.appendingPathComponent("N80.ROM")) {
     machine.loadNBasicROM(Array(data))
@@ -769,9 +773,23 @@ let tapeAutorun = ProcessInfo.processInfo.environment["BOOTTEST_TAPE_AUTORUN"] =
 let autoBoot = TapeAutoBoot()
 let autoPaste = TextPasteQueue()
 if tapeAutorun { autoBoot.start() }
+// BOOTTEST_WARM_RESET_FRAME=<n> resets with RAM preserved at frame n, as the
+// app does when Auto Boot switches to V1S, and restarts TapeAutoBoot there.
+let warmResetFrame = Int(ProcessInfo.processInfo.environment["BOOTTEST_WARM_RESET_FRAME"] ?? "")
 
 for frame in 0..<coldBootLoopFrames {
   let subBefore = m.subSystem.subCpuTStates
+
+  if frame == warmResetFrame {
+    let use8MHz = m.clock8MHz
+    m.reset(preserveRAM: true)
+    m.clock8MHz = use8MHz
+    if tapeAutorun {
+      m.rewindTape()
+      autoBoot.start()
+    }
+    print("  Warm reset at frame \(frame)")
+  }
 
   if let text = typeEvents[frame] {
     typePaste.enqueue(text)
@@ -886,7 +904,7 @@ for frame in 0..<coldBootLoopFrames {
     }
   }
 
-  let subDelta = m.subSystem.subCpuTStates - subBefore
+  let subDelta = m.subSystem.subCpuTStates &- subBefore
   if frame % 200 == 199 || frame < 5 {
     let e69f = m.bus.mainRAM[0xE69F]
     let elapsed = Date().timeIntervalSinceReferenceDate - coldBootStart

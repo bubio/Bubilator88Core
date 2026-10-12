@@ -79,7 +79,7 @@ struct TextPasteQueueTests {
     let q = TextPasteQueue()
     q.enqueue("A")  // shift + 'a' (row 2 bit 1)
 
-    // Advance into the "pressed" window (past keyDownTick = 3).
+    // Advance into the "pressed" window (past keyDownTick = 1).
     var events: [TextPasteQueue.KeyEvent] = []
     for _ in 0..<5 { q.tick { events.append($0) } }
 
@@ -137,6 +137,25 @@ struct TextPasteQueueTests {
     #expect(shiftDown < mainDown)
     #expect(mainDown < mainUp)
     #expect(mainUp < shiftUp)
+  }
+
+  /// Regression: N88-BASIC spends about seven frames redrawing the function
+  /// key row after Shift changes (V1S, 4MHz, 15kHz, memory wait on) and reads
+  /// no keys meanwhile, so the main key has to outlast that. Released after
+  /// six frames, the first letter of `LOAD "CAS:"` was lost.
+  @Test func mainKeyOutlastsShiftRedraw() {
+    let q = TextPasteQueue()
+    q.enqueue("A")
+    var tickOf: [(key: String, down: Bool, tick: Int)] = []
+    for t in 0..<13 {
+      q.tick { ev in
+        let k = (ev.key == PC88Key(8, 6)) ? "shift" : "main"
+        tickOf.append((k, ev.down, t))
+      }
+    }
+    let shiftDown = tickOf.first { $0.key == "shift" && $0.down }!.tick
+    let mainUp = tickOf.first { $0.key == "main" && !$0.down }!.tick
+    #expect(mainUp - shiftDown >= 10)
   }
 
   @Test func newlineProducesReturnKey() {
