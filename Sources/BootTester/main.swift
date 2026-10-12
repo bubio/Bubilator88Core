@@ -709,7 +709,9 @@ var firstREADYFrame = -1
 var howManyFilesFrame = -1
 var coldBootStart = Date().timeIntervalSinceReferenceDate
 
-let coldBootLoopFrames = (ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil) ? diskBootFrames : 120
+let coldBootLoopFrames =
+  (ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil
+    || ProcessInfo.processInfo.environment["BOOTTEST_N80_PATH"] != nil) ? diskBootFrames : 120
 struct HeldKey { let row: Int; let bit: Int }
 var tapeHeldKeyReleaseFrame: [Int: [HeldKey]] = [:]
 if ProcessInfo.processInfo.environment["BOOTTEST_COLDBOOT_PORT_LOG"] == "1" {
@@ -777,6 +779,20 @@ if tapeAutorun { autoBoot.start() }
 // app does when Auto Boot switches to V1S, and restarts TapeAutoBoot there.
 let warmResetFrame = Int(ProcessInfo.processInfo.environment["BOOTTEST_WARM_RESET_FRAME"] ?? "")
 
+// BOOTTEST_N80_PATH loads a .n80 memory image the way the app does, through
+// MemoryImageBoot: N-BASIC prompt, restore, RUN if the image needs it. Boot in
+// N-BASIC with ROM boot, as the app picks with the drives empty
+// (BOOTTEST_DIPSW1=C2 BOOTTEST_DIPSW2=B9; B1 sits through the disk timeout
+// first), and set BOOTTEST_FRAMES.
+let n80Image: [UInt8]? = {
+  guard let path = ProcessInfo.processInfo.environment["BOOTTEST_N80_PATH"], !path.isEmpty,
+        let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+  return Array(data)
+}()
+let n80Boot = MemoryImageBoot()
+let n80Paste = TextPasteQueue()
+if let image = n80Image { n80Boot.start(image: image) }
+
 for frame in 0..<coldBootLoopFrames {
   let subBefore = m.subSystem.subCpuTStates
 
@@ -789,6 +805,26 @@ for frame in 0..<coldBootLoopFrames {
       autoBoot.start()
     }
     print("  Warm reset at frame \(frame)")
+  }
+
+  if n80Image != nil {
+    n80Paste.tick { event in
+      if event.down {
+        m.keyboard.pressKey(row: event.key.row, bit: event.key.bit)
+      } else {
+        m.keyboard.releaseKey(row: event.key.row, bit: event.key.bit)
+      }
+    }
+    let before = n80Boot.phase
+    switch n80Boot.tick(typingIdle: n80Paste.isEmpty, screen: { m.copyTextAsUnicode() }) {
+    case .restore(let image):
+      print("  N80 image restored at frame \(frame): \(m.restoreMemoryImage(image))")
+    case .type(let text):
+      n80Paste.enqueue(text)
+    case nil:
+      break
+    }
+    if n80Boot.phase != before { print("  N80 frame \(frame): \(n80Boot.phase)") }
   }
 
   if let text = typeEvents[frame] {

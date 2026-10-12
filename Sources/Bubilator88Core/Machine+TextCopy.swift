@@ -20,7 +20,9 @@ extension Machine {
     for row in 0..<rows {
       var line = ""
       var pendingSpaces = 0
-      for col in 0..<cols {
+      // In 40-column mode a character takes two bytes and only the first is
+      // displayed.
+      for col in stride(from: 0, to: cols, by: bus.columns80 ? 1 : 2) {
         let i = row * cols + col
         let ch = chars[i]
         let attr = i < attrs.count ? attrs[i] : 0xE0

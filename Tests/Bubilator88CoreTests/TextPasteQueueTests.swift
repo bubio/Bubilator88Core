@@ -200,4 +200,17 @@ struct MachineCopyTextTests {
     // 25 rows of newline (empty lines trimmed).
     #expect(text.filter { $0 == "\n" }.count == 25)
   }
+
+  /// In 40-column mode each character takes two bytes of the row; the second
+  /// is not displayed, so it must not come out as a space.
+  @Test func fortyColumnsReadsEveryOtherByte() {
+    let machine = Machine()
+    let row: [UInt8] = [0x4F, 0x00, 0x6B, 0x00]  // "O", "k"
+    for byte in row { machine.crtc.writeDMABuffer(byte) }
+
+    machine.bus.columns80 = true
+    #expect(machine.copyTextAsUnicode().hasPrefix("O k\n"))
+    machine.bus.columns80 = false
+    #expect(machine.copyTextAsUnicode().hasPrefix("Ok\n"))
+  }
 }
