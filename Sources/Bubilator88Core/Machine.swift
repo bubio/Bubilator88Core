@@ -859,6 +859,11 @@ package final class Machine: @unchecked Sendable {
     cdrom.mount(disc)
   }
 
+  /// Put a disc back after loading a save state, keeping the drive's state.
+  package func reattachCD(_ disc: CDDisc) {
+    cdrom.attach(disc)
+  }
+
   /// Take the disc out.
   package func ejectCD() {
     cdrom.eject()

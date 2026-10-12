@@ -371,6 +371,13 @@ public final class PC88: @unchecked Sendable {
     machine.mountCD(try CDDisc.open(url: url))
   }
 
+  /// Put the CD back after `loadSaveState`. A save state carries the
+  /// drive's position but not the disc; this inserts it without starting
+  /// the drive afresh, as `mountCD(url:)` would.
+  public func reattachCD(url: URL) throws {
+    machine.reattachCD(try CDDisc.open(url: url))
+  }
+
   /// Take the CD out.
   public func ejectCD() {
     machine.ejectCD()

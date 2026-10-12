@@ -458,6 +458,20 @@ struct CDROMTests {
     #expect(m.bus.dipSw2 & 0x08 == 0)
   }
 
+  @Test func reattachKeepsThePlayPosition() throws {
+    let disc = try Self.disc()
+    let drive = Self.drive(disc: disc)
+    let bus = Initiator(drive: drive)
+    _ = bus.command([0xD8, 0, 0x02, 0, 0, 0, 0, 0, 0, 0x80])
+    _ = bus.command([0xD9, 3, 0x00, 0, 0, 0, 0, 0, 0, 0x80])
+    _ = Self.samples(drive, 588 * 2)
+    let restored = Self.drive(disc: nil)
+    #expect(restored.deserializeState(drive.serializeState()))
+    restored.attach(disc)
+    #expect(restored.audioState == .playing)
+    #expect(restored.audioLBA == drive.audioLBA)
+  }
+
   @Test func saveStateCarriesTheMapping() throws {
     let m = Self.machine(drive: true)
     m.bus.ioWrite(0x99, value: 0x00)

@@ -221,6 +221,13 @@ package final class CDROMDrive {
     audioLBA = 0
   }
 
+  /// Puts a disc in without touching the drive's state: for a save state,
+  /// which restores the play position but not the disc.
+  package func attach(_ disc: CDDisc) {
+    self.disc = disc
+    audioSectorLoaded = -1
+  }
+
   package func eject() {
     disc = nil
     stopAudio(.stopped)

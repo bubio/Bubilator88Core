@@ -45,12 +45,32 @@ public func b88_mount_cd(_ handle: UnsafeMutableRawPointer?,
     try c.pc88.mountCD(url: URL(fileURLWithPath: path))
     return Int32(c.pc88.cdTrackCount)
   } catch let error as CDImageError {
-    switch error {
-    case .unreadable: return -1
-    case .imageFileNotFound: return -2
-    case .unsupportedTrackMode: return -3
-    case .noTracks: return -4
-    }
+    return cdErrorCode(error)
+  } catch {
+    return -1
+  }
+}
+
+private func cdErrorCode(_ error: CDImageError) -> Int32 {
+  switch error {
+  case .unreadable: return -1
+  case .imageFileNotFound: return -2
+  case .unsupportedTrackMode: return -3
+  case .noTracks: return -4
+  }
+}
+
+/// Put the CD back after `b88_load_state`, keeping the play position the
+/// state restored (`PC88.reattachCD`). Same returns as `b88_mount_cd`.
+@_cdecl("b88_reattach_cd")
+public func b88_reattach_cd(_ handle: UnsafeMutableRawPointer?,
+                            _ path: UnsafePointer<CChar>?) -> Int32 {
+  guard let c = context(handle), let path = string(path) else { return -1 }
+  do {
+    try c.pc88.reattachCD(url: URL(fileURLWithPath: path))
+    return Int32(c.pc88.cdTrackCount)
+  } catch let error as CDImageError {
+    return cdErrorCode(error)
   } catch {
     return -1
   }

@@ -186,6 +186,7 @@ struct CApiTests {
       #expect(b88_mount_cd(h, dir.appendingPathComponent("disc.bin").path) == 2)
       #expect(b88_mount_cd(h, dir.appendingPathComponent("gone.cue").path) == -2)
       #expect(b88_mount_cd(h, dir.appendingPathComponent("none.cue").path) == -1)
+      #expect(b88_reattach_cd(h, dir.appendingPathComponent("disc.cue").path) == 2)
       b88_eject_cd(h)
       #expect(b88_cd_track_count(h) == 0)
       #expect(b88_cd_activity(h) == 0)
