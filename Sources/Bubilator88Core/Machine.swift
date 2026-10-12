@@ -845,6 +845,11 @@ package final class Machine: @unchecked Sendable {
     bus.cdBiosROM = data
   }
 
+  /// Drop the CD BIOS. Like loading it, this takes effect at the next reset.
+  package func unloadCDBios() {
+    bus.cdBiosROM = nil
+  }
+
   /// Whether a CD-ROM drive is fitted. Applied at reset, like the hardware.
   package var cdDriveInstalled = false
 

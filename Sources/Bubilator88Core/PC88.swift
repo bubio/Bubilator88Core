@@ -351,6 +351,12 @@ public final class PC88: @unchecked Sendable {
     machine.loadCDBios(data)
   }
 
+  /// Drop the CD BIOS, for when CDBIOS.ROM has gone. The drive stays
+  /// inactive from the next reset, whatever `cdDriveInstalled` says.
+  public func unloadCDBios() {
+    machine.unloadCDBios()
+  }
+
   /// Whether a CD-ROM drive is fitted, as on a PC-8801MC. With the CD BIOS
   /// loaded as well, the machine starts in the CD BIOS, which boots a CD
   /// when one is in the drive and BASIC otherwise. Applied at reset.

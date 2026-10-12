@@ -438,6 +438,15 @@ struct CDROMTests {
     #expect(m.bus.ioRead(0x98) == 0xFF)
   }
 
+  @Test func unloadingTheBiosTakesTheDriveOutAtReset() {
+    let m = Self.machine(drive: true)
+    m.unloadCDBios()
+    #expect(m.cdrom.enabled)
+    m.reset()
+    #expect(!m.cdrom.enabled)
+    #expect(m.bus.memRead(0x0000) == 0x33)
+  }
+
   @Test func driveDetectionClockToggles() {
     let m = Self.machine(drive: true)
     var seen = Set<UInt8>()

@@ -16,6 +16,13 @@ public func b88_load_cd_bios(_ handle: UnsafeMutableRawPointer?,
   c.pc88.loadCDBios(data)
 }
 
+/// Drop the CD BIOS (`PC88.unloadCDBios`), for when CDBIOS.ROM has gone.
+/// Takes effect at the next `b88_reset`.
+@_cdecl("b88_unload_cd_bios")
+public func b88_unload_cd_bios(_ handle: UnsafeMutableRawPointer?) {
+  context(handle)?.pc88.unloadCDBios()
+}
+
 /// Fit (1) or remove (0) the CD-ROM drive (`PC88.cdDriveInstalled`). With
 /// the CD BIOS loaded as well, the machine starts in the CD BIOS from the
 /// next `b88_reset`.
