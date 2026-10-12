@@ -123,6 +123,25 @@ struct TapeAutoBootTests {
     #expect(boot.phase == .failed(.basicError))
   }
 
+  /// BASIC prints `Ok` after an error message, so the error is not the last
+  /// line for long. It must still stop the sequence at once, not after the
+  /// motor timeout.
+  @Test func errorFollowedByOkStopsWithoutWaitingForTheMotor() {
+    let boot = TapeAutoBoot()
+    boot.start()
+    _ = run(boot, frames: 30, screen: "Ok")
+    _ = run(boot, frames: 3, screen: "Ok")
+    _ = run(boot, frames: 12, screen: "Ok.\nOAD CAS:\nSyntax error.\nOk.")
+    #expect(boot.phase == .failed(.basicError))
+  }
+
+  @Test func errorDuringTheLoadDoesNotSendRun() {
+    let boot = loading()
+    let typed = run(boot, frames: 100, screen: "Found:TEST\nDevice I/O error\nOk")
+    #expect(typed.isEmpty)
+    #expect(boot.phase == .failed(.basicError))
+  }
+
   @Test func tapeReadToTheEndWithoutOkFails() {
     let boot = loading()
     // The deck stops at the end of the tape, so the motor reads as off.
