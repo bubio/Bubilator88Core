@@ -735,6 +735,14 @@ extension Machine {
       sections.append((tag: SaveStateFile.fourCC("CMT "), data: cmt))
     }
 
+    // CD-ROM drive (optional; omitted when the drive is not active). The
+    // disc is not included: the host mounts it again by path.
+    // CDRM layout: [cdBiosMapped(u8)][drive bytes]
+    if cdrom.enabled {
+      sections.append((tag: SaveStateFile.fourCC("CDRM"),
+                       data: [bus.cdBiosMapped ? 1 : 0] + cdrom.serializeState()))
+    }
+
     // Metadata JSON
     let disk0Name = subSystem.drives[0]?.name ?? ""
     let disk1Name = subSystem.drives[1]?.name ?? ""
@@ -793,6 +801,14 @@ extension Machine {
     } else {
       cassette.eject()
       usart.reset()
+    }
+
+    if let cd = sections[SaveStateFile.fourCC("CDRM")], cd.count > 1,
+       cdrom.deserializeState(Array(cd[1...])) {
+      bus.cdBiosMapped = cd[0] != 0 && bus.cdBiosROM != nil
+    } else {
+      cdrom.restoreAbsent()
+      bus.cdBiosMapped = false
     }
   }
 

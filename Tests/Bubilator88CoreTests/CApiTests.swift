@@ -162,4 +162,44 @@ struct CApiTests {
       #expect(b88_glyph(h, 0x41, nil, 0) == 8)
     }
   }
+
+  @Test func cdDrive() throws {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("b88-cd-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try Data(count: 2352 * 20).write(to: dir.appendingPathComponent("disc.bin"))
+    try """
+    FILE "disc.bin" BINARY
+      TRACK 01 MODE1/2352
+        INDEX 01 00:00:00
+      TRACK 02 AUDIO
+        INDEX 01 00:00:10
+    """.write(to: dir.appendingPathComponent("disc.cue"), atomically: true, encoding: .utf8)
+    try "FILE \"gone.bin\" BINARY\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"
+      .write(to: dir.appendingPathComponent("gone.cue"), atomically: true, encoding: .utf8)
+
+    withHandle { h in
+      #expect(b88_cd_track_count(h) == 0)
+      #expect(b88_mount_cd(h, dir.appendingPathComponent("disc.cue").path) == 2)
+      #expect(b88_cd_track_count(h) == 2)
+      #expect(b88_mount_cd(h, dir.appendingPathComponent("disc.bin").path) == 2)
+      #expect(b88_mount_cd(h, dir.appendingPathComponent("gone.cue").path) == -2)
+      #expect(b88_mount_cd(h, dir.appendingPathComponent("none.cue").path) == -1)
+      b88_eject_cd(h)
+      #expect(b88_cd_track_count(h) == 0)
+      #expect(b88_cd_activity(h) == 0)
+
+      b88_set_cd_drive(h, 1)
+      b88_reset(h, 0)
+      #expect(b88_is_cd_drive_active(h) == 0)  // no CD BIOS yet
+      let bios = [UInt8](repeating: 0x76, count: 0x10000)
+      b88_load_cd_bios(h, bios, Int32(bios.count))
+      b88_reset(h, 0)
+      #expect(b88_is_cd_drive_active(h) == 1)
+      b88_set_cd_drive(h, 0)
+      b88_reset(h, 0)
+      #expect(b88_is_cd_drive_active(h) == 0)
+    }
+  }
 }

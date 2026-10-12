@@ -327,6 +327,17 @@ package final class YM2608 {
   /// headless runs, where the samples would only be thrown away.
   package var audioOutputEnabled: Bool = true
 
+  /// Another stereo source mixed into the output, one sample per output
+  /// frame at 44.1kHz: the CD-ROM drive's audio. It is taken only while
+  /// output is enabled, and only into the mixed output — the immersive
+  /// per-chip buffers do not carry it.
+  package var externalSampleSource: (() -> (left: Int16, right: Int16))?
+
+  /// How loud the external source is against the chip: CD audio is mastered
+  /// near full scale, the chip's output is not.
+  /// TODO: the real line-level balance has not been measured.
+  static let externalSampleShift = 1
+
   // MARK: - Immersive Audio Output
 
   /// When true, per-channel stereo buffers are populated alongside audioBuffer.
@@ -636,7 +647,7 @@ package final class YM2608 {
         beepPhase = 0.0
       }
 
-      let (mixL, mixR) = mixOutputFrame(
+      var (mixL, mixR) = mixOutputFrame(
         fmLeft: fmOutputL,
         fmRight: fmOutputR,
         ssgSample: ssg,
@@ -645,6 +656,11 @@ package final class YM2608 {
         rhythmRight: rhythmOutputR,
         beepSample: beepSample
       )
+      if let source = externalSampleSource {
+        let (l, r) = source()
+        mixL = Self.storeSample16(mixL, Int(l) >> Self.externalSampleShift)
+        mixR = Self.storeSample16(mixR, Int(r) >> Self.externalSampleShift)
+      }
 
       // Perform a requested delay-line clear here, on the thread that owns
       // them, rather than in the `cdMixEnabled` setter.

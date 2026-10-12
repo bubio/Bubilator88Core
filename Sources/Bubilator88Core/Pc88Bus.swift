@@ -60,6 +60,25 @@ package final class Pc88Bus: Bus {
   /// N88 Extended ROM banks (4 banks x 8KB). Nil if not loaded.
   package var n88ExtROM: [[UInt8]]?
 
+  /// PC-8801MC CD BIOS (64KB). Nil if not loaded.
+  package var cdBiosROM: [UInt8]?
+
+  /// The CD BIOS fills 0x0000-0x7FFF in place of BASIC: its lower half
+  /// with RMODE=0, its upper half with RMODE=1. On at reset when the drive
+  /// is fitted (the CPU starts in it), then set by port 0x99.
+  ///
+  /// Port 0x99, from the CD BIOS's own writes: it is on with (value & 0x11)
+  /// == 0x10. 0x10 is what the BIOS records for the state it starts in
+  /// (0x007A), and what it writes before copying its own code out of
+  /// 0x5283 (0x491D). 0x00 goes back to BASIC — written before jumping to
+  /// 0x0000 to boot without the CD (0x0315) and by the games that leave the
+  /// BIOS. 0x11 comes with selecting an N88 extension ROM bank through
+  /// port 0x32 (0x0597), which needs BASIC.
+  package var cdBiosMapped = false
+
+  /// The CD-ROM drive, for ports 0x90-0x9F (bar 0x99).
+  package weak var cdrom: CDROMDrive?
+
   // MARK: - Banking State
 
   /// Port 0x31 bit 1 (RMODE): false=N-BASIC, true=N88-BASIC
@@ -451,6 +470,7 @@ package final class Pc88Bus: Bus {
 
     romModeN88 = true
     ramMode = false
+    cdBiosMapped = false
     gvramPlane = -1
     gamMode = false
     evramMode = false
@@ -760,6 +780,11 @@ package final class Pc88Bus: Bus {
       if ramMode {
         return mainRAM[Int(addr)]
       }
+      // The CD BIOS covers the whole ROM area. Every BIOS path that selects
+      // an extension ROM switches the CD BIOS off first (0x0597).
+      if cdBiosMapped {
+        return readROM(addr)
+      }
       // Ext ROM (4th ROM / external expansion) is only valid in N88 mode.
       // QUASI88 pc88main.c:411-422: in N-BASIC mode, 0x6000-0x7FFF always
       // comes from main_rom_n[0x6000] regardless of port 0x71 state.
@@ -917,6 +942,18 @@ package final class Pc88Bus: Bus {
     }
     addMainWait(read: true)
     return mainRAM[Int(addr)]
+  }
+
+  /// A byte written by DMA (the CD-ROM drive on channel 1). DMA addresses
+  /// main RAM directly — no ROM, text window or GVRAM mapping and no wait
+  /// for the CPU — except that the text area above 0xF000 goes where a CPU
+  /// write would, so the CPU can read it back.
+  package func dmaWrite(_ addr: UInt16, value: UInt8) {
+    if addr >= 0xF000 && cpuUsesTvramForTextArea {
+      tvram[Int(addr) - 0xF000] = value
+    } else {
+      mainRAM[Int(addr)] = value
+    }
   }
 
   /// Write to mainRAM or tvram (0xC000-0xFFFF fallthrough path).
@@ -1124,6 +1161,11 @@ package final class Pc88Bus: Bus {
     // PIO (sub-CPU communication)
     case 0xFC...0xFF:
       return subSystem?.pioRead(port: port8) ?? 0xFF
+
+    // CD-ROM drive. The CD BIOS treats 0xCD from port 0x99 as a machine
+    // that switches it through port 0x71 instead (0x0524); not this one.
+    case 0x90...0x9F where port8 != 0x99:
+      return cdrom?.ioRead(port8) ?? 0xFF
 
     default:
       if unimplementedReadPorts.insert(port8).inserted {
@@ -1389,6 +1431,14 @@ package final class Pc88Bus: Bus {
     case 0xFC...0xFF:
       subSystem?.pioWrite(port: port8, value: value)
 
+    // CD BIOS mapping; see `cdBiosMapped`.
+    case 0x99:
+      cdBiosMapped = (cdrom?.enabled ?? false) && cdBiosROM != nil && value & 0x11 == 0x10
+
+    // CD-ROM drive
+    case 0x90...0x9F:
+      cdrom?.ioWrite(port8, value: value)
+
     default:
       if unimplementedWritePorts.insert(port8).inserted {
         busLog.debug("Unimplemented I/O WRITE port 0x\(hex(port8)) val=0x\(hex(value))")
@@ -1504,6 +1554,10 @@ package final class Pc88Bus: Bus {
   private var nBasicROMWarned: Bool = false
 
   private func readROM(_ addr: UInt16) -> UInt8 {
+    if cdBiosMapped, let rom = cdBiosROM {
+      let offset = (romModeN88 ? 0 : 0x8000) + Int(addr)
+      return offset < rom.count ? rom[offset] : 0xFF
+    }
     if romModeN88 {
       // RMODE=0: N88-BASIC ROM (default)
       if let rom = n88BasicROM, Int(addr) < rom.count { return rom[Int(addr)] }
