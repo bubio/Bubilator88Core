@@ -92,7 +92,7 @@ let package = Package(
         ),
         .testTarget(
             name: "Bubilator88CoreTests",
-            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals", "PC88Types"]
+            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals", "PC88Types", "CApi"]
         ),
     ]
 )

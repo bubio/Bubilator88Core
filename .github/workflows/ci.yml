@@ -103,7 +103,7 @@ jobs:
       - name: Check the DLL exports
         shell: pwsh
         run: |
-          $expected = Select-String -Path Sources/CApi/CApi.swift -Pattern '@_cdecl\("([^"]+)"\)' -AllMatches |
+          $expected = Select-String -Path Sources/CApi/*.swift -Pattern '@_cdecl\("([^"]+)"\)' -AllMatches |
             ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
           # llvm-objdump は Swift ツールチェーンの bin (swift.exe の隣) にある。
           $objdump = Join-Path (Split-Path (Get-Command swift).Source -Parent) 'llvm-objdump.exe'

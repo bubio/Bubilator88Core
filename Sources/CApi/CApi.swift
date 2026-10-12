@@ -58,6 +58,25 @@ public final class B88Context {
   var fddSeekCount: [Int32] = [0, 0]
   var fddAccessPulse: [Bool] = [false, false]
 
+  /// The immersive-audio stems (FM, SSG, ADPCM, rhythm) taken from the core
+  /// alongside `pendingAudio` and not yet drained by `b88_drain_audio_stem`.
+  /// Empty unless immersive output is on.
+  var pendingStems: [[Float]] = [[], [], [], []]
+
+  /// Drives that `PC88.onDiskWritten` reported since `b88_take_disk_written`
+  /// last looked. macOS starts its write-back timer from the callback; the
+  /// C ABI polls instead.
+  var diskWritten: [Bool] = [false, false]
+  /// Last image taken by `b88_take_dirty_disk`, for `b88_take_dirty_disk_read`.
+  var dirtyDiskBlob: [UInt8] = []
+
+  /// Text typed as key presses (Paste Text), and the two sequencers that type
+  /// through it: Tape Auto Boot and the `.n80` memory-image load. The same
+  /// trio the macOS view model keeps.
+  let pasteQueue = TextPasteQueue()
+  let tapeAutoBoot = TapeAutoBoot()
+  let memoryImageBoot = MemoryImageBoot()
+
   init() {
     pc88.onFDDEvent = { [weak self] drive, event in
       guard let self, drive < 2 else { return }
@@ -66,19 +85,60 @@ public final class B88Context {
       case .access:   self.fddAccessPulse[drive] = true
       }
     }
+    pc88.onDiskWritten = { [weak self] drive in
+      guard let self, drive >= 0, drive < 2 else { return }
+      self.diskWritten[drive] = true
+    }
   }
 }
 
 @inline(__always)
-private func context(_ handle: UnsafeMutableRawPointer?) -> B88Context? {
+func context(_ handle: UnsafeMutableRawPointer?) -> B88Context? {
   guard let handle else { return nil }
   return Unmanaged<B88Context>.fromOpaque(handle).takeUnretainedValue()
 }
 
 @inline(__always)
-private func bytes(_ ptr: UnsafePointer<UInt8>?, _ len: Int32) -> [UInt8] {
+func bytes(_ ptr: UnsafePointer<UInt8>?, _ len: Int32) -> [UInt8] {
   guard let ptr, len > 0 else { return [] }
   return Array(UnsafeBufferPointer(start: ptr, count: Int(len)))
+}
+
+/// Copy `data` into a host buffer of `cap` bytes. Returns `data.count`, the
+/// size the host needs, whether or not it all fitted; pass a nil buffer to
+/// ask for the size first.
+@inline(__always)
+func copyOut(_ data: [UInt8], _ out: UnsafeMutablePointer<UInt8>?, _ cap: Int32) -> Int32 {
+  if let out, cap > 0 {
+    let n = min(Int(cap), data.count)
+    data.withUnsafeBufferPointer { src in
+      if n > 0 { out.update(from: src.baseAddress!, count: n) }
+    }
+  }
+  return Int32(data.count)
+}
+
+/// Copy `text` as NUL-terminated UTF-8 into a host buffer of `cap` bytes,
+/// cutting it short if needed. Returns the UTF-8 length without the NUL;
+/// pass a nil buffer to ask for it first (allocate one byte more).
+@inline(__always)
+func copyOutString(_ text: String, _ out: UnsafeMutablePointer<UInt8>?, _ cap: Int32) -> Int32 {
+  let utf8 = Array(text.utf8)
+  if let out, cap > 0 {
+    let n = min(Int(cap) - 1, utf8.count)
+    utf8.withUnsafeBufferPointer { src in
+      if n > 0 { out.update(from: src.baseAddress!, count: n) }
+    }
+    out[n] = 0
+  }
+  return Int32(utf8.count)
+}
+
+/// A NUL-terminated UTF-8 string from the host, or nil.
+@inline(__always)
+func string(_ ptr: UnsafePointer<CChar>?) -> String? {
+  guard let ptr else { return nil }
+  return String(cString: ptr)
 }
 
 // MARK: - Lifecycle
@@ -508,7 +568,7 @@ public func b88_drain_audio(_ handle: UnsafeMutableRawPointer?,
                             _ outPtr: UnsafeMutablePointer<Float>?,
                             _ maxPairs: Int32) -> Int32 {
   guard let c = context(handle), let outPtr, maxPairs > 0 else { return 0 }
-  c.pendingAudio.append(contentsOf: c.pc88.takeAudioSamples().stereo)
+  c.takeAudio()
   let available = c.pendingAudio.count               // interleaved floats
   let wantFloats = Int(maxPairs) * 2
   let copyFloats = min(wantFloats, available)
