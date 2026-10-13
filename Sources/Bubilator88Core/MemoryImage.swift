@@ -216,7 +216,7 @@ public final class MemoryImageBoot {
     return (0..<19).compactMap { row in
       let start = base + row * rowBytes
       let chars = stride(from: start, to: start + 80, by: 2).map { image[$0] }
-      let text = String(decoding: chars.map { (0x21...0x7E).contains($0) ? $0 : 0x20 }, as: UTF8.self)
+      let text = String(bytes: chars.map { (0x21...0x7E).contains($0) ? $0 : 0x20 }, encoding: .ascii)!
         .trimmingCharacters(in: .whitespaces)
       return text.isEmpty ? nil : text
     }

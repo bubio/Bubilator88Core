@@ -201,8 +201,10 @@ public struct D88Disk: Sendable {
     // Disk name (17 bytes, null-terminated, Shift-JIS encoded)
     let nameBytes = Array(data[0..<17])
     let trimmedBytes = Data(nameBytes.prefix(while: { $0 != 0 }))
+    // Names that are not valid Shift-JIS still get a lossy UTF-8 rendering
+    // rather than none, so the failable initializer is not wanted here.
     disk.name = String(data: trimmedBytes, encoding: .shiftJIS)
-      ?? String(decoding: trimmedBytes, as: UTF8.self)
+      ?? String(decoding: trimmedBytes, as: UTF8.self)  // swiftlint:disable:this optional_data_string_conversion
 
     // Write protect
     disk.writeProtected = data[0x1A] == 0x10

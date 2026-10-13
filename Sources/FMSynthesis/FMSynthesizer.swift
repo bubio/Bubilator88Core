@@ -381,7 +381,7 @@ struct FMOp {
         paramChanged = true
       }
       if ssgType != 0 {
-        ssgPhase = ssgPhase + 1
+        ssgPhase += 1
         if ssgPhase > 2 { ssgPhase = 1 }
         let m = ar >= ((ssgType == FM.ssgTypeAlt1 || ssgType == FM.ssgTypeAlt2) ? UInt32(FM.ssgARThresholdAlt) : UInt32(FM.ssgARThresholdDefault)) ? 1 : 0
         let phase = max(0, min(ssgPhase, 2))

@@ -23,7 +23,7 @@ struct CApiTests {
     let again = buffer.withUnsafeMutableBufferPointer { fill($0.baseAddress, Int32($0.count)) }
     #expect(again == length)
     #expect(buffer[Int(length)] == 0)
-    return String(decoding: buffer[0..<Int(length)], as: UTF8.self)
+    return String(bytes: buffer[0..<Int(length)], encoding: .utf8)
   }
 
   private func readBytes(_ fill: (UnsafeMutablePointer<UInt8>?, Int32) -> Int32) -> [UInt8] {

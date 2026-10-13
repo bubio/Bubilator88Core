@@ -563,7 +563,7 @@ func runScriptMode(scriptPath: String) -> Never {
   // CPU instruction trace, same format and env vars as the disk-boot path.
   // Script mode has no per-VSYNC frame counter to gate on, so
   // BOOTTEST_CPU_TRACE_START_FRAME is ignored here; f=0 always.
-  var scriptCpuTraceHandle: FileHandle? = nil
+  var scriptCpuTraceHandle: FileHandle?
   var scriptCpuTraceSeq: Int = 0
   if let cpuTracePath {
     FileManager.default.createFile(atPath: cpuTracePath, contents: nil)
@@ -1498,7 +1498,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
 
     // PIO flow trace (lightweight, uses PIOFlowEntry JSONL format)
     var pioFlowSeq: Int = 0
-    var pioFlowHandle: FileHandle? = nil
+    var pioFlowHandle: FileHandle?
     if let pioFlowPath {
       FileManager.default.createFile(atPath: pioFlowPath, contents: nil)
       pioFlowHandle = FileHandle(forWritingAtPath: pioFlowPath)
@@ -1539,7 +1539,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
 
     // CPU instruction trace (per-opcode pre-fetch state).
     // Format: seq=N f=F PC=XXXX AF=XXXX BC=XXXX DE=XXXX HL=XXXX IX=XXXX IY=XXXX SP=XXXX I=XX R=XX IFF=X
-    var cpuTraceHandle: FileHandle? = nil
+    var cpuTraceHandle: FileHandle?
     var cpuTraceSeq: Int = 0
     if let cpuTracePath {
       FileManager.default.createFile(atPath: cpuTracePath, contents: nil)
@@ -1567,7 +1567,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
 
     // FDC data byte trace: logs premature 0xFF reads (readByteReady=false)
     let fdcDataTracePath = ProcessInfo.processInfo.environment["BOOTTEST_FDC_DATA_TRACE_PATH"] ?? ""
-    var fdcDataTraceHandle: FileHandle? = nil
+    var fdcDataTraceHandle: FileHandle?
     var fdcDataTraceSeq: Int = 0
     if !fdcDataTracePath.isEmpty {
       FileManager.default.createFile(atPath: fdcDataTracePath, contents: nil)

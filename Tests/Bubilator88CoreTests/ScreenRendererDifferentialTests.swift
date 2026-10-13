@@ -404,14 +404,14 @@ struct ScreenRendererDifferentialTests {
         graphicsDisplayEnabled: graphicsDisplayEnabled, into: &expected
       )
 
-      let firstDiff = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
+      let firstDiff = zip(actual.indices, zip(actual, expected)).first { $0.1.0 != $0.1.1 }?.0
       #expect(
         firstDiff == nil,
         """
         trial \(trial) (cols80=\(columns80) rows=\(textRows) \
         gfx=\(graphicsDisplayEnabled) palette=\(paletteCount) \
         attrLen=\(attrData.count)) diverged at byte \
-        \(firstDiff?.offset ?? -1)
+        \(firstDiff ?? -1)
         """
       )
     }
@@ -449,14 +449,14 @@ struct ScreenRendererDifferentialTests {
         graphicsDisplayEnabled: graphicsDisplayEnabled, into: &expected
       )
 
-      let firstDiff = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
+      let firstDiff = zip(actual.indices, zip(actual, expected)).first { $0.1.0 != $0.1.1 }?.0
       #expect(
         firstDiff == nil,
         """
         trial \(trial) (cols80=\(columns80) rows=\(textRows) \
         gfx=\(graphicsDisplayEnabled) palette=\(paletteCount) \
         attrLen=\(attrData.count)) diverged at byte \
-        \(firstDiff?.offset ?? -1)
+        \(firstDiff ?? -1)
         """
       )
     }
@@ -573,14 +573,14 @@ struct ScreenRendererDifferentialTests {
         cursorBlock: cursorBlock, is400Line: is400Line, skipLine: skipLine, into: &expected
       )
 
-      let firstDiff = zip(actual, expected).enumerated().first { $0.element.0 != $0.element.1 }
+      let firstDiff = zip(actual.indices, zip(actual, expected)).first { $0.1.0 != $0.1.1 }?.0
       #expect(
         firstDiff == nil,
         """
         trial \(trial) (cols80=\(columns80) color=\(colorMode) \
         attrGraph=\(attributeGraphMode) is400Line=\(is400Line) skipLine=\(skipLine) \
         rows=\(textRows) cursor=\(cursorX),\(cursorY) visible=\(cursorVisible) \
-        block=\(cursorBlock)) diverged at byte \(firstDiff?.offset ?? -1)
+        block=\(cursorBlock)) diverged at byte \(firstDiff ?? -1)
         """
       )
     }
