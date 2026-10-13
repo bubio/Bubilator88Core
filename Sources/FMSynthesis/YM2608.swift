@@ -329,8 +329,8 @@ package final class YM2608 {
 
   /// Another stereo source mixed into the output, one sample per output
   /// frame at 44.1kHz: the CD-ROM drive's audio. It is taken only while
-  /// output is enabled, and only into the mixed output — the immersive
-  /// per-chip buffers do not carry it.
+  /// output is enabled. It is not part of the chip, so the immersive output
+  /// gives it a buffer of its own, `cdSpatialBuffer`.
   package var externalSampleSource: (() -> (left: Int16, right: Int16))?
 
   /// How loud the external source is against the chip: CD audio is mastered
@@ -351,6 +351,8 @@ package final class YM2608 {
   package var ssgSpatialBuffer: [Float] = []
   package var adpcmSpatialBuffer: [Float] = []
   package var rhythmSpatialBuffer: [Float] = []
+  /// The external source (CD audio) alone, at the level it has in the mix.
+  package var cdSpatialBuffer: [Float] = []
 
   // MARK: - CD Mix Post Processing
 
@@ -532,6 +534,7 @@ package final class YM2608 {
     ssgSpatialBuffer = []
     adpcmSpatialBuffer = []
     rhythmSpatialBuffer = []
+    cdSpatialBuffer = []
     resetPostProcessors()
     fmKeyOnMask = 0
     fmSynth.reset()
@@ -656,10 +659,14 @@ package final class YM2608 {
         rhythmRight: rhythmOutputR,
         beepSample: beepSample
       )
+      var externalL = 0
+      var externalR = 0
       if let source = externalSampleSource {
         let (l, r) = source()
-        mixL = Self.storeSample16(mixL, Int(l) >> Self.externalSampleShift)
-        mixR = Self.storeSample16(mixR, Int(r) >> Self.externalSampleShift)
+        externalL = Int(l) >> Self.externalSampleShift
+        externalR = Int(r) >> Self.externalSampleShift
+        mixL = Self.storeSample16(mixL, externalL)
+        mixR = Self.storeSample16(mixR, externalR)
       }
 
       // Perform a requested delay-line clear here, on the thread that owns
@@ -719,6 +726,10 @@ package final class YM2608 {
         let (rhOutL, rhOutR) = shaped(3, Float(rhL) / scale, Float(rhR) / scale)
         rhythmSpatialBuffer.append(rhOutL)
         rhythmSpatialBuffer.append(rhOutR)
+
+        // CD audio: already a finished recording, so not shaped.
+        cdSpatialBuffer.append(Float(externalL) / scale)
+        cdSpatialBuffer.append(Float(externalR) / scale)
       }
     }
   }

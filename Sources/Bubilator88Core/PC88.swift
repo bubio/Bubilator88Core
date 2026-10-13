@@ -526,6 +526,9 @@ public final class PC88: @unchecked Sendable {
     public var adpcm: [Float]
     /// The rhythm section alone. Empty unless `immersiveOutputEnabled`.
     public var rhythm: [Float]
+    /// The CD-ROM drive's audio alone; silence while no disc is playing.
+    /// Empty unless `immersiveOutputEnabled`.
+    public var cd: [Float]
   }
 
   /// Take the audio produced by `runFrame()` so far and clear the chip's
@@ -536,7 +539,8 @@ public final class PC88: @unchecked Sendable {
                                fm: sound.fmSpatialBuffer,
                                ssg: sound.ssgSpatialBuffer,
                                adpcm: sound.adpcmSpatialBuffer,
-                               rhythm: sound.rhythmSpatialBuffer)
+                               rhythm: sound.rhythmSpatialBuffer,
+                               cd: sound.cdSpatialBuffer)
     // keepingCapacity: the chip appends every sample, so do not make it
     // regrow the buffers from empty each frame.
     sound.audioBuffer.removeAll(keepingCapacity: true)
@@ -544,6 +548,7 @@ public final class PC88: @unchecked Sendable {
     sound.ssgSpatialBuffer.removeAll(keepingCapacity: true)
     sound.adpcmSpatialBuffer.removeAll(keepingCapacity: true)
     sound.rhythmSpatialBuffer.removeAll(keepingCapacity: true)
+    sound.cdSpatialBuffer.removeAll(keepingCapacity: true)
     return samples
   }
 

@@ -52,8 +52,10 @@ struct CApiTests {
   @Test func badStemIsRejected() {
     withHandle { h in
       var out = [Float](repeating: 0, count: 8)
-      #expect(b88_drain_audio_stem(h, 4, &out, 4) == -1)
+      #expect(b88_drain_audio_stem(h, 5, &out, 4) == -1)
+      #expect(b88_drain_audio_stem(h, -1, &out, 4) == -1)
       #expect(b88_drain_audio_stem(h, 0, &out, 4) == 0)
+      #expect(b88_drain_audio_stem(h, 4, &out, 4) == 0)
     }
   }
 
@@ -66,6 +68,7 @@ struct CApiTests {
       #expect(pairs > 0)
       var stem = [Float](repeating: 0, count: 8192)
       #expect(b88_drain_audio_stem(h, 1, &stem, 4096) == pairs)
+      #expect(b88_drain_audio_stem(h, 4, &stem, 4096) == pairs)
     }
   }
 

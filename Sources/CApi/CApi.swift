@@ -58,10 +58,11 @@ public final class B88Context {
   var fddSeekCount: [Int32] = [0, 0]
   var fddAccessPulse: [Bool] = [false, false]
 
-  /// The immersive-audio stems (FM, SSG, ADPCM, rhythm) taken from the core
-  /// alongside `pendingAudio` and not yet drained by `b88_drain_audio_stem`.
+  /// The immersive-audio stems (FM, SSG, ADPCM, rhythm, then CD audio) taken
+  /// from the core alongside `pendingAudio` and not yet drained by
+  /// `b88_drain_audio_stem`.
   /// Empty unless immersive output is on.
-  var pendingStems: [[Float]] = [[], [], [], []]
+  var pendingStems: [[Float]] = [[], [], [], [], []]
 
   /// Drives that `PC88.onDiskWritten` reported since `b88_take_disk_written`
   /// last looked. macOS starts its write-back timer from the callback; the
