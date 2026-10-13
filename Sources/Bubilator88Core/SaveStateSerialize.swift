@@ -187,7 +187,9 @@ extension Pc88Bus {
       }
       extRAM = ext
     } else {
-      // Don't clear extRAM if it was already installed — just skip
+      // Saved without extended RAM: take out whatever this machine has, or
+      // the program would see RAM it never had.
+      extRAM = nil
     }
     extRAMWriteEnable = try r.readBool()
     extRAMReadEnable = try r.readBool()

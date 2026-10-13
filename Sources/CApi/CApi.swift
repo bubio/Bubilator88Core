@@ -364,6 +364,14 @@ public func b88_install_ext_ram(_ handle: UnsafeMutableRawPointer?, _ cards: Int
   context(handle)?.pc88.installExtRAM(cards: Int(cards), banksPerCard: 4)
 }
 
+/// Extended RAM cards installed (0 = none, 1 = 128KB, 8 = 1MB). Used after a
+/// save-state load to re-sync the host setting, since the state carries its
+/// own extended RAM.
+@_cdecl("b88_get_ext_ram_cards")
+public func b88_get_ext_ram_cards(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+  Int32(context(handle)?.pc88.extRAMCards ?? 0)
+}
+
 @_cdecl("b88_set_clock_8mhz")
 public func b88_set_clock_8mhz(_ handle: UnsafeMutableRawPointer?, _ on: Int32) {
   context(handle)?.pc88.clock8MHz = (on != 0)

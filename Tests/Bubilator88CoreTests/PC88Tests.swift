@@ -150,6 +150,34 @@ struct PC88Tests {
     #expect(restored.machine.bus.mainRAM[0x9000] == 0x5A)
   }
 
+  @Test func saveStateCarriesTheExtendedRAMSize() throws {
+    let pc88 = PC88()
+    pc88.installExtRAM(cards: 8)
+    pc88.reset()
+    pc88.machine.bus.extRAM?[7][3][0x10] = 0xA5
+    let state = pc88.createSaveState()
+
+    let restored = PC88()
+    restored.installExtRAM(cards: 1)
+    restored.reset()
+    try restored.loadSaveState(state)
+    #expect(restored.extRAMCards == 8)
+    #expect(restored.machine.bus.extRAM?[7][3][0x10] == 0xA5)
+  }
+
+  @Test func saveStateWithoutExtendedRAMRemovesIt() throws {
+    let pc88 = PC88()
+    pc88.installExtRAM(cards: 0)
+    pc88.reset()
+    let state = pc88.createSaveState()
+
+    let restored = PC88()
+    restored.installExtRAM(cards: 1)
+    restored.reset()
+    try restored.loadSaveState(state)
+    #expect(restored.extRAMCards == 0)
+  }
+
   @Test func loadingOverAMountedDiskSeatsTheStateDiskImmediately() throws {
     let pc88 = PC88()
     pc88.reset()

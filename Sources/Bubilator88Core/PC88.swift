@@ -102,6 +102,13 @@ public final class PC88: @unchecked Sendable {
     machine.installExtRAM(cards: cards, banksPerCard: banksPerCard)
   }
 
+  /// Extended RAM cards installed: 0 = none, 1 = 128KB, 8 = 1MB. A loaded
+  /// save state brings its own, so a host reads this afterwards to match its
+  /// setting to the machine.
+  public var extRAMCards: Int {
+    machine.bus.extRAM?.count ?? 0
+  }
+
   // MARK: - ROMs
 
   /// The ROM images a host loads. None are bundled.
