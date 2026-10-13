@@ -55,6 +55,9 @@ package final class Machine: @unchecked Sendable {
   package let calendar: UPD1990A
   package let usart: I8251
   package let cassette: CassetteDeck
+  /// PC-8801MC CD-ROM drive. Present on every machine; it only answers when
+  /// `cdDriveInstalled` and the CD BIOS were in place at the last reset.
+  package let cdrom: CDROMDrive
   package let mouse: Mouse
 
   /// Total T-states elapsed since reset
@@ -196,6 +199,7 @@ package final class Machine: @unchecked Sendable {
       bus.cpuClock8MHz = clock8MHz
       sound.clock8MHz = clock8MHz
       cassette.cpuClockHz = cpuClock
+      cdrom.cpuClockHz = cpuClock
     }
   }
 
@@ -300,6 +304,8 @@ package final class Machine: @unchecked Sendable {
     self.cassette = CassetteDeck(usart: usart)
     self.cassette.cpuClockHz = 7_987_248.0  // `clock8MHz` starts true
     self.mouse = Mouse()
+    self.cdrom = CDROMDrive()
+    self.cdrom.cpuClockHz = 7_987_248.0
 
     // Wire up: Bus holds weak refs to components
     bus.keyboard = keyboard
@@ -312,6 +318,14 @@ package final class Machine: @unchecked Sendable {
     bus.usart = usart
     bus.cassette = cassette
     bus.mouse = mouse
+    bus.cdrom = cdrom
+    cdrom.dma = dma
+    cdrom.writeMemory = { [unowned bus] address, value in
+      bus.dmaWrite(address, value: value)
+    }
+    sound.externalSampleSource = { [unowned cdrom] in
+      cdrom.nextSample()
+    }
 
     // Wire CRTC VSYNC → interrupt controller + bus VRTC flag
     crtc.onVSYNC = { [weak self] in
@@ -372,6 +386,9 @@ package final class Machine: @unchecked Sendable {
     calendar.reset()
     usart.reset()
     mouse.reset()
+    cdrom.reset()
+    cdrom.enabled = isCDDriveFitted
+    bus.cdBiosMapped = cdrom.enabled
     totalTStates = 0
     rtcCounter = 0
     subAccumClocks = 0
@@ -436,10 +453,16 @@ package final class Machine: @unchecked Sendable {
   /// Derives DIPSW2 bit 3 from whether drive 0 is currently occupied and writes
   /// the result to `bus.dipSw2`. With `base` omitted the current `bus.dipSw2` is
   /// the starting point, so only bit 3 changes.
+  ///
+  /// With the CD drive fitted the machine boots from the CD BIOS, so it is
+  /// left on disk boot, the factory setting: the ROM-boot fallback exists
+  /// only to skip the floppy timeout, and CD software runs with the disk
+  /// unit in use (Mirrors waits forever for it on a ROM boot).
   package func applyBootStrap(base: UInt8? = nil) {
     let start = base ?? bus.dipSw2
-    bus.dipSw2 = Machine.resolvedBootStrap(base: start,
-                                           hasDiskInDrive0: subSystem.drives[0] != nil)
+    bus.dipSw2 = Machine.resolvedBootStrap(
+      base: start,
+      hasDiskInDrive0: subSystem.drives[0] != nil || isCDDriveFitted)
   }
 
   /// Drive the sub-CPU on the elapsed main-CPU time window using BubiC's
@@ -537,6 +560,7 @@ package final class Machine: @unchecked Sendable {
     chargeStolenTStates()
     sound.tick(tStates: totalCycles)
     cassette.tick(tStates: totalCycles)
+    cdrom.tick(tStates: totalCycles)
     driveSub(mainCycles: totalCycles)
 
     // Sync VRTC flag from CRTC to bus
@@ -561,6 +585,7 @@ package final class Machine: @unchecked Sendable {
       chargeStolenTStates()
       sound.tick(tStates: ackCycles)
       cassette.tick(tStates: ackCycles)
+      cdrom.tick(tStates: ackCycles)
       totalTStates += UInt64(ackCycles)
       rtcCounter += ackCycles
     }
@@ -622,6 +647,7 @@ package final class Machine: @unchecked Sendable {
         crtc.tick(tStates: realCycles, tStatesPerFrame: _tStatesPerFrame)
         chargeStolenTStates()
         cassette.tick(tStates: realCycles)
+        cdrom.tick(tStates: realCycles)
         soundAccum += realCycles
         if soundAccum >= _soundBatchThreshold {
           sound.tick(tStates: soundAccum)
@@ -652,6 +678,7 @@ package final class Machine: @unchecked Sendable {
           crtc.tick(tStates: ackReal, tStatesPerFrame: _tStatesPerFrame)
           chargeStolenTStates()
           cassette.tick(tStates: ackReal)
+          cdrom.tick(tStates: ackReal)
           soundAccum += ackReal
           totalTStates += UInt64(ackReal)
           rtcCounter += ackReal
@@ -813,6 +840,40 @@ package final class Machine: @unchecked Sendable {
   }
 
   /// Load DISK.ROM firmware for sub-CPU (8KB).
+  /// Load the PC-8801MC CD BIOS (64KB). Takes effect at the next reset.
+  package func loadCDBios(_ data: [UInt8]) {
+    bus.cdBiosROM = data
+  }
+
+  /// Drop the CD BIOS. Like loading it, this takes effect at the next reset.
+  package func unloadCDBios() {
+    bus.cdBiosROM = nil
+  }
+
+  /// Whether a CD-ROM drive is fitted. Applied at reset, like the hardware.
+  package var cdDriveInstalled = false
+
+  /// The drive will be active from the next reset: fitted, with the CD
+  /// BIOS loaded.
+  package var isCDDriveFitted: Bool {
+    cdDriveInstalled && bus.cdBiosROM != nil
+  }
+
+  /// Insert a disc.
+  package func mountCD(_ disc: CDDisc) {
+    cdrom.mount(disc)
+  }
+
+  /// Put a disc back after loading a save state, keeping the drive's state.
+  package func reattachCD(_ disc: CDDisc) {
+    cdrom.attach(disc)
+  }
+
+  /// Take the disc out.
+  package func ejectCD() {
+    cdrom.eject()
+  }
+
   package func loadDiskROM(_ data: [UInt8]) {
     subSystem.diskROM = data
   }

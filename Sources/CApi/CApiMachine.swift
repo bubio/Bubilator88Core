@@ -11,8 +11,8 @@ extension B88Context {
   func takeAudio() {
     let samples = pc88.takeAudioSamples()
     pendingAudio.append(contentsOf: samples.stereo)
-    let stems = [samples.fm, samples.ssg, samples.adpcm, samples.rhythm]
-    for i in 0..<4 where !stems[i].isEmpty {
+    let stems = [samples.fm, samples.ssg, samples.adpcm, samples.rhythm, samples.cd]
+    for i in stems.indices where !stems[i].isEmpty {
       pendingStems[i].append(contentsOf: stems[i])
       // A host that turns immersive output on but never drains a stem would
       // otherwise grow it for ever; keep one second.
@@ -78,19 +78,19 @@ public func b88_get_force_opn(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 public func b88_set_immersive_output(_ handle: UnsafeMutableRawPointer?, _ on: Int32) {
   guard let c = context(handle) else { return }
   c.pc88.immersiveOutputEnabled = (on != 0)
-  if on == 0 { c.pendingStems = [[], [], [], []] }
+  if on == 0 { c.pendingStems = [[], [], [], [], []] }
 }
 
 /// Drain up to `maxPairs` stereo pairs of one stem: 0 = FM (with the
-/// beeper), 1 = SSG, 2 = ADPCM, 3 = rhythm. They cover the same span as
-/// `b88_drain_audio`, which is what takes them from the core, so call it
-/// first each time. Returns the pairs written, -1 for a bad stem.
+/// beeper), 1 = SSG, 2 = ADPCM, 3 = rhythm, 4 = CD audio (silence while no
+/// disc is playing). They cover the same span as `b88_drain_audio`, which
+/// is what takes them from the core, so call it first each time. Returns the pairs written, -1 for a bad stem.
 @_cdecl("b88_drain_audio_stem")
 public func b88_drain_audio_stem(_ handle: UnsafeMutableRawPointer?,
                                  _ stem: Int32,
                                  _ outPtr: UnsafeMutablePointer<Float>?,
                                  _ maxPairs: Int32) -> Int32 {
-  guard let c = context(handle), (0..<4).contains(stem) else { return -1 }
+  guard let c = context(handle), c.pendingStems.indices.contains(Int(stem)) else { return -1 }
   guard let outPtr, maxPairs > 0 else { return 0 }
   let i = Int(stem)
   let n = min(Int(maxPairs) * 2, c.pendingStems[i].count)

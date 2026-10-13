@@ -15,6 +15,7 @@
 import Foundation
 @_exported import PC88Types
 import FMSynthesis
+import Peripherals
 
 /// A PC-8801-FA: the whole machine behind one object.
 ///
@@ -342,6 +343,68 @@ public final class PC88: @unchecked Sendable {
     machine.cassette.progress
   }
 
+  // MARK: - CD-ROM
+
+  /// Load the PC-8801MC CD BIOS, CDBIOS.ROM (64KB). Takes effect at the
+  /// next reset.
+  public func loadCDBios(_ data: [UInt8]) {
+    machine.loadCDBios(data)
+  }
+
+  /// Drop the CD BIOS, for when CDBIOS.ROM has gone. The drive stays
+  /// inactive from the next reset, whatever `cdDriveInstalled` says.
+  public func unloadCDBios() {
+    machine.unloadCDBios()
+  }
+
+  /// Whether a CD-ROM drive is fitted, as on a PC-8801MC. With the CD BIOS
+  /// loaded as well, the machine starts in the CD BIOS, which boots a CD
+  /// when one is in the drive and BASIC otherwise. Applied at reset.
+  public var cdDriveInstalled: Bool {
+    get { machine.cdDriveInstalled }
+    set { machine.cdDriveInstalled = newValue }
+  }
+
+  /// Whether the drive took effect at the last reset.
+  public var isCDDriveActive: Bool {
+    machine.cdrom.enabled
+  }
+
+  /// Insert a CD: a `.cue` or `.ccd` sheet, or the `.img` / `.bin` next to
+  /// one. Sectors are read from the files as they are needed, so they have
+  /// to stay in place while the disc is in.
+  public func mountCD(url: URL) throws {
+    machine.mountCD(try CDDisc.open(url: url))
+  }
+
+  /// Put the CD back after `loadSaveState`. A save state carries the
+  /// drive's position but not the disc; this inserts it without starting
+  /// the drive afresh, as `mountCD(url:)` would.
+  public func reattachCD(url: URL) throws {
+    machine.reattachCD(try CDDisc.open(url: url))
+  }
+
+  /// Take the CD out.
+  public func ejectCD() {
+    machine.ejectCD()
+  }
+
+  /// Whether a CD is in the drive.
+  public var isCDMounted: Bool {
+    machine.cdrom.disc != nil
+  }
+
+  /// Tracks on the CD in the drive, 0 when it is empty.
+  public var cdTrackCount: Int {
+    machine.cdrom.disc?.tracks.count ?? 0
+  }
+
+  /// Whether the drive has been busy since the last call, for an access
+  /// lamp. Clears the flag.
+  public func takeCDActivity() -> Bool {
+    machine.cdrom.takeActivity()
+  }
+
   // MARK: - Keyboard
 
   /// Hold a key down until `releaseKey(_:)`. Software sees it the next time
@@ -463,6 +526,9 @@ public final class PC88: @unchecked Sendable {
     public var adpcm: [Float]
     /// The rhythm section alone. Empty unless `immersiveOutputEnabled`.
     public var rhythm: [Float]
+    /// The CD-ROM drive's audio alone; silence while no disc is playing.
+    /// Empty unless `immersiveOutputEnabled`.
+    public var cd: [Float]
   }
 
   /// Take the audio produced by `runFrame()` so far and clear the chip's
@@ -473,7 +539,8 @@ public final class PC88: @unchecked Sendable {
                                fm: sound.fmSpatialBuffer,
                                ssg: sound.ssgSpatialBuffer,
                                adpcm: sound.adpcmSpatialBuffer,
-                               rhythm: sound.rhythmSpatialBuffer)
+                               rhythm: sound.rhythmSpatialBuffer,
+                               cd: sound.cdSpatialBuffer)
     // keepingCapacity: the chip appends every sample, so do not make it
     // regrow the buffers from empty each frame.
     sound.audioBuffer.removeAll(keepingCapacity: true)
@@ -481,6 +548,7 @@ public final class PC88: @unchecked Sendable {
     sound.ssgSpatialBuffer.removeAll(keepingCapacity: true)
     sound.adpcmSpatialBuffer.removeAll(keepingCapacity: true)
     sound.rhythmSpatialBuffer.removeAll(keepingCapacity: true)
+    sound.cdSpatialBuffer.removeAll(keepingCapacity: true)
     return samples
   }
 

@@ -507,6 +507,29 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
     }
     print("  Tape mounted: \(tapePath) (\(fmt == .t88 ? "T88" : "CMT"), buffer \(machine.cassette.buffer.count) bytes, carriers \(machine.cassette.dataCarriers.count), bytePeriod=\(machine.cassette.bytePeriodTStates), primeDelay=\(machine.cassette.primeDelayTStates))")
   }
+  // BOOTTEST_CD_PATH=<.cue/.ccd> fits the CD-ROM drive, loads CDBIOS.ROM
+  // and inserts the disc, so the machine starts in the CD BIOS.
+  if let cdPath = ProcessInfo.processInfo.environment["BOOTTEST_CD_PATH"], !cdPath.isEmpty {
+    if let data = try? Data(contentsOf: appSupport.appendingPathComponent("CDBIOS.ROM")) {
+      machine.loadCDBios(Array(data))
+    } else {
+      print("  CDBIOS.ROM not found in \(appSupport.path)")
+    }
+    machine.cdDriveInstalled = true
+    // The reset above ran before the BIOS was loaded; bring the drive up as
+    // that reset would have.
+    machine.cdrom.reset()
+    machine.cdrom.enabled = machine.isCDDriveFitted
+    machine.bus.cdBiosMapped = machine.cdrom.enabled
+    machine.applyBootStrap()
+    do {
+      let disc = try CDDisc.open(url: URL(fileURLWithPath: cdPath))
+      machine.mountCD(disc)
+      print("  CD mounted: \(cdPath) (\(disc.tracks.count) tracks, lead-out LBA \(disc.leadOut))")
+    } catch {
+      print("  CD mount failed: \(error)")
+    }
+  }
   maybeInstallVirtualRTC(machine: machine)
   return machine
 }
@@ -696,6 +719,25 @@ print("=== N88-BASIC cold boot: '0' + Return ===")
 let m = setupMachine()
 m.bus.directBasicBoot = ProcessInfo.processInfo.environment["BOOTTEST_DIRECT_BASIC"] == "1"
 
+// BOOTTEST_CD_TRACE=<file> logs the CD-ROM ports: every write to 0x90-0x9F
+// and every data byte read from 0x91 (the 0x90 polling is left out).
+var cdTraceLines: [String] = []
+if let cdTracePath = ProcessInfo.processInfo.environment["BOOTTEST_CD_TRACE"], !cdTracePath.isEmpty {
+  let existing = m.bus.onIOAccess
+  m.bus.onIOAccess = { [weak m] port, value, isWrite in
+    existing?(port, value, isWrite)
+    let p8 = UInt8(port & 0xFF)
+    guard (0x90...0x9F).contains(p8), isWrite || p8 == 0x91 else { return }
+    cdTraceLines.append(String(format: "%@ %02X %02X PC=%04X", isWrite ? "W" : "R", p8, value,
+                               m?.bus.debugMainPC ?? 0))
+  }
+  atexit {
+    if let path = ProcessInfo.processInfo.environment["BOOTTEST_CD_TRACE"] {
+      try? cdTraceLines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    }
+  }
+}
+
 print("  Sub-CPU mode: \(m.subSystem.useLegacyMode ? "legacy" : "Z80")")
 print(String(format: "  DISK.ROM[0..3]: %02X %02X %02X %02X",
              m.subSystem.subBus.romram[0], m.subSystem.subBus.romram[1],
@@ -711,7 +753,8 @@ var coldBootStart = Date().timeIntervalSinceReferenceDate
 
 let coldBootLoopFrames =
   (ProcessInfo.processInfo.environment["BOOTTEST_TAPE_PATH"] != nil
-    || ProcessInfo.processInfo.environment["BOOTTEST_N80_PATH"] != nil) ? diskBootFrames : 120
+    || ProcessInfo.processInfo.environment["BOOTTEST_N80_PATH"] != nil
+    || ProcessInfo.processInfo.environment["BOOTTEST_CD_PATH"] != nil) ? diskBootFrames : 120
 struct HeldKey { let row: Int; let bit: Int }
 var tapeHeldKeyReleaseFrame: [Int: [HeldKey]] = [:]
 if ProcessInfo.processInfo.environment["BOOTTEST_COLDBOOT_PORT_LOG"] == "1" {
