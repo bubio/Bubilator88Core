@@ -1577,7 +1577,7 @@ package final class UPD765A {
 
   private func executeSenseIntStatus() {
     // Find drive with interrupt pending
-    var foundDrive: Int? = nil
+    var foundDrive: Int?
     for i in 0..<4 {
       if case .interrupt = seekState[i] {
         foundDrive = i

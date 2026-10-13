@@ -508,9 +508,9 @@ struct YM2608Tests {
     ym.writeAddr(0x28)
     ym.writeData(0xF4)  // ch4 all operators on
 
-    let muted = (0..<32).reduce(into: false) { hasOutput, _ in
+    let muted = (0..<32).contains { _ in
       let (l, r) = ym.fmSynth.generateSample()
-      hasOutput = hasOutput || l != 0 || r != 0
+      return l != 0 || r != 0
     }
     #expect(muted == false)
 

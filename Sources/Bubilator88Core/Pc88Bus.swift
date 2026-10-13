@@ -1443,7 +1443,7 @@ package final class Pc88Bus: Bus {
       if unimplementedWritePorts.insert(port8).inserted {
         busLog.debug("Unimplemented I/O WRITE port 0x\(hex(port8)) val=0x\(hex(value))")
       }
-      break  // Unmapped port writes are ignored
+      // Unmapped port writes are ignored
     }
   }
 
@@ -1620,8 +1620,8 @@ package final class Pc88Bus: Bus {
     // dmaUnderrun not checked here — QUASI88/XM8 always render text
     // when DMA is active. Underrun flag is still set in performTextDMATransfer
     // for CRTC status register reads by the game.
-    guard (dma?.channels[2].enabled ?? false),
-          (crtc?.displayEnabled ?? false),
+    guard dma?.channels[2].enabled ?? false,
+          crtc?.displayEnabled ?? false,
           (crtc?.intrMask ?? 0) == 3,
           (dma?.textVRAMCount ?? 0) > 0 else {
       return .disabled

@@ -113,7 +113,7 @@ import Observation
   /// flip a toggle button when it transitions.
   public private(set) var isStreamingPIOFlow: Bool = false
 
-  @ObservationIgnored private var streamFileHandle: FileHandle? = nil
+  @ObservationIgnored private var streamFileHandle: FileHandle?
   @ObservationIgnored private var streamSeq: Int = 0
   @ObservationIgnored private var streamBuffer: Data = Data()
   @ObservationIgnored private let streamFlushThreshold: Int = 64 * 1024
