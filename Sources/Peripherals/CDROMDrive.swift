@@ -114,18 +114,22 @@ package final class CDROMDrive {
   /// Audio volume, 0 (silent) to `fadeFull`, after the fader.
   ///
   /// Inferred from the two programs that use it. Bit 1 is the level to go
-  /// to, full (0) or silent (1); bit 2 makes the change gradual. Mirrors
-  /// writes 2 at start-up and 0 before its first track, writes 7 and stops
-  /// the track about 2.5 seconds later, starts the next and writes 5. The
-  /// BIOS's CD player writes 0 before starting a track and 5 just after
-  /// (0x3417, 0x3496), 6 just before stopping (0x33CA), and 7 before going
-  /// on to the next track (0x3546).
+  /// to, full (0) or silent (1); bit 2 makes the change a fade, starting
+  /// from the other end; bit 0 makes the fade slow. Mirrors writes 2 at
+  /// start-up and 0 before its first track, writes 7 and stops the track
+  /// about 2.5 seconds later, starts the next and writes 5. The BIOS's CD
+  /// player writes 0 before starting a track and 5 just after (0x3417,
+  /// 0x3496), which only fades in if 5 starts from silence; 6 just before
+  /// it stops at once (0x33CA); and 7 before going on to the next track
+  /// (0x3546). BubiC-8801MA reads the bits the same way.
   ///
-  /// TODO: bit 0's purpose and the length of a fade are not known. A fade
-  /// here takes `fadeSeconds`, inside the 2.5 seconds Mirrors allows.
+  /// The lengths are not measured. A slow fade takes `slowFadeSeconds`,
+  /// inside the 2.5 seconds Mirrors allows; a fast one takes
+  /// `fastFadeSeconds`, BubiC-8801MA's figure.
   private(set) var fadeLevel = CDROMDrive.fadeFull
   static let fadeFull = 1 << 16
-  static let fadeSeconds = 2.0
+  static let slowFadeSeconds = 2.0
+  static let fastFadeSeconds = 0.1
   /// Fractional progress of a fade, in T-states × `fadeFull`.
   private var fadeClock = 0
 
@@ -135,18 +139,24 @@ package final class CDROMDrive {
 
   // MARK: - Audio state
 
-  /// What sub-Q byte 0 reports.
+  /// What sub-Q byte 0 reports. The CD player only tests for 3, play
+  /// ended (0x2162, 0x26FC); 0 and 2 are the values BubiC-8801MA's NEC
+  /// drive reports for playing and paused.
   enum AudioState: UInt8 {
     case playing = 0
-    case paused = 1
+    case paused = 2
     case stopped = 3
   }
 
   private(set) var audioState: AudioState = .stopped
   /// The sector being played, or where play will start.
   private(set) var audioLBA = 0
-  /// Play stops before this sector.
+  /// Where the last D8 search went: play goes back here to repeat.
+  private var audioStart = 0
+  /// Play stops, or repeats, before this sector.
   private var audioEnd = 0
+  /// Play repeats from `audioStart` at `audioEnd` (D9 mode 1).
+  private var audioRepeat = false
   /// Next sample within the current sector, 0-587.
   private var audioSample = 0
   private var audioSector = [UInt8](repeating: 0, count: CDDisc.sectorBytes)
@@ -197,6 +207,8 @@ package final class CDROMDrive {
     fadeClock = 0
     stopAudio(.stopped)
     audioLBA = 0
+    audioStart = 0
+    audioRepeat = false
     activity = false
   }
 
@@ -219,6 +231,8 @@ package final class CDROMDrive {
     self.disc = disc
     stopAudio(.stopped)
     audioLBA = 0
+    audioStart = 0
+    audioRepeat = false
   }
 
   /// Puts a disc in without touching the drive's state: for a save state,
@@ -232,6 +246,8 @@ package final class CDROMDrive {
     disc = nil
     stopAudio(.stopped)
     audioLBA = 0
+    audioStart = 0
+    audioRepeat = false
   }
 
   package func takeActivity() -> Bool {
@@ -254,7 +270,8 @@ package final class CDROMDrive {
       }
       return value
     case 0x98:
-      // TODO: only bit 7 is known; what the other bits read is not.
+      // TODO: only bit 7 is known, and only that it changes (see `tick`).
+      // The BIOS reads nothing else here.
       return clockBit ? 0x80 : 0x00
     default:
       return 0xFF
@@ -293,9 +310,10 @@ package final class CDROMDrive {
       }
     case 0x98:
       fader = value
-      if value & 0x04 == 0 {
-        fadeLevel = value & 0x02 == 0 ? Self.fadeFull : 0
-      }
+      // Set straight to the target, or to the other end to fade from.
+      let silent = value & 0x02 != 0
+      fadeLevel = silent == (value & 0x04 == 0) ? 0 : Self.fadeFull
+      fadeClock = 0
     case 0x9F:
       control = value
     default:
@@ -311,9 +329,9 @@ package final class CDROMDrive {
     clockPhase += tStates * 88_200
     let clock = Int(cpuClockHz)
     if clockPhase >= clock {
-      // TODO: what drives port 0x98 bit 7 is not known. The BIOS only needs
-      // it to change within ten reads of its detection loop; a 44.1kHz
-      // square wave does.
+      // What drives port 0x98 bit 7 is not known (BubiC-8801MA flips it on
+      // every read, marked as a guess). The BIOS only needs it to change
+      // within ten reads of its detection loop; a 44.1kHz square wave does.
       let toggles = clockPhase / clock
       clockPhase -= toggles * clock
       if toggles & 1 != 0 { clockBit.toggle() }
@@ -335,12 +353,13 @@ package final class CDROMDrive {
   }
 
   /// Moves `fadeLevel` toward the fader's target, the whole range taking
-  /// `fadeSeconds`.
+  /// a slow or a fast fade's time.
   private func advanceFade(tStates: Int) {
     let target = fader & 0x02 == 0 ? Self.fadeFull : 0
     guard fadeLevel != target else { return }
     fadeClock += tStates * Self.fadeFull
-    let perStep = Int(cpuClockHz * Self.fadeSeconds)
+    let seconds = fader & 0x01 != 0 ? Self.slowFadeSeconds : Self.fastFadeSeconds
+    let perStep = Int(cpuClockHz * seconds)
     let steps = fadeClock / perStep
     guard steps > 0 else { return }
     fadeClock -= steps * perStep
@@ -617,12 +636,12 @@ package final class CDROMDrive {
 
   // MARK: - Audio commands
 
-  /// A position from a D8/D9 command. Byte 9 bits 7-6 say how bytes 2-5
-  /// hold it: 0x40 is BCD minutes, seconds, frames of absolute time (the CD
-  /// player's search, 0x2D0B); 0x80 is a BCD track number (0x2F06).
+  /// A position from a D8/D9 command. Byte 9 bits 7-6 say how the bytes
+  /// from 2 hold it: 0x40 is BCD minutes, seconds, frames of absolute time
+  /// (the CD player's search, 0x2D0B); 0x80 is a BCD track number (0x2F06).
   ///
-  /// TODO: 0x00 is not used by the BIOS or its player. It is taken here as
-  /// a 32-bit LBA in bytes 2-5, unconfirmed.
+  /// 0x00 is a 24-bit LBA, in bytes 2-4 for D8 and 3-5 for D9 as
+  /// BubiC-8801MA has it. Neither the BIOS, its player nor Mirrors uses it.
   private func position(in disc: CDDisc, end: Bool) -> Int? {
     switch command[9] & 0xC0 {
     case 0x40:
@@ -638,15 +657,16 @@ package final class CDROMDrive {
       }
       return disc.track(number: number)?.start
     default:
-      return Int(command[2]) << 24 | Int(command[3]) << 16 | Int(command[4]) << 8 | Int(command[5])
+      let at = end ? 3 : 2
+      return Int(command[at]) << 16 | Int(command[at + 1]) << 8 | Int(command[at + 2])
     }
   }
 
   /// D8: move to a position. The CD player always follows it with D9 to
-  /// play (0x2D0B, 0x3480), with byte 1 bit 0 clear.
+  /// play (0x2D0B, 0x3480), and so does Mirrors, with byte 1 clear.
   ///
-  /// TODO: byte 1 bit 0 (BIOS function 5's C bit 0) presumably starts play
-  /// at once; taken that way, to the end of the disc, unconfirmed.
+  /// Byte 1 bits 1-0 non-zero start play at once, to the end of the disc,
+  /// as BubiC-8801MA has it. Nothing seen sets them.
   private func audioSearch() {
     guard let disc = requireDisc() else { return }
     guard let lba = position(in: disc, end: false), lba >= 0, lba < disc.leadOut else {
@@ -654,8 +674,10 @@ package final class CDROMDrive {
       return
     }
     audioLBA = lba
+    audioStart = lba
     audioSample = 0
-    if command[1] & 0x01 != 0 {
+    audioRepeat = false
+    if command[1] & 0x03 != 0 {
       audioEnd = disc.leadOut
       audioState = .playing
     } else {
@@ -664,21 +686,26 @@ package final class CDROMDrive {
     enterStatus()
   }
 
-  /// D9: play from the searched position up to an end position. BIOS
-  /// function 1 sends byte 1 as 0 or 3 (0x1300); the player uses 3.
-  ///
-  /// TODO: what mode 0 does is not known; it is taken as stop.
+  /// D9: play from the searched position up to an end position, by the
+  /// mode in byte 1: 0 stops, 1 repeats, 2 and 3 play once. BIOS function 1
+  /// sends 0 or 3 (0x1300) and the CD player uses 3. Mirrors patches its
+  /// copy of that routine to send 1 and never reads sub-Q, so its music
+  /// loops only if the drive repeats; BubiC-8801MA's NEC drive has the same
+  /// modes. Mode 2 also raises an interrupt at the end there, which nothing
+  /// here is known to use.
   private func audioPlay() {
     guard let disc = requireDisc() else { return }
     guard let end = position(in: disc, end: true) else {
       checkCondition(key: 0x05, code: 0x00)
       return
     }
-    if command[1] & 0x07 != 0 && end > audioLBA {
+    let mode = command[1] & 0x03
+    if mode != 0 && end > audioLBA {
       audioEnd = min(end, disc.leadOut)
+      audioRepeat = mode == 1
       audioState = .playing
     } else {
-      stopAudio(.paused)
+      stopAudio(.stopped)
     }
     enterStatus()
   }
@@ -697,8 +724,7 @@ package final class CDROMDrive {
   /// the disc, byte 3 the index, bytes 4-6 the time within the track and
   /// 7-9 the absolute time, all BCD.
   ///
-  /// TODO: only byte 0's 3 is confirmed; 0 for playing and 1 for paused
-  /// are assumed.
+  /// Byte 0 is `AudioState`.
   private func readSubQ() {
     guard let disc = requireDisc() else { return }
     let lba = min(audioLBA, max(0, disc.leadOut - 1))
@@ -756,9 +782,13 @@ package final class CDROMDrive {
     while sampleClock >= clock {
       sampleClock -= clock
       if audioLBA >= audioEnd || audioLBA >= disc.leadOut {
-        stopAudio(.stopped)
-        sampleClock = 0
-        return
+        guard audioRepeat, audioStart < audioEnd else {
+          stopAudio(.stopped)
+          sampleClock = 0
+          return
+        }
+        audioLBA = audioStart
+        audioSample = 0
       }
       if audioSectorLoaded != audioLBA {
         if !disc.read(lba: audioLBA, into: &audioSector) {
@@ -824,7 +854,7 @@ extension CDROMDrive {
   /// path.
   package func serializeState() -> [UInt8] {
     var w = ByteWriter()
-    w.u8(1)  // layout version
+    w.u8(2)  // layout version
     w.bool(enabled)
     w.u8(phase.rawValue)
     w.bool(req)
@@ -853,13 +883,16 @@ extension CDROMDrive {
     w.int(audioLBA)
     w.int(audioEnd)
     w.int(audioSample)
+    w.int(audioStart)
+    w.bool(audioRepeat)
     return w.data
   }
 
   @discardableResult
   package func deserializeState(_ data: [UInt8]) -> Bool {
     var r = ByteReader(data)
-    guard r.u8() == 1 else { return false }
+    let version = r.u8()
+    guard version == 1 || version == 2 else { return false }
     let enabled = r.bool()
     let phase = Phase(rawValue: r.u8()) ?? .busFree
     let req = r.bool()
@@ -884,10 +917,14 @@ extension CDROMDrive {
     let fader = r.u8()
     let fadeLevel = r.int()
     let dmaClock = r.int()
-    let audioState = AudioState(rawValue: r.u8()) ?? .stopped
+    // Layout 1 reported paused as 1.
+    let stateByte = r.u8()
+    let audioState = version == 1 && stateByte == 1 ? .paused : AudioState(rawValue: stateByte) ?? .stopped
     let audioLBA = r.int()
     let audioEnd = r.int()
     let audioSample = r.int()
+    let audioStart = version >= 2 ? r.int() : audioLBA
+    let audioRepeat = version >= 2 ? r.bool() : false
     guard !r.failed, dataInIndex <= dataIn.count, (0..<588).contains(audioSample),
           pending != .execute || !command.isEmpty else { return false }
 
@@ -920,6 +957,8 @@ extension CDROMDrive {
     self.audioLBA = audioLBA
     self.audioEnd = audioEnd
     self.audioSample = audioSample
+    self.audioStart = audioStart
+    self.audioRepeat = audioRepeat
     audioSectorLoaded = -1
     samples = []
     samplesHead = 0

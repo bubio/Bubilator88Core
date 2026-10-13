@@ -331,6 +331,27 @@ struct CDROMTests {
     #expect(drive.audioState == .stopped)
   }
 
+  @Test func modeOneRepeatsFromTheSearchedPosition() throws {
+    let drive = Self.drive(disc: try Self.disc())
+    let bus = Initiator(drive: drive)
+    // Mirrors' sequence: D8 by time, D9 mode 1 to a time.
+    _ = bus.command([0xD8, 0, 0x00, 0x02, 0x22, 0, 0, 0, 0, 0x40])
+    _ = bus.command([0xD9, 1, 0x00, 0x02, 0x24, 0, 0, 0, 0, 0x40])
+    #expect(Self.samples(drive, 1)[0] == (220, -220))
+    _ = Self.samples(drive, 588 * 2 - 1)
+    #expect(drive.audioState == .playing)
+    #expect(Self.samples(drive, 1)[0] == (220, -220))
+    #expect(drive.audioLBA == 22)
+  }
+
+  @Test func modeZeroStops() throws {
+    let drive = Self.drive(disc: try Self.disc())
+    let bus = Initiator(drive: drive)
+    _ = bus.command([0xD8, 0, 0x02, 0, 0, 0, 0, 0, 0, 0x80])
+    _ = bus.command([0xD9, 0, 0x03, 0, 0, 0, 0, 0, 0, 0x80])
+    #expect(drive.audioState == .stopped)
+  }
+
   @Test func pauseKeepsThePosition() throws {
     let drive = Self.drive(disc: try Self.disc())
     let bus = Initiator(drive: drive)
@@ -341,7 +362,7 @@ struct CDROMTests {
     #expect(drive.audioState == .paused)
     #expect(drive.audioLBA >= 22)
     let q = bus.command([0xDD, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0]).data
-    #expect(q[0] == 0x01)
+    #expect(q[0] == 0x02)
     #expect(q[2] == 0x03)
   }
 
@@ -358,14 +379,31 @@ struct CDROMTests {
     #expect(Self.samples(drive, 1)[0] == (100, -100))
     // 7: fades out (Mirrors stops the track 2.5 seconds later).
     drive.ioWrite(0x98, value: 0x07)
-    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.fadeSeconds / 2))
+    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.slowFadeSeconds / 2))
     #expect(abs(drive.fadeLevel - CDROMDrive.fadeFull / 2) < CDROMDrive.fadeFull / 100)
-    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.fadeSeconds))
+    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.slowFadeSeconds))
     #expect(drive.fadeLevel == 0)
-    // 5: fades back in.
+    // 0 then 5, the CD player's start of a track: 5 fades in from silence.
+    drive.ioWrite(0x98, value: 0x00)
     drive.ioWrite(0x98, value: 0x05)
-    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.fadeSeconds) + 1)
+    #expect(drive.fadeLevel == 0)
+    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.slowFadeSeconds) + 1)
     #expect(drive.fadeLevel == CDROMDrive.fadeFull)
+    // 6: a fast fade out, before the player stops.
+    drive.ioWrite(0x98, value: 0x06)
+    drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.fastFadeSeconds) + 1)
+    #expect(drive.fadeLevel == 0)
+  }
+
+  @Test func lbaPositions() throws {
+    let drive = Self.drive(disc: try Self.disc())
+    let bus = Initiator(drive: drive)
+    // Byte 9 = 0x00: LBA in bytes 2-4 for D8, 3-5 for D9.
+    _ = bus.command([0xD8, 0, 0, 0, 12, 0, 0, 0, 0, 0x00])
+    _ = bus.command([0xD9, 3, 0, 0, 0, 13, 0, 0, 0, 0x00])
+    #expect(Self.samples(drive, 1)[0] == (120, -120))
+    _ = Self.samples(drive, 588)
+    #expect(drive.audioState == .stopped)
   }
 
   @Test func dataReadEndsAudio() throws {
