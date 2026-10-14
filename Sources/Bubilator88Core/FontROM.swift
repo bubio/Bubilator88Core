@@ -5,7 +5,7 @@
 /// Characters 0xA0-0xDF: Katakana (half-width)
 /// Other ranges: symbols, graphics characters
 ///
-/// If no font ROM file is loaded, a built-in minimal ASCII font is used.
+/// If no font ROM file is loaded, a built-in font covering 0x00-0xF7 is used.
 package final class FontROM {
 
   /// Font data: 256 characters × 8 bytes per character = 2048 bytes.
@@ -78,14 +78,15 @@ package final class FontROM {
 
   // MARK: - Built-in Minimal Font
 
-  /// Generate a minimal ASCII font (0x20-0x7F).
-  /// This provides readable characters for BASIC prompt display.
+  /// Generate the built-in font from QUASI88's `built_in_font_ANK`:
+  /// control-code symbols, ASCII, semi-graphics and katakana for 0x00-0xF7.
+  /// 0xF8-0xFF are blank.
   private static func builtInFont() -> [UInt8] {
     var font = Array(repeating: UInt8(0x00), count: 2048)
 
     // Each character is 8 rows of 8 pixels.
-    // Only define printable ASCII (0x20-0x7E).
-    // QUASI88 built_in_font_ANK (0x20-0x7F)
+    // ASCII 0x20-0x7F (QUASI88 built_in_font_ANK); the tables below fill
+    // the control and extended ranges.
     let glyphs: [UInt8: [UInt8]] = [
       0x20: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
       0x21: [0x10, 0x10, 0x10, 0x10, 0x10, 0x00, 0x10, 0x00],
