@@ -383,12 +383,18 @@ struct CDROMTests {
     #expect(abs(drive.fadeLevel - CDROMDrive.fadeFull / 2) < CDROMDrive.fadeFull / 100)
     drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.slowFadeSeconds))
     #expect(drive.fadeLevel == 0)
-    // 0 then 5, the CD player's start of a track: 5 fades in from silence.
-    drive.ioWrite(0x98, value: 0x00)
+    // 5 after 7, Mirrors' next track: fades back in from silence.
     drive.ioWrite(0x98, value: 0x05)
     #expect(drive.fadeLevel == 0)
     drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.slowFadeSeconds) + 1)
     #expect(drive.fadeLevel == CDROMDrive.fadeFull)
+    // 0 then 5, the CD player's start of a track: stays full, so the
+    // start of the track is not lost.
+    drive.ioWrite(0x98, value: 0x02)
+    drive.ioWrite(0x98, value: 0x00)
+    drive.ioWrite(0x98, value: 0x05)
+    #expect(drive.fadeLevel == CDROMDrive.fadeFull)
+    #expect(Self.samples(drive, 1)[0] == (100, -100))
     // 6: a fast fade out, before the player stops.
     drive.ioWrite(0x98, value: 0x06)
     drive.tick(tStates: Int(drive.cpuClockHz * CDROMDrive.fastFadeSeconds) + 1)
