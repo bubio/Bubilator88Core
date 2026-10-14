@@ -114,14 +114,21 @@ package final class CDROMDrive {
   /// Audio volume, 0 (silent) to `fadeFull`, after the fader.
   ///
   /// Inferred from the two programs that use it. Bit 1 is the level to go
-  /// to, full (0) or silent (1); bit 2 makes the change a fade, starting
-  /// from the other end; bit 0 makes the fade slow. Mirrors writes 2 at
+  /// to, full (0) or silent (1); bit 2 makes the change a fade from the
+  /// current level; bit 0 makes the fade slow. Mirrors writes 2 at
   /// start-up and 0 before its first track, writes 7 and stops the track
-  /// about 2.5 seconds later, starts the next and writes 5. The BIOS's CD
-  /// player writes 0 before starting a track and 5 just after (0x3417,
-  /// 0x3496), which only fades in if 5 starts from silence; 6 just before
-  /// it stops at once (0x33CA); and 7 before going on to the next track
-  /// (0x3546). BubiC-8801MA reads the bits the same way.
+  /// about 2.5 seconds later, starts the next and writes 5, which fades it
+  /// in from the silence 7 left. The BIOS's CD player writes 0 before
+  /// starting a track and 5 just after (0x3417, 0x3496); 6 just before it
+  /// stops at once (0x33CA); and 7 before going on to the next track
+  /// (0x3546).
+  ///
+  /// BubiC-8801MA starts a fade from the other end instead, so its 5 drops
+  /// to silence. That makes the CD player fade in the first seconds of
+  /// every track it starts, cutting off a track that opens loud (Mirrors'
+  /// track 1 starts at full level 1.2 seconds in), which a CD player is
+  /// not expected to do. Starting from the current level fits every write
+  /// seen; neither reading has been checked on real hardware.
   ///
   /// The lengths are not measured. A slow fade takes `slowFadeSeconds`,
   /// inside the 2.5 seconds Mirrors allows; a fast one takes
@@ -310,9 +317,11 @@ package final class CDROMDrive {
       }
     case 0x98:
       fader = value
-      // Set straight to the target, or to the other end to fade from.
-      let silent = value & 0x02 != 0
-      fadeLevel = silent == (value & 0x04 == 0) ? 0 : Self.fadeFull
+      // Without bit 2 the level goes straight to the target; with it,
+      // `advanceFade` moves there from where it is.
+      if value & 0x04 == 0 {
+        fadeLevel = value & 0x02 != 0 ? 0 : Self.fadeFull
+      }
       fadeClock = 0
     case 0x9F:
       control = value
