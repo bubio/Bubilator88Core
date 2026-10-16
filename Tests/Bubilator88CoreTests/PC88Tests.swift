@@ -73,6 +73,7 @@ struct PC88Tests {
     pc88.loadROM(.disk, data: [0x44])
     pc88.loadROM(.kanji1, data: [0x55])
     pc88.loadROM(.kanji2, data: [0x66])
+    pc88.loadROM(.dictionary, data: [0x77])
     let bus = pc88.machine.bus
     #expect(bus.n88BasicROM == [0x11])
     #expect(bus.nBasicROM == [0x22])
@@ -81,6 +82,7 @@ struct PC88Tests {
     #expect(!pc88.machine.subSystem.useLegacyMode)
     #expect(bus.kanjiROM1 == [0x55])
     #expect(bus.kanjiROM2 == [0x66])
+    #expect(bus.dictionaryROM == [0x77])
   }
 
   @Test func disksPassThrough() {

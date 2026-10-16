@@ -472,6 +472,9 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
   if let data = try? Data(contentsOf: appSupport.appendingPathComponent("KANJI2.ROM")) {
     machine.loadKanjiROM2(Array(data))
   }
+  if let data = try? Data(contentsOf: appSupport.appendingPathComponent("JISYO.ROM")) {
+    machine.loadDictionaryROM(Array(data))
+  }
   for bank in 0..<4 {
     let primary = appSupport.appendingPathComponent("N88_\(bank).ROM")
     let alt = appSupport.appendingPathComponent("N88EXT\(bank).ROM")
@@ -659,7 +662,7 @@ func runSnapshotMode(diskPaths: [String]) -> Never {
   var roms: [(PC88.ROM, [UInt8])] = [(.n88Basic, Array(romData))]
   let optional: [(PC88.ROM, String)] = [
     (.nBasic, "N80.ROM"), (.font, "FONT.ROM"), (.disk, "DISK.ROM"),
-    (.kanji1, "KANJI1.ROM"), (.kanji2, "KANJI2.ROM"),
+    (.kanji1, "KANJI1.ROM"), (.kanji2, "KANJI2.ROM"), (.dictionary, "JISYO.ROM"),
   ] + (0..<4).map { (.n88Ext(bank: $0), "N88_\($0).ROM") }
   for (rom, name) in optional {
     if let data = try? Data(contentsOf: appSupport.appendingPathComponent(name)) {

@@ -2139,4 +2139,88 @@ struct Pc88BusTests {
     bus.ioWrite(0x0000, value: 0x00)
     // Reaches here without crashing → pass.
   }
+
+  // MARK: - Dictionary ROM
+
+  /// A 512KB dictionary ROM whose every byte names its bank.
+  private func dictionaryROM() -> [UInt8] {
+    (0..<0x80000).map { UInt8($0 / 0x4000) }
+  }
+
+  @Test func dictionaryROMShowsSelectedBankWhenEnabled() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.dictionaryROM = dictionaryROM()
+    bus.mainRAM[0xC000] = 0x5A
+    #expect(bus.memRead(0xC000) == 0x5A)  // off after reset
+
+    bus.ioWrite(0xF0, value: 0x1F)
+    bus.ioWrite(0xF1, value: 0x00)
+    #expect(bus.memRead(0xC000) == 0x1F)
+    #expect(bus.memRead(0xFFFF) == 0x1F)
+    bus.ioWrite(0xF0, value: 0x03)
+    #expect(bus.memRead(0xE000) == 0x03)
+
+    bus.ioWrite(0xF1, value: 0x01)
+    #expect(bus.memRead(0xC000) == 0x5A)
+  }
+
+  @Test func dictionaryROMWritesStillReachRAM() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.dictionaryROM = dictionaryROM()
+    bus.ioWrite(0xF0, value: 0x02)
+    bus.ioWrite(0xF1, value: 0x00)
+    bus.memWrite(0xC123, value: 0x77)
+    #expect(bus.memRead(0xC123) == 0x02)
+    bus.ioWrite(0xF1, value: 0x01)
+    #expect(bus.memRead(0xC123) == 0x77)
+  }
+
+  @Test func dictionaryROMIgnoresOutOfRangeWrites() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.dictionaryROM = dictionaryROM()
+    bus.ioWrite(0xF0, value: 0x05)
+    bus.ioWrite(0xF1, value: 0x00)
+    bus.ioWrite(0xF0, value: 0x20)  // bank >= 0x20: ignored
+    #expect(bus.memRead(0xC000) == 0x05)
+    bus.ioWrite(0xF1, value: 0x02)  // neither 0x00 nor 0x01: ignored
+    #expect(bus.memRead(0xC000) == 0x05)
+  }
+
+  @Test func gvramPlaneTakesPriorityOverDictionaryROM() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.dictionaryROM = dictionaryROM()
+    bus.gvram[1][0] = 0xC3
+    bus.ioWrite(0xF0, value: 0x04)
+    bus.ioWrite(0xF1, value: 0x00)
+    bus.gvramPlane = 1
+    #expect(bus.memRead(0xC000) == 0xC3)
+    bus.gvramPlane = -1
+    #expect(bus.memRead(0xC000) == 0x04)
+  }
+
+  @Test func dictionaryPortsDoNothingWithoutROM() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.mainRAM[0xC000] = 0x5A
+    bus.ioWrite(0xF0, value: 0x00)
+    bus.ioWrite(0xF1, value: 0x00)
+    #expect(bus.memRead(0xC000) == 0x5A)
+  }
+
+  @Test func resetUnmapsDictionaryROM() {
+    let bus = Pc88Bus()
+    bus.reset()
+    bus.dictionaryROM = dictionaryROM()
+    bus.mainRAM[0xC000] = 0x5A
+    bus.ioWrite(0xF0, value: 0x07)
+    bus.ioWrite(0xF1, value: 0x00)
+    bus.reset(preserveRAM: true)
+    #expect(bus.memRead(0xC000) == 0x5A)
+    bus.ioWrite(0xF1, value: 0x00)
+    #expect(bus.memRead(0xC000) == 0x00)  // bank back to 0
+  }
 }

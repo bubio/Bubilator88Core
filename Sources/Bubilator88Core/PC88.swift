@@ -127,6 +127,9 @@ public final class PC88: @unchecked Sendable {
     case kanji1
     /// Kanji ROM level 2 (128KB).
     case kanji2
+    /// Dictionary ROM, JISYO.ROM (512KB): the kana-kanji conversion
+    /// dictionary that N88-日本語BASIC and other software read.
+    case dictionary
   }
 
   /// Load a ROM image, replacing any loaded before. Load them all before the
@@ -140,6 +143,7 @@ public final class PC88: @unchecked Sendable {
     case .font:              machine.loadFontROM(data)
     case .kanji1:            machine.loadKanjiROM1(data)
     case .kanji2:            machine.loadKanjiROM2(data)
+    case .dictionary:        machine.loadDictionaryROM(data)
     }
   }
 

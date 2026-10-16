@@ -745,6 +745,12 @@ extension Machine {
                        data: [bus.cdBiosMapped ? 1 : 0] + cdrom.serializeState()))
     }
 
+    // Dictionary ROM mapping (ports 0xF0/0xF1). A section of its own so
+    // states stay readable by versions that predate it.
+    // DICT layout: [bank(u8)][mapped(u8)]
+    sections.append((tag: SaveStateFile.fourCC("DICT"),
+                     data: [bus.dictionaryBank, bus.dictionaryMapped ? 1 : 0]))
+
     // Metadata JSON
     let disk0Name = subSystem.drives[0]?.name ?? ""
     let disk1Name = subSystem.drives[1]?.name ?? ""
@@ -811,6 +817,14 @@ extension Machine {
     } else {
       cdrom.restoreAbsent()
       bus.cdBiosMapped = false
+    }
+
+    if let dict = sections[SaveStateFile.fourCC("DICT")], dict.count >= 2 {
+      bus.dictionaryBank = dict[0] & 0x1F
+      bus.dictionaryMapped = dict[1] != 0
+    } else {
+      bus.dictionaryBank = 0
+      bus.dictionaryMapped = false
     }
   }
 

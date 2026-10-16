@@ -839,6 +839,11 @@ package final class Machine: @unchecked Sendable {
     bus.kanjiROM2 = data
   }
 
+  /// Load the dictionary ROM, JISYO.ROM (512KB).
+  package func loadDictionaryROM(_ data: [UInt8]) {
+    bus.dictionaryROM = data
+  }
+
   /// Load DISK.ROM firmware for sub-CPU (8KB).
   /// Load the PC-8801MC CD BIOS (64KB). Takes effect at the next reset.
   package func loadCDBios(_ data: [UInt8]) {
