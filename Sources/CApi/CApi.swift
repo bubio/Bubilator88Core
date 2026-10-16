@@ -175,7 +175,7 @@ public func b88_load_rom(_ handle: UnsafeMutableRawPointer?,
   case 3:  c.pc88.loadROM(.font, data: data)
   case 4:  c.pc88.loadROM(.kanji1, data: data)
   case 5:  c.pc88.loadROM(.kanji2, data: data)
-  case 6:  c.pc88.loadROM(.dictionary, data: data)
+  case 6:  c.pc88.loadDictionaryROM(data)
   case 10, 11, 12, 13:
     c.pc88.loadROM(.n88Ext(bank: Int(kind - 10)), data: data)
   default: break

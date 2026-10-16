@@ -83,10 +83,22 @@ public enum BootSnapshot {
   public static func capture(roms: [(PC88.ROM, [UInt8])], disks: [D88Disk],
                              parameters: Parameters = Parameters(),
                              deadline: ContinuousClock.Instant) -> Frame? {
+    capture(roms: roms, dictionaryROM: nil, disks: disks, parameters: parameters,
+            deadline: deadline)
+  }
+
+  /// `capture(roms:disks:parameters:deadline:)` with the dictionary ROM,
+  /// JISYO.ROM, loaded as well when `dictionaryROM` is not nil.
+  public static func capture(roms: [(PC88.ROM, [UInt8])], dictionaryROM: [UInt8]?,
+                             disks: [D88Disk], parameters: Parameters = Parameters(),
+                             deadline: ContinuousClock.Instant) -> Frame? {
     guard let first = disks.first else { return nil }
     let pc88 = PC88()
     for (rom, data) in roms {
       pc88.loadROM(rom, data: data)
+    }
+    if let dictionaryROM {
+      pc88.loadDictionaryROM(dictionaryROM)
     }
     pc88.installExtRAM()
     pc88.setBootMode(.n88v2)
