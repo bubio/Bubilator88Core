@@ -214,6 +214,21 @@ package final class Pc88Bus: Bus {
   /// Kanji ROM Level 2 data (128KB). Nil if not loaded.
   package var kanjiROM2: [UInt8]?
 
+  // MARK: - Dictionary ROM
+
+  /// Dictionary ROM, JISYO.ROM (512KB: 32 banks of 16KB). The kana-kanji
+  /// conversion dictionary of the PC-8801MA and later. Nil if not loaded,
+  /// and then ports 0xF0/0xF1 do nothing, as on a machine without one.
+  package var dictionaryROM: [UInt8]?
+
+  /// Port 0xF0: the 16KB bank of the dictionary ROM that the 0xC000-0xFFFF
+  /// window shows.
+  package var dictionaryBank: UInt8 = 0
+
+  /// Port 0xF1 bit 0 = 0: the dictionary ROM fills 0xC000-0xFFFF for reads
+  /// wherever GVRAM is not selected. Writes still reach RAM underneath.
+  package var dictionaryMapped = false
+
   /// Kanji ROM Level 1 address register (ports 0xE8-0xE9)
   package var kanjiAddr1: UInt16 = 0
 
@@ -471,6 +486,8 @@ package final class Pc88Bus: Bus {
     romModeN88 = true
     ramMode = false
     cdBiosMapped = false
+    dictionaryBank = 0
+    dictionaryMapped = false
     gvramPlane = -1
     gamMode = false
     evramMode = false
@@ -846,14 +863,14 @@ package final class Pc88Bus: Bus {
           return b & r & g
         }
         // evramMode + !gamMode: mainRAM/tvram access
-        return readMainOrTvram(addr)
+        return readDictionaryOrMain(addr)
       }
       // Independent mode: bank access via gvramPlane
       if gvramPlane >= 0 && gvramPlane < 3 {
         addGvramWait(read: true)
         return gvram[gvramPlane][offset]
       }
-      return readMainOrTvram(addr)
+      return readDictionaryOrMain(addr)
 
     default:
       return mainRAM[Int(addr)]
@@ -931,6 +948,19 @@ package final class Pc88Bus: Bus {
   private var cpuUsesTvramForTextArea: Bool {
     // bootModeStandard == !swH == !high_mode
     tvramEnabled || bootModeStandard
+  }
+
+  /// Read from the dictionary ROM when it is mapped, else main RAM or tvram
+  /// (0xC000-0xFFFF with no GVRAM selected). Mapped, the ROM covers the
+  /// whole window, the text area at 0xF000 included.
+  @inline(__always)
+  private func readDictionaryOrMain(_ addr: UInt16) -> UInt8 {
+    if dictionaryMapped, let rom = dictionaryROM {
+      addMainWait(read: true)
+      let index = Int(dictionaryBank) << 14 | Int(addr & 0x3FFF)
+      return index < rom.count ? rom[index] : 0xFF
+    }
+    return readMainOrTvram(addr)
   }
 
   /// Read from mainRAM or tvram (0xC000-0xFFFF fallthrough path).
@@ -1423,9 +1453,13 @@ package final class Pc88Bus: Bus {
       // Address high byte
       kanjiAddr2 = (kanjiAddr2 & 0x00FF) | (UInt16(value) << 8)
 
-    // Dictionary ROM (stub)
-    case 0xF0, 0xF1:
-      break  // TODO: Dictionary ROM
+    // Dictionary ROM. Following XM8 1.20: a bank number of 0x20 or more is
+    // ignored rather than masked, and port 0xF1 takes only 0x00 (map) and
+    // 0x01 (unmap).
+    case 0xF0:
+      if value < 0x20 { dictionaryBank = value }
+    case 0xF1:
+      if value <= 0x01 { dictionaryMapped = value == 0x00 }
 
     // PIO (sub-CPU communication)
     case 0xFC...0xFF:

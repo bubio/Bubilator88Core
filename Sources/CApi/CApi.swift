@@ -158,7 +158,7 @@ public func b88_destroy(_ handle: UnsafeMutableRawPointer?) {
 // MARK: - ROM loading
 //
 // kind:  0=N88  1=N80(N-BASIC)  2=DISK(sub-CPU)  3=FONT
-//        4=KANJI1  5=KANJI2  10..13=N88 ext bank 0..3
+//        4=KANJI1  5=KANJI2  6=JISYO (dictionary)  10..13=N88 ext bank 0..3
 
 @_cdecl("b88_load_rom")
 public func b88_load_rom(_ handle: UnsafeMutableRawPointer?,
@@ -175,6 +175,7 @@ public func b88_load_rom(_ handle: UnsafeMutableRawPointer?,
   case 3:  c.pc88.loadROM(.font, data: data)
   case 4:  c.pc88.loadROM(.kanji1, data: data)
   case 5:  c.pc88.loadROM(.kanji2, data: data)
+  case 6:  c.pc88.loadDictionaryROM(data)
   case 10, 11, 12, 13:
     c.pc88.loadROM(.n88Ext(bank: Int(kind - 10)), data: data)
   default: break

@@ -143,6 +143,13 @@ public final class PC88: @unchecked Sendable {
     }
   }
 
+  /// Load the dictionary ROM, JISYO.ROM (512KB): the kana-kanji conversion
+  /// dictionary that N88-日本語BASIC and other software read. Not a `ROM`
+  /// case, so that adding it left `ROM` as it was.
+  public func loadDictionaryROM(_ data: [UInt8]) {
+    machine.loadDictionaryROM(data)
+  }
+
   /// Load one OPNA rhythm sample (signed 16-bit mono PCM). `index`:
   /// 0=BD 1=SD 2=TOP 3=HH 4=TOM 5=RIM. Without these the rhythm part is silent.
   public func loadRhythmSample(index: Int, data: [Int16], sampleRate: Int) {

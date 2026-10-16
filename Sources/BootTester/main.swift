@@ -472,6 +472,9 @@ func setupMachine(dipSw1: UInt8 = 0xC3, dipSw2: UInt8 = 0x79) -> Machine {
   if let data = try? Data(contentsOf: appSupport.appendingPathComponent("KANJI2.ROM")) {
     machine.loadKanjiROM2(Array(data))
   }
+  if let data = try? Data(contentsOf: appSupport.appendingPathComponent("JISYO.ROM")) {
+    machine.loadDictionaryROM(Array(data))
+  }
   for bank in 0..<4 {
     let primary = appSupport.appendingPathComponent("N88_\(bank).ROM")
     let alt = appSupport.appendingPathComponent("N88EXT\(bank).ROM")
@@ -666,6 +669,7 @@ func runSnapshotMode(diskPaths: [String]) -> Never {
       roms.append((rom, Array(data)))
     }
   }
+  let dictionaryROM = (try? Data(contentsOf: appSupport.appendingPathComponent("JISYO.ROM"))).map(Array.init)
   let budget = Double(env["BOOTTEST_SNAPSHOT_DEADLINE"] ?? "") ?? 3
   // BOOTTEST_SNAPSHOT_PARAMS="settledIdle=4,stable=4,idle=10,minContent=0.02,max=90,opn=1"
   var parameters = BootSnapshot.Parameters()
@@ -691,7 +695,8 @@ func runSnapshotMode(diskPaths: [String]) -> Never {
     }
     let disks = D88Disk.parseAll(data: Array(data))
     let start = ContinuousClock.now
-    let frame = BootSnapshot.capture(roms: roms, disks: disks, parameters: parameters,
+    let frame = BootSnapshot.capture(roms: roms, dictionaryROM: dictionaryROM, disks: disks,
+                                     parameters: parameters,
                                      deadline: start + .milliseconds(Int(budget * 1000)))
     let wall = (ContinuousClock.now - start).components
     let wallSeconds = Double(wall.seconds) + Double(wall.attoseconds) / 1e18

@@ -606,6 +606,22 @@ struct MachineTests {
     #expect(!dst.cassette.isLoaded)
   }
 
+  @Test func saveStateRoundTripsDictionaryROMMapping() throws {
+    let rom = (0..<0x80000).map { UInt8($0 / 0x4000) }
+    let src = Machine()
+    src.loadDictionaryROM(rom)
+    src.reset()
+    src.bus.ioWrite(0xF0, value: 0x09)
+    src.bus.ioWrite(0xF1, value: 0x00)
+    let blob = src.createSaveState()
+
+    let dst = Machine()
+    dst.loadDictionaryROM(rom)
+    dst.reset()
+    try dst.loadSaveState(blob)
+    #expect(dst.bus.memRead(0xC000) == 0x09)
+  }
+
   // MARK: - Save State Sections
 
   @Test func saveStateCarriesExtraSections() throws {
