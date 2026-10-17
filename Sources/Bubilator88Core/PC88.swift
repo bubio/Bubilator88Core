@@ -515,7 +515,8 @@ public final class PC88: @unchecked Sendable {
   }
 
   /// The 8×8 font ROM glyph for a character code, one byte per row, MSB on
-  /// the left. All zero when no font ROM is loaded.
+  /// the left. Without a FONT.ROM it comes from the built-in font, which
+  /// draws 0x00-0xF7 and leaves 0xF8-0xFF blank as the real ROM does.
   public func glyph(for code: UInt8) -> [UInt8] {
     machine.fontROM.glyph(for: code)
   }
