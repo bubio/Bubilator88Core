@@ -38,6 +38,45 @@ struct FrameCompositorTests {
     #expect(result == attrData)
   }
 
+  /// N88-日本語BASIC draws its text into B/W graphics and leaves text VRAM
+  /// blank, so its block cursor shows only through the inverted graphics cell.
+  @Test("attribute graphics invert the block cursor cell")
+  func attributeGraphAttributesInvertBlockCursorCell() {
+    var attrData = Array(repeating: UInt8(0xE0), count: 80 * 20)
+    attrData[5 * 80 + 1] = 0xE1
+
+    let result = FrameCompositor.attributeGraphAttributes(
+      from: attrData,
+      textDisplayMode: .enabled,
+      textRows: 20,
+      reverseDisplay: false,
+      blockCursor: (x: 0, y: 5)
+    )
+    #expect(result[5 * 80] == 0xE1)
+    #expect(result[5 * 80 + 1] == 0xE1)
+    #expect(result[0] == 0xE0)
+
+    // A reverse cell under the cursor turns back to normal.
+    let onReverse = FrameCompositor.attributeGraphAttributes(
+      from: attrData,
+      textDisplayMode: .enabled,
+      textRows: 20,
+      reverseDisplay: false,
+      blockCursor: (x: 1, y: 5)
+    )
+    #expect(onReverse[5 * 80 + 1] == 0xE0)
+
+    // Off-screen positions are ignored.
+    let offScreen = FrameCompositor.attributeGraphAttributes(
+      from: attrData,
+      textDisplayMode: .enabled,
+      textRows: 20,
+      reverseDisplay: false,
+      blockCursor: (x: 0, y: 20)
+    )
+    #expect(offScreen == attrData)
+  }
+
   @Test("attribute graphics keep reverse default when display is disabled")
   func attributeGraphAttributesCarryReverseDisplayIntoNeutralState() {
     let result = FrameCompositor.attributeGraphAttributes(

@@ -107,7 +107,9 @@ package final class FrameCompositor {
       textRows: frame.crtcLines,
       reverseDisplay: crtc.reverseDisplay,
       crtcStopped: !crtc.displayEnabled,
-      monoText: !bus.colorMode
+      monoText: !bus.colorMode,
+      blockCursor: frame.cursorVisible && (crtc.cursorMode & 0x02) != 0
+        ? (x: crtc.cursorX, y: crtc.cursorY) : nil
     )
     // B/W graphics: palette[0] above is the background; lit dots take the
     // attribute color, so color 0 gets its own entry.
@@ -196,15 +198,32 @@ package final class FrameCompositor {
   /// color and reverse bits when the CRTC stops (`CRTC::ClearText`), and ORs
   /// in 7 when port 0x30 bit 1 selects mono text — so The Man I Love, which
   /// stops the CRTC with mono text, keeps its B/W title white.
+  ///
+  /// `blockCursor` is the visible block cursor's cell. The CRTC applies the
+  /// cursor as a reverse attribute, and B/W graphics take their reverse from
+  /// the attributes, so the cursor inverts the graphics cell too (BubiC XORs
+  /// it into the shared `attrib.expand`). N88-日本語BASIC draws its text into
+  /// graphics over blank text VRAM, so this is the only place its cursor shows.
   package static func attributeGraphAttributes(
     from attrData: [UInt8],
     textDisplayMode: Pc88Bus.TextDisplayMode,
     textRows: Int,
     reverseDisplay: Bool,
     crtcStopped: Bool = false,
-    monoText: Bool = false
+    monoText: Bool = false,
+    blockCursor: (x: Int, y: Int)? = nil
   ) -> [UInt8] {
-    guard textDisplayMode == .disabled else { return attrData }
+    guard textDisplayMode == .disabled else {
+      guard let blockCursor,
+            (0..<ScreenRenderer.textCols80).contains(blockCursor.x),
+            (0..<textRows).contains(blockCursor.y)
+      else { return attrData }
+      let index = blockCursor.y * ScreenRenderer.textCols80 + blockCursor.x
+      guard index < attrData.count else { return attrData }
+      var attrs = attrData
+      attrs[index] ^= 0x01
+      return attrs
+    }
     let defaultAttr: UInt8 = crtcStopped
       ? (monoText ? 0xE0 : 0x00)
       : 0xE0 | (reverseDisplay ? 0x01 : 0x00)
