@@ -31,6 +31,17 @@ let package = Package(
             type: .dynamic,
             targets: ["CApi"]
         ),
+        // The tools an AI uses to drive the machine, served over the Model
+        // Context Protocol. The library has no transport of its own: the
+        // executable below speaks stdio, the macOS app HTTP.
+        .library(
+            name: "Bubilator88Automation",
+            targets: ["Bubilator88Automation"]
+        ),
+        .executable(
+            name: "bubilator88-mcp",
+            targets: ["MCPServer"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
@@ -77,9 +88,25 @@ let package = Package(
             swiftSettings: alwaysOptimize
         ),
         .target(
+            name: "Bubilator88Automation",
+            dependencies: [
+                "Bubilator88Core",
+            ],
+            swiftSettings: alwaysOptimize
+        ),
+        .executableTarget(
+            name: "MCPServer",
+            dependencies: [
+                "Bubilator88Automation",
+                "Bubilator88Core",
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        .target(
             name: "CApi",
             dependencies: [
                 "Bubilator88Core",
+                "Bubilator88Automation",
             ],
             // The @_cdecl functions are public, and Swift exports public
             // symbols from a Windows DLL by itself; no .def file is needed.
@@ -92,7 +119,7 @@ let package = Package(
         ),
         .testTarget(
             name: "Bubilator88CoreTests",
-            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals", "PC88Types", "CApi"]
+            dependencies: ["Bubilator88Core", "Z80", "FMSynthesis", "Peripherals", "PC88Types", "CApi", "Bubilator88Automation"]
         ),
     ]
 )

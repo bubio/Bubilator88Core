@@ -77,6 +77,17 @@ extension PC88 {
     }
   }
 
+  /// `readMemory(_:_:)` without disturbing the machine: no wait states are
+  /// charged, an ALU-mode GVRAM read leaves the ALU latches as they were, and
+  /// memory-read breakpoints do not fire.
+  @_spi(Debug) public func peekMemory(_ cpu: CPU, _ address: UInt16) -> UInt8 {
+    switch cpu {
+    case .main: return machine.bus.peek(address)
+    // The sub CPU's memory reads have no side effects.
+    case .sub: return machine.subSystem.subBus.memRead(address)
+    }
+  }
+
   /// Runs `cpu` for exactly one instruction. Stepping the main CPU advances
   /// the whole machine by that instruction's T-states; stepping the sub CPU
   /// runs only the sub CPU.

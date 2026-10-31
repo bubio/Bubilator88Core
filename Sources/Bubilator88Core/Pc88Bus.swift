@@ -877,6 +877,22 @@ package final class Pc88Bus: Bus {
     }
   }
 
+  /// `memRead` without its side effects: the wait states it charges, the ALU
+  /// latches an ALU-mode GVRAM read loads, and the debugger's read hook. For
+  /// tools that look at memory without disturbing the run.
+  package func peek(_ addr: UInt16) -> UInt8 {
+    let waits = pendingWaitStates
+    let latches = aluReg
+    let hook = onDebuggerMemRead
+    onDebuggerMemRead = nil
+    defer {
+      pendingWaitStates = waits
+      aluReg = latches
+      onDebuggerMemRead = hook
+    }
+    return memRead(addr)
+  }
+
   package func memWrite(_ addr: UInt16, value: UInt8) {
     onDebuggerMemWrite?(addr, value)
     switch addr {
