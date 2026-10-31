@@ -418,4 +418,56 @@ struct AutomationTests {
     _ = f.call("tape", ["action": "eject"])
     #expect(!f.host.pc88.isTapeLoaded)
   }
+
+  // MARK: - Recording
+
+  @Test func replayRepeatsTheRecordedRun() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = JSONValue.string(dir.appendingPathComponent("r.b88s").path)
+
+    _ = f.call("run_frames", ["frames": 3])
+    #expect(f.call("record_start", ["path": path])["isError"] == false)
+    _ = f.call("key", ["key": "a", "action": "down"])
+    _ = f.call("run_frames", ["frames": 2])
+    _ = f.call("key", ["key": "a", "action": "up"])
+    _ = f.call("type_text", ["text": "B"])
+    _ = f.call("run_frames", ["frames": 1])
+    let end = f.host.pc88.registers(of: .main)
+    let endTStates = f.host.pc88.totalTStates
+    #expect(f.text("record_stop").contains("key event"))
+
+    _ = f.call("run_frames", ["frames": 7])
+    #expect(f.text("replay", ["path": path]).hasPrefix("Replayed"))
+    #expect(f.host.pc88.registers(of: .main) == end)
+    #expect(f.host.pc88.totalTStates == endTStates)
+
+    // The recording is an ordinary save state as well.
+    #expect(f.call("load_state", ["path": path])["isError"] == false)
+  }
+
+  @Test func recordingRefusesWhatItCannotReplay() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = JSONValue.string(dir.appendingPathComponent("r.b88s").path)
+
+    _ = f.call("record_start", ["path": path])
+    #expect(f.call("reset")["isError"] == true)
+    #expect(f.call("write_memory", ["address": 0, "bytes": "00"])["isError"] == true)
+    #expect(f.call("record_start", ["path": path])["isError"] == true)
+    _ = f.call("record_stop")
+    #expect(f.call("reset")["isError"] == false)
+    #expect(f.call("record_stop")["isError"] == true)
+  }
+
+  @Test func replayNeedsRecordedInput() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = JSONValue.string(dir.appendingPathComponent("s.b88s").path)
+    _ = f.call("save_state", ["path": path])
+    #expect(f.text("replay", ["path": path]).contains("no recorded input"))
+  }
 }

@@ -39,6 +39,8 @@ public final class AutomationTools {
   private var framesRun = 0
   /// The instruction trace is on (`trace`); it needs the debugger attached.
   var tracing = false
+  /// The input being recorded and the file it goes to (`record_start`).
+  var recording: (url: URL, input: InputRecording)?
 
   public init(host: AutomationHost) {
     self.host = host
@@ -48,6 +50,9 @@ public final class AutomationTools {
   /// not exist; failures inside a tool come back as an error result.
   public func call(_ name: String, arguments: [String: JSONValue]) -> ToolResult? {
     guard let tool = Self.tools.first(where: { $0.definition.name == name }) else { return nil }
+    if recording != nil, Self.refusedWhileRecording.contains(name) {
+      return ToolResult([.text("\(name) cannot be recorded; record_stop first.")], isError: true)
+    }
     do {
       return try tool.run(self, Arguments(arguments))
     } catch let error as AutomationError {
@@ -87,7 +92,7 @@ public final class AutomationTools {
     "description": "0-65535, or hex as \"0xC000\", \"C000H\" or \"$C000\".",
   ]
 
-  private static let tools = basicTools + developmentTools
+  private static let tools = basicTools + developmentTools + recordingTools
 
   private static let basicTools: [Tool] = [
     tool("status", """
@@ -287,10 +292,11 @@ public final class AutomationTools {
 
   /// Run up to `count` frames, leaving any breakpoint stop first. Returns
   /// the frames run and, when a breakpoint ended the run, a line saying so.
-  private func run(_ count: Int, beforeEach: (PC88) -> Bool = { _ in true }) throws -> (frames: Int, stop: String?) {
+  func run(_ count: Int, beforeEach: (PC88) -> Bool = { _ in true }) throws -> (frames: Int, stop: String?) {
     try withMachine { leaveBreakpoint($0) }
     let frames = try host.runFrames(count, beforeEach: beforeEach)
     framesRun += frames
+    recording?.input.frames += frames
     return (frames, try withMachine { stopDescription($0) })
   }
 
@@ -392,6 +398,7 @@ public final class AutomationTools {
         "t_states": .number(Double(pc88.totalTStates)),
         "pc": .string(String(format: "%04X", pc88.registers(of: .main).pc)),
         "disks": .array(disks),
+        "recording": .bool(recording != nil),
       ]
     }
     return ToolResult([.text(value.encodedString())])
@@ -435,7 +442,7 @@ public final class AutomationTools {
   private func key(_ args: Arguments) throws -> ToolResult {
     let action = try args.string("action") ?? "tap"
     if action == "release_all" {
-      try withMachine { $0.releaseAllKeys() }
+      try withMachine { setKey(nil, down: false, on: $0) }
       return ToolResult([.text("Released every key.")])
     }
     guard let name = try args.string("key") else {
@@ -446,16 +453,16 @@ public final class AutomationTools {
     }
     switch action {
     case "down":
-      try withMachine { $0.pressKey(key) }
+      try withMachine { setKey(key, down: true, on: $0) }
       return ToolResult([.text("\(name) is down.")])
     case "up":
-      try withMachine { $0.releaseKey(key) }
+      try withMachine { setKey(key, down: false, on: $0) }
       return ToolResult([.text("\(name) is up.")])
     case "tap":
       let hold = try args.int("frames", in: 1...600, default: 3)
-      try withMachine { $0.pressKey(key) }
+      try withMachine { setKey(key, down: true, on: $0) }
       let (held, stop) = try run(hold)
-      try withMachine { $0.releaseKey(key) }
+      try withMachine { setKey(key, down: false, on: $0) }
       if let stop {
         return ToolResult([.text("Tapped \(name) after \(held) frame(s). \(stop)")])
       }
@@ -471,17 +478,19 @@ public final class AutomationTools {
     let limit = try args.int("max_frames", in: 1...36000, default: 6000)
     pasteQueue.enqueue(text)
     let queue = pasteQueue
+    var typed = 0
     let (frames, stop) = try run(limit) { pc88 in
       guard !queue.isEmpty else { return false }
       queue.tick { event in
-        if event.down { pc88.pressKey(event.key) } else { pc88.releaseKey(event.key) }
+        setKey(event.key, down: event.down, on: pc88, frameOffset: typed)
       }
+      typed += 1
       return true
     }
     if !queue.isEmpty {
       try withMachine { pc88 in
         queue.cancel { event in
-          if !event.down { pc88.releaseKey(event.key) }
+          if !event.down { setKey(event.key, down: false, on: pc88) }
         }
       }
       let reason = stop ?? "Gave up after \(frames) frame(s); the rest was not typed."

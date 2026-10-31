@@ -372,6 +372,27 @@ public struct SaveStateFile: Sendable {
     return entries
   }
 
+  /// `file` with the section `tag` set to `data`, replacing any section with
+  /// that tag. The other sections, the thumbnail among them, are kept.
+  package static func settingSection(_ tag: UInt32, to data: [UInt8], in file: [UInt8]) throws -> [UInt8] {
+    let thumbnailTag = fourCC("THMB")
+    var sections: [(tag: UInt32, data: [UInt8])] = []
+    var thumbnail: [UInt8]?
+    for entry in try parseSectionTable(file) {
+      guard entry.offset + entry.size <= file.count else {
+        throw SaveStateError.invalidData("Section extends beyond file")
+      }
+      let bytes = Array(file[entry.offset..<(entry.offset + entry.size)])
+      if entry.tag == thumbnailTag {
+        thumbnail = bytes
+      } else if entry.tag != tag {
+        sections.append((entry.tag, bytes))
+      }
+    }
+    sections.append((tag, data))
+    return build(sections: sections, thumbnail: thumbnail)
+  }
+
   /// Parse a save state file and return sections as a dictionary.
   package static func parse(_ data: [UInt8]) throws -> [UInt32: [UInt8]] {
     let entries = try parseSectionTable(data)
