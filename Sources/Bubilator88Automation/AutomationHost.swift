@@ -55,6 +55,35 @@ public protocol AutomationHost: AnyObject {
 
   /// Restore the `.b88s` save state at `url`.
   func loadState(from url: URL) throws
+
+  /// Load the cassette image at `url`. Returns the format found.
+  func mountTape(url: URL) throws -> TapeFormat
+
+  func rewindTape() throws
+
+  func ejectTape() throws
+}
+
+/// The plain cassette operations, for a host with no cassette display to
+/// keep up to date.
+public extension AutomationHost {
+  func mountTape(url: URL) throws -> TapeFormat {
+    let data: Data
+    do {
+      data = try Data(contentsOf: url)
+    } catch {
+      throw AutomationError("Cannot read \(url.path): \(error.localizedDescription)")
+    }
+    return try withMachine { $0.mountTape(data: data) }
+  }
+
+  func rewindTape() throws {
+    try withMachine { $0.rewindTape() }
+  }
+
+  func ejectTape() throws {
+    try withMachine { $0.ejectTape() }
+  }
 }
 
 /// A failure reported back to the AI as a tool error, in words it can act on.

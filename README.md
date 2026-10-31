@@ -100,7 +100,8 @@ Product > Build Documentation で開けます。
 `Bubilator88Automation` は、AI がエミュレータを操作するためのツールを
 [Model Context Protocol](https://modelcontextprotocol.io) で提供します。
 フレーム実行、キー・文字列入力、画面 (PNG とテキスト)、ディスク、ステート、
-レジスタ・メモリ参照、逆アセンブル、ブレークポイントを扱えます。
+レジスタ・メモリの参照と書き換え、逆アセンブル、ブレークポイント、命令トレース、
+メモリマップ、機械語ファイルの直接ロード、メモリダンプ、テープを扱えます。
 通信手段は持たず、JSON-RPC のメッセージを 1 件ずつ処理します。
 
 `bubilator88-mcp` は、これを stdio で動かす headless のサーバーです。

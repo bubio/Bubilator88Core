@@ -37,6 +37,8 @@ public final class AutomationTools {
   public let host: AutomationHost
   private let pasteQueue = TextPasteQueue()
   private var framesRun = 0
+  /// The instruction trace is on (`trace`); it needs the debugger attached.
+  var tracing = false
 
   public init(host: AutomationHost) {
     self.host = host
@@ -59,14 +61,14 @@ public final class AutomationTools {
 
   // MARK: - Catalogue
 
-  private struct Tool: Sendable {
+  struct Tool: Sendable {
     let definition: ToolDefinition
     let run: @Sendable (AutomationTools, Arguments) throws -> ToolResult
   }
 
-  private static func tool(_ name: String, _ description: String,
-                           _ properties: [String: JSONValue] = [:], required: [String] = [],
-                           _ run: @escaping @Sendable (AutomationTools, Arguments) throws -> ToolResult) -> Tool {
+  static func tool(_ name: String, _ description: String,
+                   _ properties: [String: JSONValue] = [:], required: [String] = [],
+                   _ run: @escaping @Sendable (AutomationTools, Arguments) throws -> ToolResult) -> Tool {
     let schema: JSONValue = [
       "type": "object",
       "properties": .object(properties),
@@ -76,16 +78,18 @@ public final class AutomationTools {
     return Tool(definition: ToolDefinition(name: name, description: description, inputSchema: schema), run: run)
   }
 
-  private static let cpuProperty: JSONValue = [
+  static let cpuProperty: JSONValue = [
     "type": "string", "enum": ["main", "sub"],
     "description": "main: the main Z80. sub: the disk unit's Z80. Default main.",
   ]
-  private static let addressProperty: JSONValue = [
+  static let addressProperty: JSONValue = [
     "type": ["integer", "string"],
     "description": "0-65535, or hex as \"0xC000\", \"C000H\" or \"$C000\".",
   ]
 
-  private static let tools: [Tool] = [
+  private static let tools = basicTools + developmentTools
+
+  private static let basicTools: [Tool] = [
     tool("status", """
     The machine's state: BASIC mode, clock, whether time runs in real time, \
     the debugger's run state, frames run, the main CPU's PC and the mounted disks.
@@ -210,13 +214,15 @@ public final class AutomationTools {
     },
     tool("read_memory", """
     Hex dump of memory. space cpu (default) reads what the CPU sees at the address now, \
-    through the current bank mapping; gvram-blue, gvram-red and gvram-green read a \
-    graphics plane directly (offsets 0-16383). Reading changes nothing.
+    through the current bank mapping (see memory_map). The other spaces read the main \
+    CPU's memory where it physically lives, by offset: ram (64KB main RAM, including \
+    the RAM under the ROMs and GVRAM), tvram (4KB) and gvram-blue/red/green (16KB each). \
+    Reading changes nothing.
     """, [
       "address": addressProperty,
       "length": ["type": "integer", "minimum": 1, "maximum": 4096, "description": "Bytes. Default 256."],
       "cpu": cpuProperty,
-      "space": ["type": "string", "enum": ["cpu", "gvram-blue", "gvram-red", "gvram-green"]],
+      "space": spaceProperty,
     ], required: ["address"]) { tools, args in
       try tools.readMemory(args)
     },
@@ -252,7 +258,7 @@ public final class AutomationTools {
 
   // MARK: - Running
 
-  private func withMachine<T>(_ body: (PC88) throws -> T) throws -> T {
+  func withMachine<T>(_ body: (PC88) throws -> T) throws -> T {
     try host.withMachine(body)
   }
 
@@ -260,7 +266,7 @@ public final class AutomationTools {
   ///
   /// A PC breakpoint stops before its instruction and would stop the run
   /// again at once, so that instruction is executed here first.
-  private func leaveBreakpoint(_ pc88: PC88) {
+  func leaveBreakpoint(_ pc88: PC88) {
     let debugger = host.debugger
     guard case .paused(let reason) = debugger.runState else { return }
     debugger.resume()
@@ -513,20 +519,16 @@ public final class AutomationTools {
     let length = try args.int("length", in: 1...4096, default: 256)
     let space = try args.string("space") ?? "cpu"
     let cpu = try args.cpu()
+    let region = try Self.region(named: space)
     let bytes: [UInt8] = try withMachine { pc88 in
-      switch space {
-      case "cpu":
+      guard let region else {
         return (0..<length).map { pc88.peekMemory(cpu, address &+ UInt16(truncatingIfNeeded: $0)) }
-      case "gvram-blue", "gvram-red", "gvram-green":
-        let gvram = pc88.captureGVRAM()
-        let plane = space == "gvram-blue" ? gvram.blue : space == "gvram-red" ? gvram.red : gvram.green
-        guard Int(address) < plane.count else {
-          throw AutomationError("GVRAM offsets run 0-\(plane.count - 1).")
-        }
-        return Array(plane[Int(address)..<min(plane.count, Int(address) + length)])
-      default:
-        throw AutomationError("Unknown space \(space).")
       }
+      let memory = pc88.memory(region)
+      guard Int(address) < memory.count else {
+        throw AutomationError("\(space) offsets run 0-\(memory.count - 1).")
+      }
+      return Array(memory[Int(address)..<min(memory.count, Int(address) + length)])
     }
     return ToolResult([.text(Self.hexDump(bytes, from: address))])
   }
@@ -570,7 +572,7 @@ public final class AutomationTools {
     }
     let bp = Breakpoint(kind: kind, valueFilter: value)
     host.debugger.add(bp)
-    try host.setDebuggerAttached(true)
+    try updateDebuggerAttachment()
     return ToolResult([.text("Added breakpoint \(Self.shortID(bp.id)): \(Self.describe(bp)).")])
   }
 
@@ -596,9 +598,7 @@ public final class AutomationTools {
       }
       debugger.remove(id: bp.id)
     }
-    if debugger.breakpoints.isEmpty {
-      try host.setDebuggerAttached(false)
-    }
+    try updateDebuggerAttachment()
     return ToolResult([.text("\(debugger.breakpoints.count) breakpoint(s) left.")])
   }
 

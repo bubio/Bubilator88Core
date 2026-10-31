@@ -302,4 +302,120 @@ struct AutomationTests {
     #expect(Arguments.parseAddress("49152") == 0xC000)
     #expect(Arguments.parseAddress("xyz") == nil)
   }
+
+  // MARK: - Development tools
+
+  /// A fresh directory, removed by the caller.
+  static func temporaryDirectory() throws -> URL {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }
+
+  @Test func cpuWritesLandInTheRAMUnderTheROM() throws {
+    let f = try Fixture()
+    #expect(f.call("write_memory", ["address": "0x0010", "bytes": "AA bb"])["isError"] == false)
+    #expect(f.host.pc88.memory(.mainRAM)[0x10...0x11] == [0xAA, 0xBB])
+    // The CPU still reads the ROM there.
+    #expect(f.host.pc88.peekMemory(.main, 0x10) == 0x00)
+    #expect(f.text("read_memory", ["address": "0x10", "length": 2, "space": "ram"]).hasPrefix("0010  AA BB"))
+  }
+
+  @Test func physicalWritesMustFit() throws {
+    let f = try Fixture()
+    #expect(f.call("write_memory", ["address": "0xFFF", "bytes": "01", "space": "tvram"])["isError"] == false)
+    #expect(f.host.pc88.memory(.textVRAM)[0xFFF] == 0x01)
+    #expect(f.call("write_memory", ["address": "0xFFF", "bytes": "0102", "space": "tvram"])["isError"] == true)
+    #expect(f.call("write_memory", ["address": 0, "bytes": "123"])["isError"] == true)
+    #expect(f.call("write_memory", ["address": 0, "bytes": "zz"])["isError"] == true)
+  }
+
+  @Test func setRegistersChangesOnlyThoseGiven() throws {
+    let f = try Fixture()
+    let before = f.host.pc88.registers(of: .main)
+    _ = f.call("set_registers", ["pc": "0x1234", "hl": "$BEEF"])
+    let after = f.host.pc88.registers(of: .main)
+    #expect(after.pc == 0x1234)
+    #expect(after.hl == 0xBEEF)
+    #expect(after.sp == before.sp)
+    #expect(f.call("set_registers", [:])["isError"] == true)
+  }
+
+  @Test func loadBinRunsTheProgramThroughTheLauncher() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("p.bin")
+    try Data([0x3E, 0x99, 0xC9]).write(to: file)  // LD A,99H / RET
+
+    #expect(f.text("load_bin", ["path": .string(file.path)]).contains("PC=EFF0"))
+    let pc88 = f.host.pc88
+    pc88.stepInstruction(.main)  // LD SP,F000H
+    #expect(pc88.registers(of: .main).sp == 0xF000)
+    pc88.stepInstruction(.main)  // CALL C000H
+    #expect(f.pc == 0xC000)
+    pc88.stepInstruction(.main)
+    #expect(f.a == 0x99)
+    pc88.stepInstruction(.main)  // RET
+    pc88.stepInstruction(.main)  // JP 0000H
+    #expect(f.pc == 0x0000)
+  }
+
+  @Test func loadBinMovesTheLauncherOutOfTheWay() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("p.bin")
+    try Data(repeating: 0, count: 0x40).write(to: file)
+
+    #expect(f.text("load_bin", ["path": .string(file.path), "address": "0xEFE0"]).contains("PC=FFF0"))
+    // Above F000H the launcher is in text VRAM too.
+    #expect(f.host.pc88.memory(.textVRAM)[0xFF0] == 0x31)
+    #expect(f.call("load_bin", ["path": .string(file.path), "address": "0xFFE0"])["isError"] == true)
+    #expect(f.text("load_bin", ["path": .string(file.path), "address": "0xFFC0", "launcher": false])
+      .contains("PC=FFC0"))
+  }
+
+  @Test func memoryMapFollowsTheBanks() throws {
+    let f = try Fixture()
+    let map = f.text("memory_map")
+    #expect(map.contains("0000-5FFF  read: n88-rom  write: ram"))
+    #expect(map.contains("8400-BFFF  ram"))
+  }
+
+  @Test func traceRecordsOnlyWhileOn() throws {
+    let f = try Fixture()
+    #expect(f.text("trace").contains("Nothing recorded"))
+    _ = f.call("trace", ["enable": true, "last": 0])
+    #expect(f.host.pc88.debugger != nil)
+    _ = f.call("run_frames", ["frames": 1])
+    let lines = f.text("trace", ["last": 3]).split(separator: "\n")
+    #expect(lines.count == 3)
+    #expect(lines.contains { $0.contains("LD (9000),A") || $0.contains("INC A") || $0.contains("JR") })
+    _ = f.call("trace", ["enable": false, "last": 0])
+    #expect(f.host.pc88.debugger == nil)
+  }
+
+  @Test func dumpMemoryWritesTheRegions() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let out = dir.appendingPathComponent("dump")
+    #expect(f.call("dump_memory", ["path": .string(out.path)])["isError"] == false)
+    #expect(FileManager.default.fileExists(atPath: out.appendingPathComponent("main.bin").path))
+  }
+
+  @Test func tapeMountsRewindsAndEjects() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("t.cmt")
+    try Data([0xD3, 0xD3, 0xD3]).write(to: file)
+
+    #expect(f.text("tape", ["action": "mount", "path": .string(file.path)]).contains("CMT"))
+    #expect(f.host.pc88.isTapeLoaded)
+    #expect(f.call("tape", ["action": "rewind"])["isError"] == false)
+    _ = f.call("tape", ["action": "eject"])
+    #expect(!f.host.pc88.isTapeLoaded)
+  }
 }

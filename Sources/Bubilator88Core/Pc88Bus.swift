@@ -893,6 +893,72 @@ package final class Pc88Bus: Bus {
     return memRead(addr)
   }
 
+  /// `memWrite` without the wait states it charges or the debugger's write
+  /// hook: the store the CPU would make, for tools that patch memory.
+  package func poke(_ addr: UInt16, value: UInt8) {
+    let waits = pendingWaitStates
+    let hook = onDebuggerMemWrite
+    onDebuggerMemWrite = nil
+    defer {
+      pendingWaitStates = waits
+      onDebuggerMemWrite = hook
+    }
+    memWrite(addr, value: value)
+  }
+
+  /// What the CPU reaches through each part of the address space right now,
+  /// following the same decisions as `memRead` and `memWrite`.
+  package func mappingDescription() -> [(start: UInt16, end: UInt16, read: String, write: String)] {
+    func extRAMSelected(_ enabled: Bool) -> Bool {
+      guard enabled, let ext = extRAM else { return false }
+      return extRAMCard < ext.count && extRAMBank < ext[extRAMCard].count
+    }
+    let extName = "ext-ram card \(extRAMCard) bank \(extRAMBank)"
+    let extRead = extRAMSelected(extRAMReadEnable)
+    let lowWrite = extRAMSelected(extRAMWriteEnable) ? extName : "ram"
+    let rom = cdBiosMapped ? "cd-bios" : romModeN88 ? "n88-rom" : "n-rom"
+
+    var map: [(start: UInt16, end: UInt16, read: String, write: String)] = []
+    map.append((0x0000, 0x5FFF, extRead ? extName : ramMode ? "ram" : rom, lowWrite))
+
+    let upperROM: String
+    if extRead {
+      upperROM = extName
+    } else if ramMode {
+      upperROM = "ram"
+    } else if !cdBiosMapped && romModeN88 && extROMEnabled {
+      let bank = Int(n88ExtROMSelect & 0x03)
+      upperROM = bank < (n88ExtROM?.count ?? 0) ? "n88-ext-rom bank \(bank)" : "open bus"
+    } else if !cdBiosMapped && romModeN88 && externalExtROMSelected {
+      upperROM = "open bus"
+    } else {
+      upperROM = rom
+    }
+    map.append((0x6000, 0x7FFF, upperROM, lowWrite))
+
+    if !ramMode && romModeN88 {
+      let base = Int(textWindowOffset) << 8
+      let window = String(format: "ram %04X-%04X (text window)", base, (base + 0x3FF) & 0xFFFF)
+      map.append((0x8000, 0x83FF, window, window))
+    } else {
+      map.append((0x8000, 0x83FF, "ram", "ram"))
+    }
+    map.append((0x8400, 0xBFFF, "ram", "ram"))
+
+    if evramMode && gamMode {
+      map.append((0xC000, 0xFFFF, "gvram-alu", "gvram-alu"))
+    } else if !evramMode && (0..<3).contains(gvramPlane) {
+      let plane = ["gvram-blue", "gvram-red", "gvram-green"][gvramPlane]
+      map.append((0xC000, 0xFFFF, plane, plane))
+    } else {
+      let dictionary = dictionaryMapped && dictionaryROM != nil ? "dictionary-rom bank \(dictionaryBank)" : nil
+      let text = cpuUsesTvramForTextArea ? "tvram" : "ram"
+      map.append((0xC000, 0xEFFF, dictionary ?? "ram", "ram"))
+      map.append((0xF000, 0xFFFF, dictionary ?? text, text))
+    }
+    return map
+  }
+
   package func memWrite(_ addr: UInt16, value: UInt8) {
     onDebuggerMemWrite?(addr, value)
     switch addr {
