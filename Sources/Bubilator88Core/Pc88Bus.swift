@@ -410,6 +410,10 @@ package final class Pc88Bus: Bus {
   /// Debug: main CPU PC, updated by Machine before each step
   package var debugMainPC: UInt16 = 0
 
+  /// Debug: the main CPU is acknowledging an interrupt, set by Machine's
+  /// debugger path while it does.
+  package var debugInInterrupt = false
+
   /// SubSystem reference for port 0xFC-0xFF
   package weak var subSystem: SubSystem?
 
@@ -957,6 +961,48 @@ package final class Pc88Bus: Bus {
       map.append((0xF000, 0xFFFF, dictionary ?? text, text))
     }
     return map
+  }
+
+  /// Where a write to `addr` lands right now, following the same decisions
+  /// as `memWrite`, and whether the GVRAM ALU decides the bytes. Through the
+  /// ALU it is every plane the ALU changes. Empty when the write goes nowhere.
+  package func writeLocations(_ addr: UInt16) -> (locations: [MemoryLocation], viaALU: Bool) {
+    func ram(_ offset: Int) -> [MemoryLocation] { [MemoryLocation(.region(.mainRAM), offset)] }
+    let planes: [PC88.MemoryRegion] = [.gvramBlue, .gvramRed, .gvramGreen]
+    switch addr {
+    case 0x0000..<0x8000:
+      if extRAMWriteEnable, let ext = extRAM, extRAMCard < ext.count, extRAMBank < ext[extRAMCard].count {
+        return ([MemoryLocation(.extRAM(card: extRAMCard, bank: extRAMBank), Int(addr))], false)
+      }
+      return (ram(Int(addr)), false)
+    case 0x8000..<0x8400:
+      if !ramMode && romModeN88 {
+        return (ram(((Int(textWindowOffset) << 8) + Int(addr & 0x03FF)) & 0xFFFF), false)
+      }
+      return (ram(Int(addr)), false)
+    case 0x8400..<0xC000:
+      return (ram(Int(addr)), false)
+    default:
+      let offset = Int(addr) - 0xC000
+      if evramMode && gamMode {
+        let written: [Int] = switch aluControl2 & 0x30 {
+        case 0x00:
+          // A plane whose two control bits are both set is left alone.
+          (0..<3).filter { (aluControl1 >> $0) & 0x11 != 0x11 }
+        case 0x10: [0, 1, 2]
+        case 0x20: [0]
+        default: [1]
+        }
+        return (written.map { MemoryLocation(.region(planes[$0]), offset) }, true)
+      }
+      if !evramMode && (0..<3).contains(gvramPlane) {
+        return ([MemoryLocation(.region(planes[gvramPlane]), offset)], false)
+      }
+      if cpuUsesTvramForTextArea && addr >= 0xF000 {
+        return ([MemoryLocation(.region(.textVRAM), Int(addr) - 0xF000)], false)
+      }
+      return (ram(Int(addr)), false)
+    }
   }
 
   package func memWrite(_ addr: UInt16, value: UInt8) {

@@ -92,7 +92,7 @@ public final class AutomationTools {
     "description": "0-65535, or hex as \"0xC000\", \"C000H\" or \"$C000\".",
   ]
 
-  private static let tools = basicTools + developmentTools + recordingTools
+  private static let tools = basicTools + developmentTools + watchTools + recordingTools
 
   private static let basicTools: [Tool] = [
     tool("status", """
@@ -116,7 +116,7 @@ public final class AutomationTools {
     },
     tool("run_frames", """
     Run the machine for a number of frames (about 1/60 s each) as fast as possible, \
-    then stop. Stops early at a breakpoint. If the machine runs in real time, it is \
+    then stop. Stops early at a breakpoint or watch. If the machine runs in real time, it is \
     paused first and stays paused; use resume to let it run again.
     """, [
       "frames": ["type": "integer", "minimum": 1, "maximum": 36000, "description": "Default 60."],
@@ -135,7 +135,7 @@ public final class AutomationTools {
     },
     tool("step", """
     Execute instructions one at a time and show the registers and next instruction. \
-    Pauses real-time running. Stops at a PC breakpoint or when a memory or I/O breakpoint fires.
+    Pauses real-time running. Stops at a PC breakpoint, or when a memory or I/O breakpoint or a watch fires.
     """, [
       "cpu": cpuProperty,
       "count": ["type": "integer", "minimum": 1, "maximum": 100000, "description": "Default 1."],
@@ -308,6 +308,8 @@ public final class AutomationTools {
       let bp = host.debugger.breakpoints.first { $0.id == id }
       let what = bp.map { "\(Self.shortID($0.id)) (\(Self.describe($0)))" } ?? "a breakpoint"
       return "Stopped at breakpoint \(what). Main PC=\(pc)."
+    case .watch(let id):
+      return "\(watchStopDescription(id)) Main PC=\(pc)."
     case .userRequest, .initialLaunch:
       return "Paused by the debugger. Main PC=\(pc)."
     }
@@ -399,6 +401,8 @@ public final class AutomationTools {
         "pc": .string(String(format: "%04X", pc88.registers(of: .main).pc)),
         "disks": .array(disks),
         "recording": .bool(recording != nil),
+        "write_tracking": .bool(debugger.isTrackingWrites),
+        "watches": .number(Double(debugger.watches.count)),
       ]
     }
     return ToolResult([.text(value.encodedString())])

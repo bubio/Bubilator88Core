@@ -65,6 +65,8 @@ public final class PC88: @unchecked Sendable {
   /// VRAM contents.
   public func reset(preserveRAM: Bool = false) {
     machine.reset(preserveRAM: preserveRAM)
+    // New memory: the last writers seen describe bytes that are gone.
+    if !preserveRAM { machine.debugger?.clearWriteHistory() }
   }
 
   /// Run one VSYNC frame. Returns the T-states executed, which falls short of
@@ -636,6 +638,7 @@ public final class PC88: @unchecked Sendable {
   /// save state or comes from a format version this build cannot read; the
   /// machine may then be partly restored, so reset it.
   public func loadSaveState(_ data: [UInt8]) throws {
+    machine.debugger?.clearWriteHistory()
     try machine.loadSaveState(data)
   }
 

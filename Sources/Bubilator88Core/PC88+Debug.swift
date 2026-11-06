@@ -177,6 +177,12 @@ extension PC88 {
     }
   }
 
+  /// Where a main-CPU write to `address` would land right now: one location,
+  /// or each plane the GVRAM ALU would change.
+  @_spi(Debug) public func writeLocations(of address: UInt16) -> [MemoryLocation] {
+    machine.bus.writeLocations(address).locations
+  }
+
   /// Runs `cpu` for exactly one instruction. Stepping the main CPU advances
   /// the whole machine by that instruction's T-states; stepping the sub CPU
   /// runs only the sub CPU.

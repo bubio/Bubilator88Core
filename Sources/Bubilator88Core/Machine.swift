@@ -124,7 +124,16 @@ package final class Machine: @unchecked Sendable {
           ))
         }
         bus.onDebuggerMemRead  = { [weak dbg] addr in dbg?.noteMemoryRead(addr) }
-        bus.onDebuggerMemWrite = { [weak dbg] addr, value in dbg?.noteMemoryWrite(addr, value: value) }
+        bus.onDebuggerMemWrite = { [weak dbg, weak self] addr, value in
+          dbg?.noteMemoryWrite(addr, value: value) {
+            guard let bus = self?.bus else { return nil }
+            let (locations, viaALU) = bus.writeLocations(addr)
+            return (locations, MemoryWrite(
+              pc: bus.debugMainPC, address: addr, value: value, viaALU: viaALU,
+              duringInterrupt: bus.debugInInterrupt, tState: bus.currentTState
+            ))
+          }
+        }
         bus.onDebuggerIORead   = { [weak dbg] port in dbg?.noteIORead(port) }
         bus.onDebuggerIOWrite  = { [weak dbg] port, value in dbg?.noteIOWrite(port, value: value) }
         subSystem.pio.onPIOAccess = { [weak dbg, weak self] event in
@@ -577,7 +586,9 @@ package final class Machine: @unchecked Sendable {
 
     // Interrupt dispatch
     if cpu.iff1, let irq = interruptBox.controller.resolve() {
+      bus.debugInInterrupt = true
       let ackCycles = cpu.interrupt(vector: irq.vectorOffset, bus: bus)
+      bus.debugInInterrupt = false
       interruptBox.controller.acknowledge(level: irq.level)
 
       // Advance devices by interrupt acknowledge cycles too

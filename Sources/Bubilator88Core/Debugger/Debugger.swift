@@ -51,6 +51,8 @@ import Observation
     case userRequest
     case initialLaunch
     case breakpoint(Breakpoint.ID)
+    /// A write landed in a ``MemoryWatch``; ``Debugger/lastWatchHit`` has it.
+    case watch(MemoryWatch.ID)
   }
 
   // MARK: - Observable state
@@ -83,6 +85,20 @@ import Observation
   @ObservationIgnored private var memWriteIndex: [UInt16: (Breakpoint.ID, UInt8?)] = [:]
   @ObservationIgnored private var ioReadIndex:   [UInt16: Breakpoint.ID] = [:]
   @ObservationIgnored private var ioWriteIndex:  [UInt16: (Breakpoint.ID, UInt8?)] = [:]
+
+  // MARK: - Write tracking
+
+  /// Memory ranges a write to stops at, after the instruction finishes.
+  public private(set) var watches: [MemoryWatch] = []
+
+  /// The write that last stopped at a watch.
+  public private(set) var lastWatchHit: MemoryWatchHit?
+
+  /// The most watches at once.
+  public static let watchCapacity = 64
+
+  @ObservationIgnored private var tracksWrites = false
+  @ObservationIgnored private var lastWriters: [MemoryLocation: MemoryWrite] = [:]
 
   // MARK: - Instruction trace (ring buffer)
 
@@ -213,6 +229,7 @@ import Observation
   public func resume() {
     lock.lock(); defer { lock.unlock() }
     lastHit = nil
+    lastWatchHit = nil
     runState = .running
   }
 
@@ -257,8 +274,27 @@ import Observation
     hitLocked(id: memReadIndex[addr])
   }
 
-  package func noteMemoryWrite(_ addr: UInt16, value: UInt8) {
+  /// Called by Bus on every memory write. `describe` says where the byte
+  /// lands and who wrote it; it is called only while writes are tracked or
+  /// watched, so the cost stays off the plain breakpoint path.
+  package func noteMemoryWrite(
+    _ addr: UInt16, value: UInt8,
+    describe: () -> (locations: [MemoryLocation], write: MemoryWrite)? = { nil }
+  ) {
     lock.lock(); defer { lock.unlock() }
+    if tracksWrites || !watches.isEmpty, let (locations, write) = describe() {
+      if tracksWrites {
+        for location in locations { lastWriters[location] = write }
+      }
+      if case .paused = runState {
+        // Already stopping: the first hit stays the one reported.
+      } else if let watch = watches.first(where: { $0.matches(address: addr, locations: locations) }) {
+        lastWatchHit = MemoryWatchHit(watch: watch.id, write: write, locations: locations)
+        lastHit = nil
+        runState = .paused(reason: .watch(watch.id))
+        return
+      }
+    }
     guard memWriteHits.contains(addr) else { return }
     guard let (id, filter) = memWriteIndex[addr] else { return }
     if let filter, filter != value { return }
@@ -285,6 +321,53 @@ import Observation
   private func hitLocked(id: Breakpoint.ID?) {
     lastHit = id
     runState = .paused(reason: id.map(PauseReason.breakpoint) ?? .userRequest)
+  }
+
+  // MARK: - Write tracking API
+
+  /// Whether every write's last writer is kept. Turning it on starts over.
+  public var isTrackingWrites: Bool {
+    get {
+      lock.lock(); defer { lock.unlock() }
+      return tracksWrites
+    }
+    set {
+      lock.lock(); defer { lock.unlock() }
+      if newValue && !tracksWrites { lastWriters.removeAll() }
+      tracksWrites = newValue
+    }
+  }
+
+  /// The last write to `location` while writes were tracked.
+  public func lastWrite(at location: MemoryLocation) -> MemoryWrite? {
+    lock.lock(); defer { lock.unlock() }
+    return lastWriters[location]
+  }
+
+  /// Forget every last writer, tracking or not.
+  public func clearWriteHistory() {
+    lock.lock(); defer { lock.unlock() }
+    lastWriters.removeAll()
+  }
+
+  /// Add `watch`. Returns false, adding nothing, when ``watchCapacity``
+  /// watches are already set.
+  @discardableResult
+  public func addWatch(_ watch: MemoryWatch) -> Bool {
+    lock.lock(); defer { lock.unlock() }
+    guard watches.count < Self.watchCapacity else { return false }
+    watches.append(watch)
+    return true
+  }
+
+  public func removeWatch(id: MemoryWatch.ID) {
+    lock.lock(); defer { lock.unlock() }
+    watches.removeAll { $0.id == id }
+  }
+
+  public func removeAllWatches() {
+    lock.lock(); defer { lock.unlock() }
+    watches.removeAll()
   }
 
   // MARK: - Instruction trace API

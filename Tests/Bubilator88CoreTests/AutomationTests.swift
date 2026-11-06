@@ -470,4 +470,54 @@ struct AutomationTests {
     _ = f.call("save_state", ["path": path])
     #expect(f.text("replay", ["path": path]).contains("no recorded input"))
   }
+
+  // MARK: - Write tracking
+
+  @Test func lastWriterNamesTheInstruction() throws {
+    let f = try Fixture()
+    #expect(f.text("last_writer", ["address": "9000H"]).contains("tracking is off"))
+    _ = f.call("write_tracking", ["enable": true])
+    #expect(f.host.pc88.debugger != nil)
+    _ = f.call("run_frames", ["frames": 1])
+    let a = f.host.pc88.peekMemory(.main, 0x9000)
+    let text = f.text("last_writer", ["address": "9000H", "length": 2])
+    #expect(text.contains("9000 ram 9000: PC=0003 wrote " + String(format: "%02X", a) + " at T="))
+    #expect(text.contains("9001 ram 9001: no write seen"))
+    #expect(f.text("last_writer", ["address": "9000H", "space": "ram"]).hasPrefix("ram 9000: PC=0003"))
+
+    _ = f.call("write_tracking", ["enable": false])
+    #expect(f.host.pc88.debugger == nil)
+    // A cold reset forgets what was seen.
+    _ = f.call("write_tracking", ["enable": true])
+    _ = f.call("run_frames", ["frames": 1])
+    _ = f.call("reset")
+    #expect(f.text("last_writer", ["address": "9000H"]).contains("no write seen"))
+  }
+
+  @Test func watchStopsAfterTheWritingInstruction() throws {
+    let f = try Fixture()
+    #expect(f.text("watch_add", ["address": "9000H"]).contains("(cpu 9000)"))
+    let first = f.text("run_frames", ["frames": 10])
+    #expect(first.contains("Stopped by watch"))
+    #expect(first.contains("9000 (ram 9000), PC=0003 wrote 42"))
+    // The write is done, the next instruction not begun.
+    #expect(f.pc == 0x0006)
+    #expect(f.host.pc88.peekMemory(.main, 0x9000) == 0x42)
+    #expect(f.text("run_frames", ["frames": 10]).contains("PC=0003 wrote 43"))
+    #expect(f.text("step", ["count": 10]).contains("Executed 3 instruction(s). Stopped by watch"))
+
+    #expect(f.text("watch_remove", ["all": true]) == "0 watch(es) left.")
+    #expect(f.host.pc88.debugger == nil)
+    #expect(f.text("run_frames", ["frames": 2]) == "Ran 2 frame(s).")
+  }
+
+  @Test func watchOnPhysicalMemoryAndItsLimits() throws {
+    let f = try Fixture()
+    _ = f.call("watch_add", ["address": "9000H", "space": "ram"])
+    #expect(f.text("run_frames", ["frames": 10]).contains("(ram 9000)"))
+    #expect(f.call("watch_add", ["address": "0FFFH", "length": 2, "space": "tvram"])["isError"] == true)
+    #expect(f.call("watch_add", ["address": "FFFFH", "length": 2])["isError"] == true)
+    let id = String(f.text("watch_list").prefix(8))
+    #expect(f.text("watch_remove", ["id": .string(id)]) == "0 watch(es) left.")
+  }
 }
