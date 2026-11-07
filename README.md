@@ -106,10 +106,12 @@ Product > Build Documentation で開けます。
 通信手段は持たず、JSON-RPC のメッセージを 1 件ずつ処理します。
 
 `bubilator88-mcp` は、これを stdio で動かす headless のサーバーです。
+コマンドを起動できる MCP クライアントなら、どれからでも使えます。
 時間は AI がフレームを実行したときだけ進むので、同じ操作は同じ結果になります。
 BIOS ROM は既定でアプリと同じ `~/Library/Application Support/Bubilator88` から読みます。
 
 ```
+# Claude Code の例。ほかのクライアントでは、このコマンドを stdio のサーバーとして登録する
 claude mcp add bubilator88-headless -- \
   swift run --package-path /path/to/Bubilator88Core bubilator88-mcp
 swift run bubilator88-mcp --help   # ROM の場所、モード、起動ディスクの指定

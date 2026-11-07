@@ -1,8 +1,9 @@
 // bubilator88-mcp — a headless PC-8801 as a Model Context Protocol server.
 //
 // Speaks MCP over stdio: one JSON-RPC message per line on stdin, one reply
-// per line on stdout. The MCP client (Claude Code, for one) starts it and ends
-// it with the session. stdout carries nothing but replies; logs go to stderr.
+// per line on stdout. Any MCP client that starts a command can use it: the
+// client starts it and ends it with the session. stdout carries nothing but
+// replies; logs go to stderr. With Claude Code, for one:
 //
 //   claude mcp add bubilator88-headless -- \
 //     swift run --package-path <core> bubilator88-mcp [options]
