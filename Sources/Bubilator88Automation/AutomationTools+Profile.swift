@@ -69,8 +69,9 @@ extension AutomationTools {
     tool("load_symbols", """
     Load an assembler's symbol file, replacing any loaded before. Lines are NAME C000, \
     NAME EQU $C000, NAME: EQU 0xC000 or NAME = C000H; a bare address is hex and ; starts \
-    a comment. Names are case-sensitive. Afterwards, address arguments accept the names, \
-    disassemble shows the labels and profile groups by them.
+    a comment. Names are case-sensitive. Afterwards, address arguments accept the names \
+    (a name wins over reading the same text as a number), disassemble shows the labels \
+    and profile groups by them.
     """, [
       "path": ["type": "string", "description": "Absolute path of the symbol file."],
     ], required: ["path"]) { tools, args in
@@ -82,7 +83,8 @@ extension AutomationTools {
     clear zeroes them. The report groups by label (the nearest symbol at or below each \
     instruction) when symbols are loaded, otherwise by instruction, and lists the \
     profile_region timings. T-states include memory and fetch waits; time halted and \
-    interrupt acknowledges are counted apart. Counts are by CPU address, whatever bank \
+    interrupt acknowledges are counted apart; time the CRTC takes from the CPU counts \
+    against the instruction after it. Counts are by CPU address, whatever bank \
     is mapped. It slows the machine down while counting. Only the main CPU.
     """, [
       "action": ["type": "string", "enum": ["start", "stop", "report", "clear"], "description": "Default report."],
@@ -194,24 +196,14 @@ extension AutomationTools {
       var lines = ["Main CPU: \(total) T-states counted; halted \(percent(profiler.haltTStates)), "
         + "\(profiler.interrupts) interrupt acknowledge(s) \(percent(profiler.interruptTStates))."]
 
-      struct Row { var key: String; var tStates: UInt64 = 0; var waits: UInt64 = 0; var instructions: UInt64 = 0; var entries: UInt32 = 0 }
+      // key is the instruction's address, the label's, or -1 before the
+      // first label; rows are named once sorted, so only the listed ones
+      // are disassembled.
+      struct Row { var key: Int; var tStates: UInt64 = 0; var waits: UInt64 = 0; var instructions: UInt64 = 0; var entries: UInt32 = 0 }
       var rows: [Int: Row] = [:]
       for pc in 0..<0x10000 where profiler.instructions[pc] > 0 {
-        let address = UInt16(pc)
-        let key: Int
-        let name: String
-        if symbols.isEmpty {
-          key = pc
-          let instruction = Disassembler.decode(at: address) { pc88.peekMemory(.main, $0) }
-          name = String(format: "%04X  ", pc) + instruction.mnemonic
-        } else if let label = symbols.label(containing: address) {
-          key = Int(label.address)
-          name = label.name + String(format: " (%04X)", label.address)
-        } else {
-          key = -1
-          name = "(before the first symbol)"
-        }
-        var row = rows[key] ?? Row(key: name)
+        let key = symbols.isEmpty ? pc : symbols.label(containing: UInt16(pc)).map { Int($0.address) } ?? -1
+        var row = rows[key] ?? Row(key: key)
         row.tStates += profiler.tStates[pc]
         row.waits += profiler.waitTStates[pc]
         row.instructions += UInt64(profiler.instructions[pc])
@@ -225,13 +217,22 @@ extension AutomationTools {
         lines.append(symbols.isEmpty
           ? "  T-states       %     waits  executed  instruction"
           : "  T-states       %     waits  instructions  entries  label")
+        func name(_ row: Row) -> String {
+          if row.key < 0 { return "(before the first symbol)" }
+          let address = UInt16(row.key)
+          if symbols.isEmpty {
+            let instruction = Disassembler.decode(at: address) { pc88.peekMemory(.main, $0) }
+            return String(format: "%04X  ", row.key) + instruction.mnemonic
+          }
+          return (symbols.name(at: address) ?? "?") + String(format: " (%04X)", row.key)
+        }
         for row in sorted.prefix(top) {
           let share = percent(row.tStates)
           let head = String(format: "%10llu  ", row.tStates) + String(repeating: " ", count: max(0, 6 - share.count))
             + share + String(format: "  %8llu", row.waits)
           lines.append(symbols.isEmpty
-            ? head + String(format: "  %8llu  ", row.instructions) + row.key
-            : head + String(format: "  %12llu  %7u  ", row.instructions, row.entries) + row.key)
+            ? head + String(format: "  %8llu  ", row.instructions) + name(row)
+            : head + String(format: "  %12llu  %7u  ", row.instructions, row.entries) + name(row))
         }
       }
       if !profiler.regions.isEmpty {

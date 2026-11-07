@@ -75,4 +75,59 @@ struct WriteTrackingTests {
     #expect(ram.matches(address: 0x8000, locations: here))
     #expect(!ram.matches(address: 0x1200, locations: [MemoryLocation(.region(.textVRAM), 0x1200)]))
   }
+
+  @Test func aWatchReportsLikeABreakpoint() {
+    let debugger = Debugger()
+    let watch = MemoryWatch(space: .cpu, start: 0x9000, length: 1)
+    debugger.addWatch(watch)
+    let write = MemoryWrite(pc: 3, address: 0x9000, value: 1, viaALU: false, duringInterrupt: false, tState: 0)
+    let describe = { ([MemoryLocation(.region(.mainRAM), 0x9000)], write) }
+    // A single step runs while paused, and still reports the watch.
+    debugger.pauseRequest()
+    debugger.noteMemoryWrite(0x9000, value: 1, describe: describe)
+    #expect(debugger.runState == .paused(reason: .watch(watch.id)))
+    #expect(debugger.lastWatchHit?.write == write)
+    // A breakpoint later in the same instruction is the one reported.
+    debugger.add(Breakpoint(kind: .memoryWrite(0x9001)))
+    debugger.noteMemoryWrite(0x9001, value: 2)
+    #expect(debugger.lastWatchHit == nil)
+    if case .paused(.breakpoint) = debugger.runState {} else { Issue.record("\(debugger.runState)") }
+  }
+
+  @Test func aColdResetForgetsTheWritersEvenWithTheDebuggerDetached() {
+    let pc88 = PC88()
+    let debugger = Debugger()
+    debugger.isTrackingWrites = true
+    pc88.debugger = debugger
+    let write = MemoryWrite(pc: 3, address: 0x9000, value: 1, viaALU: false, duringInterrupt: false, tState: 0)
+    let here = MemoryLocation(.region(.mainRAM), 0x9000)
+    debugger.noteMemoryWrite(0x9000, value: 1) { ([here], write) }
+    debugger.isTrackingWrites = false
+    pc88.debugger = nil
+    pc88.reset(preserveRAM: true)
+    #expect(debugger.lastWrite(at: here) == write)
+    pc88.reset()
+    #expect(debugger.lastWrite(at: here) == nil)
+  }
+
+  @Test func aHaltedLoopIsTimedOncePerPass() {
+    let profiler = Profiler()
+    profiler.regions = [Profiler.Region(name: "loop", begin: 0x10, end: 0x10)]
+    profiler.willExecute(pc: 0x10, halted: false, now: 0)
+    for t in stride(from: 4, to: 400, by: 4) {
+      profiler.willExecute(pc: 0x10, halted: true, now: UInt64(t))
+    }
+    profiler.willExecute(pc: 0x10, halted: false, now: 400)
+    #expect(profiler.regions[0].hits == 1)
+    #expect(profiler.regions[0].totalTStates == 400)
+  }
+
+  @Test func anAcknowledgesWaitsCountWithIt() {
+    let profiler = Profiler()
+    profiler.didAcknowledgeInterrupt(cycles: 19, waits: 2)
+    profiler.didExecute(pc: 0x38, halted: false, cycles: 4 + 3, waits: 3)
+    #expect(profiler.interruptTStates == 21)
+    #expect(profiler.tStates[0x38] == 5)
+    #expect(profiler.waitTStates[0x38] == 1)
+  }
 }

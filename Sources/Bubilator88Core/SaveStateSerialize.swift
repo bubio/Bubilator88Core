@@ -764,6 +764,8 @@ extension Machine {
 
   /// Load a complete save state file, restoring all components and disk images.
   package func loadSaveState(_ data: [UInt8]) throws {
+    // Even a load that fails part-way has replaced some memory.
+    defer { forgetDebugHistory(memoryReplaced: true) }
     let sections = try SaveStateFile.parse(data)
 
     guard let mainData = sections[SaveStateFile.fourCC("MAIN")] else {

@@ -42,6 +42,7 @@ import Foundation
   public private(set) var interruptTStates: UInt64 = 0
   public private(set) var interrupts = 0
   public var regions: [Region] = []
+  private var carriedWaits = 0
 
   public init() {}
 
@@ -58,6 +59,7 @@ import Foundation
     haltTStates = 0
     interruptTStates = 0
     interrupts = 0
+    carriedWaits = 0
     for i in regions.indices {
       regions[i].hits = 0
       regions[i].totalTStates = 0
@@ -69,7 +71,10 @@ import Foundation
   // MARK: - Machine-facing
 
   /// Before the instruction at `pc` runs, at T-state count `now`.
-  func willExecute(pc: UInt16, now: UInt64) {
+  func willExecute(pc: UInt16, halted: Bool, now: UInt64) {
+    // Halted, the CPU stays on the HALT for tick after tick; the
+    // instruction ran once, when it was reached.
+    guard !halted else { return }
     for i in regions.indices {
       if let start = regions[i].startedAt, pc == regions[i].end {
         let elapsed = now &- start
@@ -86,18 +91,31 @@ import Foundation
 
   /// The instruction at `pc` took `cycles` T-states, `waits` of them waits.
   func didExecute(pc: UInt16, halted: Bool, cycles: Int, waits: Int) {
+    // The machine adds an acknowledge's waits to the next instruction;
+    // they were counted with the acknowledge.
+    let carried = min(carriedWaits, waits)
+    carriedWaits = 0
+    let cycles = UInt64(cycles - carried)
     if halted {
-      haltTStates &+= UInt64(cycles)
+      haltTStates &+= cycles
       return
     }
     let i = Int(pc)
-    tStates[i] &+= UInt64(cycles)
-    waitTStates[i] &+= UInt64(waits)
+    tStates[i] &+= cycles
+    waitTStates[i] &+= UInt64(waits - carried)
     instructions[i] &+= 1
   }
 
-  func didAcknowledgeInterrupt(cycles: Int) {
-    interruptTStates &+= UInt64(cycles)
+  /// An interrupt acknowledge took `cycles` T-states and left `waits`
+  /// waits for the machine to add to the next instruction.
+  func didAcknowledgeInterrupt(cycles: Int, waits: Int) {
+    interruptTStates &+= UInt64(cycles + waits)
     interrupts += 1
+    carriedWaits = waits
+  }
+
+  /// Drop the regions' open starts, as when the T-state count jumps.
+  func abandonOpenRegions() {
+    for i in regions.indices { regions[i].startedAt = nil }
   }
 }

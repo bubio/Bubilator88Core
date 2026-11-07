@@ -107,6 +107,7 @@ package final class Machine: @unchecked Sendable {
   package var debugger: Debugger? {
     didSet {
       if let dbg = debugger {
+        writeHistoryOwner = dbg
         subSystem.subCPUStepHook = { [weak dbg] pc in
           guard let dbg else { return true }
           return dbg.shouldStepSub(pc: pc)
@@ -169,6 +170,18 @@ package final class Machine: @unchecked Sendable {
         subSystem.pio.onPIOControlWrite = nil
       }
     }
+  }
+
+  /// The debugger last attached. Its write history outlives the
+  /// attachment, so a cold reset or a state load still clears it.
+  private weak var writeHistoryOwner: Debugger?
+
+  /// After a reset or a state load. New memory makes the last writers seen
+  /// describe bytes that are gone; the T-state count jumps, so a region
+  /// open across it would time nothing real.
+  package func forgetDebugHistory(memoryReplaced: Bool) {
+    if memoryReplaced { writeHistoryOwner?.clearWriteHistory() }
+    profiler?.abandonOpenRegions()
   }
 
   /// Counts the main CPU's T-states by instruction address while set. It
@@ -407,6 +420,7 @@ package final class Machine: @unchecked Sendable {
     subAccumClocks = 0
     subDebt = 0
     clock8MHz = true
+    forgetDebugHistory(memoryReplaced: !preserveRAM)
     traceLog.removeAll()
     pendingIOTraces.removeAll()
 
@@ -533,7 +547,7 @@ package final class Machine: @unchecked Sendable {
     let halted = cpu.halted
     bus.debugMainPC = pc
     bus.currentTState = totalTStates
-    profiler?.willExecute(pc: pc, now: totalTStates)
+    profiler?.willExecute(pc: pc, halted: halted, now: totalTStates)
     // Debugger trace ring buffer (captured BEFORE stepping so the
     // register snapshot reflects the state leading INTO the
     // instruction). Also triggered on direct tick() calls so
@@ -595,9 +609,10 @@ package final class Machine: @unchecked Sendable {
     // Interrupt dispatch
     if cpu.iff1, let irq = interruptBox.controller.resolve() {
       bus.debugInInterrupt = true
+      let waitsBefore = bus.pendingWaitStates
       let ackCycles = cpu.interrupt(vector: irq.vectorOffset, bus: bus)
       bus.debugInInterrupt = false
-      profiler?.didAcknowledgeInterrupt(cycles: ackCycles)
+      profiler?.didAcknowledgeInterrupt(cycles: ackCycles, waits: bus.pendingWaitStates - waitsBefore)
       interruptBox.controller.acknowledge(level: irq.level)
 
       // Advance devices by interrupt acknowledge cycles too

@@ -89,7 +89,11 @@ import Observation
   // MARK: - Write tracking
 
   /// Memory ranges a write to stops at, after the instruction finishes.
-  public private(set) var watches: [MemoryWatch] = []
+  public private(set) var watches: [MemoryWatch] = [] {
+    didSet { hotWatches = watches }
+  }
+  // `watches` as read on every memory write, kept out of observation.
+  @ObservationIgnored private var hotWatches: [MemoryWatch] = []
 
   /// The write that last stopped at a watch.
   public private(set) var lastWatchHit: MemoryWatchHit?
@@ -281,20 +285,30 @@ import Observation
     _ addr: UInt16, value: UInt8,
     describe: () -> (locations: [MemoryLocation], write: MemoryWrite)? = { nil }
   ) {
-    lock.lock(); defer { lock.unlock() }
-    if tracksWrites || !watches.isEmpty, let (locations, write) = describe() {
-      if tracksWrites {
-        for location in locations { lastWriters[location] = write }
-      }
-      if case .paused = runState {
-        // Already stopping: the first hit stays the one reported.
-      } else if let watch = watches.first(where: { $0.matches(address: addr, locations: locations) }) {
-        lastWatchHit = MemoryWatchHit(watch: watch.id, write: write, locations: locations)
-        lastHit = nil
-        runState = .paused(reason: .watch(watch.id))
-        return
+    lock.lock()
+    let tracks = tracksWrites
+    let watched = hotWatches
+    lock.unlock()
+    // A CPU-space watch needs only the address, so `describe` runs when
+    // the write is tracked, a physical range is watched, or it matched.
+    if tracks || watched.contains(where: { $0.space != .cpu || $0.matches(address: addr, locations: []) }) {
+      // Outside the lock: the bus works out where the byte went.
+      if let (locations, write) = describe() {
+        lock.lock()
+        if tracks {
+          for location in locations { lastWriters[location] = write }
+        }
+        if let watch = watched.first(where: { $0.matches(address: addr, locations: locations) }) {
+          // Like a breakpoint, the last hit in an instruction is the one
+          // reported, and a hit while paused (a single step) still reports.
+          lastWatchHit = MemoryWatchHit(watch: watch.id, write: write, locations: locations)
+          lastHit = nil
+          runState = .paused(reason: .watch(watch.id))
+        }
+        lock.unlock()
       }
     }
+    lock.lock(); defer { lock.unlock() }
     guard memWriteHits.contains(addr) else { return }
     guard let (id, filter) = memWriteIndex[addr] else { return }
     if let filter, filter != value { return }
@@ -320,6 +334,7 @@ import Observation
   /// Caller must hold `lock`.
   private func hitLocked(id: Breakpoint.ID?) {
     lastHit = id
+    lastWatchHit = nil
     runState = .paused(reason: id.map(PauseReason.breakpoint) ?? .userRequest)
   }
 
