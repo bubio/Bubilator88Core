@@ -107,7 +107,6 @@ package final class Machine: @unchecked Sendable {
   package var debugger: Debugger? {
     didSet {
       if let dbg = debugger {
-        writeHistoryOwner = dbg
         subSystem.subCPUStepHook = { [weak dbg] pc in
           guard let dbg else { return true }
           return dbg.shouldStepSub(pc: pc)
@@ -172,15 +171,12 @@ package final class Machine: @unchecked Sendable {
     }
   }
 
-  /// The debugger last attached. Its write history outlives the
-  /// attachment, so a cold reset or a state load still clears it.
-  private weak var writeHistoryOwner: Debugger?
-
   /// After a reset or a state load. New memory makes the last writers seen
   /// describe bytes that are gone; the T-state count jumps, so a region
   /// open across it would time nothing real.
   package func forgetDebugHistory(memoryReplaced: Bool) {
-    if memoryReplaced { writeHistoryOwner?.clearWriteHistory() }
+    // Writers are seen only while tracked, which keeps a debugger attached.
+    if memoryReplaced { debugger?.clearWriteHistory() }
     profiler?.abandonOpenRegions()
   }
 

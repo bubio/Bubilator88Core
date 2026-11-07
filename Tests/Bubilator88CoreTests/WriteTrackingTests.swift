@@ -94,7 +94,7 @@ struct WriteTrackingTests {
     if case .paused(.breakpoint) = debugger.runState {} else { Issue.record("\(debugger.runState)") }
   }
 
-  @Test func aColdResetForgetsTheWritersEvenWithTheDebuggerDetached() {
+  @Test func theWritersLastWhileTrackedAndTheirMemory() {
     let pc88 = PC88()
     let debugger = Debugger()
     debugger.isTrackingWrites = true
@@ -102,11 +102,12 @@ struct WriteTrackingTests {
     let write = MemoryWrite(pc: 3, address: 0x9000, value: 1, viaALU: false, duringInterrupt: false, tState: 0)
     let here = MemoryLocation(.region(.mainRAM), 0x9000)
     debugger.noteMemoryWrite(0x9000, value: 1) { ([here], write) }
-    debugger.isTrackingWrites = false
-    pc88.debugger = nil
     pc88.reset(preserveRAM: true)
     #expect(debugger.lastWrite(at: here) == write)
     pc88.reset()
+    #expect(debugger.lastWrite(at: here) == nil)
+    debugger.noteMemoryWrite(0x9000, value: 1) { ([here], write) }
+    debugger.isTrackingWrites = false
     #expect(debugger.lastWrite(at: here) == nil)
   }
 

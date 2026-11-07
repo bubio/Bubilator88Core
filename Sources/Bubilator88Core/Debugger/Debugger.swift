@@ -35,7 +35,8 @@ import Observation
 
   /// SAFETY: guards every mutable property below. Held only for the
   /// duration of the surrounding method; never while invoking
-  /// arbitrary callbacks.
+  /// arbitrary callbacks. (`noteMemoryWrite`'s `describe` runs under it:
+  /// it only reads the bus, on the machine's thread.)
   @ObservationIgnored private let lock = NSLock()
 
   // MARK: - Types
@@ -89,11 +90,8 @@ import Observation
   // MARK: - Write tracking
 
   /// Memory ranges a write to stops at, after the instruction finishes.
-  public private(set) var watches: [MemoryWatch] = [] {
-    didSet { hotWatches = watches }
-  }
-  // `watches` as read on every memory write, kept out of observation.
-  @ObservationIgnored private var hotWatches: [MemoryWatch] = []
+  /// Read on every memory write and shown by no view, so unobserved.
+  @ObservationIgnored public private(set) var watches: [MemoryWatch] = []
 
   /// The write that last stopped at a watch.
   public private(set) var lastWatchHit: MemoryWatchHit?
@@ -285,30 +283,22 @@ import Observation
     _ addr: UInt16, value: UInt8,
     describe: () -> (locations: [MemoryLocation], write: MemoryWrite)? = { nil }
   ) {
-    lock.lock()
-    let tracks = tracksWrites
-    let watched = hotWatches
-    lock.unlock()
+    lock.lock(); defer { lock.unlock() }
     // A CPU-space watch needs only the address, so `describe` runs when
     // the write is tracked, a physical range is watched, or it matched.
-    if tracks || watched.contains(where: { $0.space != .cpu || $0.matches(address: addr, locations: []) }) {
-      // Outside the lock: the bus works out where the byte went.
-      if let (locations, write) = describe() {
-        lock.lock()
-        if tracks {
-          for location in locations { lastWriters[location] = write }
-        }
-        if let watch = watched.first(where: { $0.matches(address: addr, locations: locations) }) {
-          // Like a breakpoint, the last hit in an instruction is the one
-          // reported, and a hit while paused (a single step) still reports.
-          lastWatchHit = MemoryWatchHit(watch: watch.id, write: write, locations: locations)
-          lastHit = nil
-          runState = .paused(reason: .watch(watch.id))
-        }
-        lock.unlock()
+    if tracksWrites || watches.contains(where: { $0.space != .cpu || $0.matches(address: addr, locations: []) }),
+       let (locations, write) = describe() {
+      if tracksWrites {
+        for location in locations { lastWriters[location] = write }
+      }
+      if let watch = watches.first(where: { $0.matches(address: addr, locations: locations) }) {
+        // Like a breakpoint, the last hit in an instruction is the one
+        // reported, and a hit while paused (a single step) still reports.
+        lastWatchHit = MemoryWatchHit(watch: watch.id, write: write, locations: locations)
+        lastHit = nil
+        runState = .paused(reason: .watch(watch.id))
       }
     }
-    lock.lock(); defer { lock.unlock() }
     guard memWriteHits.contains(addr) else { return }
     guard let (id, filter) = memWriteIndex[addr] else { return }
     if let filter, filter != value { return }
@@ -340,7 +330,8 @@ import Observation
 
   // MARK: - Write tracking API
 
-  /// Whether every write's last writer is kept. Turning it on starts over.
+  /// Whether every write's last writer is kept. The writers seen are kept
+  /// only while it is on: turning it off forgets them.
   public var isTrackingWrites: Bool {
     get {
       lock.lock(); defer { lock.unlock() }
@@ -348,7 +339,7 @@ import Observation
     }
     set {
       lock.lock(); defer { lock.unlock() }
-      if newValue && !tracksWrites { lastWriters.removeAll() }
+      if !newValue { lastWriters.removeAll() }
       tracksWrites = newValue
     }
   }
@@ -359,7 +350,7 @@ import Observation
     return lastWriters[location]
   }
 
-  /// Forget every last writer, tracking or not.
+  /// Forget every last writer, as when the memory they wrote is replaced.
   public func clearWriteHistory() {
     lock.lock(); defer { lock.unlock() }
     lastWriters.removeAll()

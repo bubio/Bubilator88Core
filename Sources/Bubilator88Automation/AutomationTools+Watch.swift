@@ -10,7 +10,7 @@ extension AutomationTools {
   static let watchTools: [Tool] = [
     tool("write_tracking", """
     Keep, for every byte of the main CPU's memory, the instruction that last wrote it \
-    (see last_writer). Turning it on starts over. It slows the machine down while on. \
+    (see last_writer). Turning it off forgets them. It slows the machine down while on. \
     Writes by DMA and by these tools are not tracked.
     """, [
       "enable": ["type": "boolean"],
@@ -61,7 +61,7 @@ extension AutomationTools {
     let enable = try args.bool("enable", default: false)
     host.debugger.isTrackingWrites = enable
     try updateDebuggerAttachment()
-    return ToolResult([.text(enable ? "Tracking writes." : "Stopped tracking writes; last_writer keeps what it saw.")])
+    return ToolResult([.text(enable ? "Tracking writes." : "Stopped tracking writes.")])
   }
 
   private func lastWriter(_ args: Arguments) throws -> ToolResult {
@@ -70,6 +70,9 @@ extension AutomationTools {
     let space = try args.string("space") ?? "cpu"
     let region = try Self.region(named: space)
     let debugger = host.debugger
+    guard debugger.isTrackingWrites else {
+      throw AutomationError("Write tracking is off; turn it on with write_tracking, then run.")
+    }
     let lines = try withMachine { pc88 -> [String] in
       if let region {
         let size = pc88.memory(region).count
@@ -88,11 +91,7 @@ extension AutomationTools {
         return head + found.joined(separator: "; ")
       }
     }
-    var text = lines.joined(separator: "\n")
-    if !debugger.isTrackingWrites {
-      text += "\nWrite tracking is off; turn it on with write_tracking."
-    }
-    return ToolResult([.text(text)])
+    return ToolResult([.text(lines.joined(separator: "\n"))])
   }
 
   // MARK: - Watches
