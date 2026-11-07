@@ -177,6 +177,13 @@ extension PC88 {
     }
   }
 
+  /// Counts the main CPU's T-states by instruction address while set and a
+  /// debugger is attached (``debugger``).
+  @_spi(Debug) public var profiler: Profiler? {
+    get { machine.profiler }
+    set { machine.profiler = newValue }
+  }
+
   /// Where a main-CPU write to `address` would land right now: one location,
   /// or each plane the GVRAM ALU would change.
   @_spi(Debug) public func writeLocations(of address: UInt16) -> [MemoryLocation] {

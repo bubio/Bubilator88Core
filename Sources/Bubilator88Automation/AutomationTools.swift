@@ -41,6 +41,12 @@ public final class AutomationTools {
   var tracing = false
   /// The input being recorded and the file it goes to (`record_start`).
   var recording: (url: URL, input: InputRecording)?
+  /// Labels from `load_symbols`.
+  var symbols = SymbolTable()
+  /// The counts `profile` keeps, made on first use.
+  var profiler: Profiler?
+  /// `profiler` is attached and counting; it needs the debugger attached.
+  var profiling = false
 
   public init(host: AutomationHost) {
     self.host = host
@@ -54,7 +60,7 @@ public final class AutomationTools {
       return ToolResult([.text("\(name) cannot be recorded; record_stop first.")], isError: true)
     }
     do {
-      return try tool.run(self, Arguments(arguments))
+      return try tool.run(self, Arguments(arguments, symbols: symbols.addresses))
     } catch let error as AutomationError {
       return ToolResult([.text(error.description)], isError: true)
     } catch {
@@ -89,10 +95,10 @@ public final class AutomationTools {
   ]
   static let addressProperty: JSONValue = [
     "type": ["integer", "string"],
-    "description": "0-65535, or hex as \"0xC000\", \"C000H\" or \"$C000\".",
+    "description": "0-65535, hex as \"0xC000\", \"C000H\" or \"$C000\", or a name from load_symbols.",
   ]
 
-  private static let tools = basicTools + developmentTools + watchTools + recordingTools
+  private static let tools = basicTools + developmentTools + watchTools + profileTools + recordingTools
 
   private static let basicTools: [Tool] = [
     tool("status", """
@@ -555,6 +561,7 @@ public final class AutomationTools {
       var lines: [String] = []
       for _ in 0..<count {
         let instruction = Disassembler.decode(at: address) { pc88.peekMemory(cpu, $0) }
+        if cpu == .main, let label = symbols.name(at: address) { lines.append(label + ":") }
         lines.append(Self.formatInstruction(instruction))
         address = instruction.nextAddress
       }
@@ -674,9 +681,12 @@ public final class AutomationTools {
 /// A tool call's arguments, with the checks every tool needs.
 struct Arguments {
   let values: [String: JSONValue]
+  /// Names an address argument may give instead of a number.
+  let symbols: [String: UInt16]
 
-  init(_ values: [String: JSONValue]) {
+  init(_ values: [String: JSONValue], symbols: [String: UInt16] = [:]) {
     self.values = values
+    self.symbols = symbols
   }
 
   func has(_ name: String) -> Bool {
@@ -716,19 +726,19 @@ struct Arguments {
     }
   }
 
-  /// An address given as a number or as hex text.
+  /// An address given as a number, as hex text or as a loaded symbol.
   func address(_ name: String) throws -> UInt16 {
     guard let value = values[name], value != .null else { throw AutomationError("\(name) is required.") }
     let number: Int?
     if let n = value.intValue {
       number = n
     } else if let text = value.stringValue {
-      number = Self.parseAddress(text)
+      number = symbols[text.trimmingCharacters(in: .whitespaces)].map(Int.init) ?? Self.parseAddress(text)
     } else {
       number = nil
     }
     guard let number, (0...0xFFFF).contains(number) else {
-      throw AutomationError("\(name) must be 0-65535 or hex such as 0xC000, C000H or $C000.")
+      throw AutomationError("\(name) must be 0-65535, hex such as 0xC000, C000H or $C000, or a loaded symbol.")
     }
     return UInt16(number)
   }

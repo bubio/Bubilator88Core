@@ -520,4 +520,63 @@ struct AutomationTests {
     let id = String(f.text("watch_list").prefix(8))
     #expect(f.text("watch_remove", ["id": .string(id)]) == "0 watch(es) left.")
   }
+
+  // MARK: - Profiling
+
+  @Test func symbolFilesReadTheCommonSpellings() {
+    let (table, skipped) = SymbolTable.parse("""
+    START 0000 ; the reset vector
+    LOOP: EQU $0003
+    STEP equ 0x0006
+    BACK = 0007H
+    not a symbol line
+    """)
+    #expect(table.addresses == ["START": 0, "LOOP": 3, "STEP": 6, "BACK": 7])
+    #expect(skipped == ["not a symbol line"])
+    #expect(table.label(containing: 0x0005)?.name == "LOOP")
+    #expect(table.name(at: 0x0006) == "STEP")
+    #expect(table.name(at: 0x0005) == nil)
+  }
+
+  @Test func profileGroupsByLabelAndTimesRegions() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("p.sym")
+    try "START 0000\nLOOP 0003\n".write(to: file, atomically: true, encoding: .utf8)
+    #expect(f.text("load_symbols", ["path": .string(file.path)]).hasPrefix("Loaded 2 symbol(s)"))
+    #expect(f.text("disassemble", ["address": "LOOP", "count": 1]).hasPrefix("LOOP:\n0003"))
+
+    _ = f.call("profile_region", ["name": "pass", "begin": "LOOP", "end": "LOOP"])
+    _ = f.call("profile", ["action": "start"])
+    #expect(f.host.pc88.debugger != nil)
+    _ = f.call("run_frames", ["frames": 2])
+    let report = f.text("profile", ["action": "stop"])
+    #expect(f.host.pc88.debugger == nil)
+    #expect(report.contains("By label"))
+    let loop = try #require(report.split(separator: "\n").first { $0.hasSuffix("LOOP (0003)") })
+    // LD (nn),A 13 + INC A 4 + JR 12, plus their waits, every pass.
+    let words = loop.split(separator: " ")
+    let tStates = try #require(UInt64(words[0]))
+    let instructions = try #require(UInt64(words[3]))
+    let entries = try #require(UInt64(words[4]))
+    #expect(instructions == entries * 3)
+    #expect(tStates >= entries * 29)
+    #expect(report.contains("pass 0003-0003: "))
+    #expect(report.contains("mean 29"))
+  }
+
+  @Test func profileWithoutSymbolsListsInstructions() throws {
+    let f = try Fixture()
+    #expect(f.text("profile").contains("profile start first"))
+    _ = f.call("profile", ["action": "start"])
+    _ = f.call("run_frames", ["frames": 1])
+    let report = f.text("profile", ["top": 3])
+    #expect(report.contains("By instruction"))
+    #expect(report.contains("0003  LD (9000H),A"))
+    _ = f.call("profile", ["action": "clear"])
+    #expect(f.text("profile").contains("Nothing counted yet"))
+    #expect(f.call("profile_region", ["name": "x", "begin": 0])["isError"] == true)
+    #expect(f.call("profile_region", ["name": "x"])["isError"] == true)
+  }
 }

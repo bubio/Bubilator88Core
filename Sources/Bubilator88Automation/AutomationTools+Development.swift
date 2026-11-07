@@ -92,11 +92,11 @@ extension AutomationTools {
     },
   ]
 
-  /// Attach the debugger while breakpoints, watches, the trace or write
-  /// tracking need it.
+  /// Attach the debugger while breakpoints, watches, the trace, write
+  /// tracking or profiling need it.
   func updateDebuggerAttachment() throws {
     let debugger = host.debugger
-    try host.setDebuggerAttached(tracing || debugger.isTrackingWrites
+    try host.setDebuggerAttached(tracing || profiling || debugger.isTrackingWrites
       || !debugger.breakpoints.isEmpty || !debugger.watches.isEmpty)
   }
 
