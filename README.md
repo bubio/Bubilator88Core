@@ -92,6 +92,32 @@ Product > Build Documentation で開けます。
 - **不安定**: `@_spi(Debug) import Bubilator88Core` で見えるもの (デバッガ、CPU レジスタ、
   音源の内部状態など)。Bubilator88 のデバッガ用で、予告なく変わります。
 - **C ABI** (`Bubilator88C`, `b88_*`): 関数の追加のみ行い、既存の関数は変えません。
+- **不安定**: `Bubilator88Automation` の Swift API。MCP のツール名と引数は使う側
+  (AI) に見えるので、変えるときは互換に気を付けます。
+
+## AI から操作する (MCP)
+
+`Bubilator88Automation` は、AI がエミュレータを操作するためのツールを
+[Model Context Protocol](https://modelcontextprotocol.io) で提供します。
+フレーム実行、キー・文字列入力、画面 (PNG とテキスト)、ディスク、ステート、
+レジスタ・メモリの参照と書き換え、逆アセンブル、ブレークポイント、命令トレース、
+書き込み元の追跡とウォッチ、シンボル付きのサイクル計測、
+メモリマップ、機械語ファイルの直接ロード、メモリダンプ、テープ、入力の記録・再生を扱えます。
+通信手段は持たず、JSON-RPC のメッセージを 1 件ずつ処理します。
+
+`bubilator88-mcp` は、これを stdio で動かす headless のサーバーです。
+コマンドを起動できる MCP クライアントなら、どれからでも使えます。
+時間は AI がフレームを実行したときだけ進むので、同じ操作は同じ結果になります。
+BIOS ROM は既定でアプリと同じ `~/Library/Application Support/Bubilator88` から読みます。
+
+```
+# Claude Code の例。ほかのクライアントでは、このコマンドを stdio のサーバーとして登録する
+claude mcp add bubilator88-headless -- \
+  swift run --package-path /path/to/Bubilator88Core bubilator88-mcp
+swift run bubilator88-mcp --help   # ROM の場所、モード、起動ディスクの指定
+```
+
+C ABI からは `b88_mcp_handle` / `b88_mcp_reply` で同じツールを使えます。
 
 ## Windows (C ABI)
 

@@ -77,6 +77,119 @@ extension PC88 {
     }
   }
 
+  /// `readMemory(_:_:)` without disturbing the machine: no wait states are
+  /// charged, an ALU-mode GVRAM read leaves the ALU latches as they were, and
+  /// memory-read breakpoints do not fire.
+  @_spi(Debug) public func peekMemory(_ cpu: CPU, _ address: UInt16) -> UInt8 {
+    switch cpu {
+    case .main: return machine.bus.peek(address)
+    // The sub CPU's memory reads have no side effects.
+    case .sub: return machine.subSystem.subBus.memRead(address)
+    }
+  }
+
+  /// Store one byte as `cpu` would at `address` right now (through the
+  /// current bank mapping), without charging wait states or firing
+  /// memory-write breakpoints. In ALU mode the store goes through the ALU,
+  /// as the CPU's would. The sub CPU's ROM ignores stores.
+  @_spi(Debug) public func pokeMemory(_ cpu: CPU, _ address: UInt16, _ value: UInt8) {
+    switch cpu {
+    case .main: machine.bus.poke(address, value: value)
+    // The sub CPU's memory writes have no side effects.
+    case .sub: machine.subSystem.subBus.memWrite(address, value: value)
+    }
+  }
+
+  /// Replace `cpu`'s registers.
+  @_spi(Debug) public func setRegisters(_ registers: CPURegisters, of cpu: CPU) {
+    let z80 = cpu == .main ? machine.cpu : machine.subSystem.subCpu
+    z80.pc = registers.pc; z80.sp = registers.sp
+    z80.af = registers.af; z80.bc = registers.bc; z80.de = registers.de; z80.hl = registers.hl
+    z80.ix = registers.ix; z80.iy = registers.iy
+    z80.af2 = registers.af2; z80.bc2 = registers.bc2; z80.de2 = registers.de2; z80.hl2 = registers.hl2
+    z80.i = registers.i; z80.r = registers.r
+    z80.iff1 = registers.iff1; z80.iff2 = registers.iff2
+    z80.im = registers.im
+    z80.halted = registers.halted
+  }
+
+  // MARK: - Memory
+
+  /// A block of the main CPU's memory by where it physically lives, not by
+  /// the address the CPU sees it at.
+  @_spi(Debug) public enum MemoryRegion: String, CaseIterable, Sendable {
+    /// The 64KB of main RAM, including the RAM under the ROMs and the
+    /// banked-out area under GVRAM.
+    case mainRAM = "ram"
+    /// The 4KB high-speed text VRAM.
+    case textVRAM = "tvram"
+    case gvramBlue = "gvram-blue"
+    case gvramRed = "gvram-red"
+    case gvramGreen = "gvram-green"
+  }
+
+  /// A copy of `region`.
+  @_spi(Debug) public func memory(_ region: MemoryRegion) -> [UInt8] {
+    let bus = machine.bus
+    switch region {
+    case .mainRAM: return bus.mainRAM
+    case .textVRAM: return bus.tvram
+    case .gvramBlue: return bus.gvram[0]
+    case .gvramRed: return bus.gvram[1]
+    case .gvramGreen: return bus.gvram[2]
+    }
+  }
+
+  /// Overwrite `bytes.count` bytes of `region` from `offset`. Returns false,
+  /// writing nothing, when they do not fit.
+  @_spi(Debug) @discardableResult
+  public func writeMemory(_ region: MemoryRegion, at offset: Int, _ bytes: [UInt8]) -> Bool {
+    let bus = machine.bus
+    let size = switch region {
+    case .mainRAM: bus.mainRAM.count
+    case .textVRAM: bus.tvram.count
+    case .gvramBlue, .gvramRed, .gvramGreen: bus.gvram[0].count
+    }
+    guard offset >= 0, offset + bytes.count <= size else { return false }
+    let range = offset..<offset + bytes.count
+    switch region {
+    case .mainRAM: bus.mainRAM.replaceSubrange(range, with: bytes)
+    case .textVRAM: bus.tvram.replaceSubrange(range, with: bytes)
+    case .gvramBlue: bus.gvram[0].replaceSubrange(range, with: bytes)
+    case .gvramRed: bus.gvram[1].replaceSubrange(range, with: bytes)
+    case .gvramGreen: bus.gvram[2].replaceSubrange(range, with: bytes)
+    }
+    return true
+  }
+
+  /// One stretch of the main CPU's address space and where its reads and
+  /// writes go: `"ram"`, `"n88-rom"`, `"tvram"`, `"gvram-blue"`,
+  /// `"gvram-alu"`, `"ext-ram card 0 bank 1"` and so on.
+  @_spi(Debug) public struct MemoryMapEntry: Equatable, Sendable {
+    public var start: UInt16, end: UInt16
+    public var read: String, write: String
+  }
+
+  /// The main CPU's memory map as the bank registers set it right now.
+  @_spi(Debug) public func memoryMap() -> [MemoryMapEntry] {
+    machine.bus.mappingDescription().map {
+      MemoryMapEntry(start: $0.start, end: $0.end, read: $0.read, write: $0.write)
+    }
+  }
+
+  /// Counts the main CPU's T-states by instruction address while set and a
+  /// debugger is attached (``debugger``).
+  @_spi(Debug) public var profiler: Profiler? {
+    get { machine.profiler }
+    set { machine.profiler = newValue }
+  }
+
+  /// Where a main-CPU write to `address` would land right now: one location,
+  /// or each plane the GVRAM ALU would change.
+  @_spi(Debug) public func writeLocations(of address: UInt16) -> [MemoryLocation] {
+    machine.bus.writeLocations(address).locations
+  }
+
   /// Runs `cpu` for exactly one instruction. Stepping the main CPU advances
   /// the whole machine by that instruction's T-states; stepping the sub CPU
   /// runs only the sub CPU.

@@ -205,7 +205,7 @@ public enum BootSnapshot {
   /// Drive the calendar from emulated time. The host clock would barely move
   /// while the machine runs many times faster, and programs that wait on the
   /// RTC would stall. The date itself (2025-01-01, a Wednesday) is arbitrary.
-  private static func installEmulatedClock(_ machine: Machine) {
+  package static func installEmulatedClock(_ machine: Machine) {
     machine.calendar.timeProvider = { [unowned machine] in
       let elapsed = Int(Double(machine.totalTStates) / machine.cpuClock)
       let minutes = elapsed / 60

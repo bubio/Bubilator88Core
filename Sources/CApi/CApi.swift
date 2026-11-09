@@ -19,6 +19,7 @@
 // public builds fine but is missing from the DLL, and P/Invoke fails at run
 // time. CI compares the DLL's export table with the `@_cdecl` names.
 
+import Bubilator88Automation
 import Bubilator88Core
 import Foundation
 
@@ -77,6 +78,11 @@ public final class B88Context {
   let pasteQueue = TextPasteQueue()
   let tapeAutoBoot = TapeAutoBoot()
   let memoryImageBoot = MemoryImageBoot()
+
+  /// The MCP server behind `b88_mcp_handle`, made on first use.
+  lazy var mcp = MCPHandler(tools: AutomationTools(host: PC88AutomationHost(pc88: pc88)))
+  /// The last reply from `b88_mcp_handle`, for `b88_mcp_reply`.
+  var mcpReply: [UInt8] = []
 
   init() {
     pc88.onFDDEvent = { [weak self] drive, event in

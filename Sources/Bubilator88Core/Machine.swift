@@ -124,7 +124,16 @@ package final class Machine: @unchecked Sendable {
           ))
         }
         bus.onDebuggerMemRead  = { [weak dbg] addr in dbg?.noteMemoryRead(addr) }
-        bus.onDebuggerMemWrite = { [weak dbg] addr, value in dbg?.noteMemoryWrite(addr, value: value) }
+        bus.onDebuggerMemWrite = { [weak dbg, weak self] addr, value in
+          dbg?.noteMemoryWrite(addr, value: value) {
+            guard let bus = self?.bus else { return nil }
+            let (locations, viaALU) = bus.writeLocations(addr)
+            return (locations, MemoryWrite(
+              pc: bus.debugMainPC, address: addr, value: value, viaALU: viaALU,
+              duringInterrupt: bus.debugInInterrupt, tState: bus.currentTState
+            ))
+          }
+        }
         bus.onDebuggerIORead   = { [weak dbg] port in dbg?.noteIORead(port) }
         bus.onDebuggerIOWrite  = { [weak dbg] port, value in dbg?.noteIOWrite(port, value: value) }
         subSystem.pio.onPIOAccess = { [weak dbg, weak self] event in
@@ -161,6 +170,19 @@ package final class Machine: @unchecked Sendable {
       }
     }
   }
+
+  /// After a reset or a state load. New memory makes the last writers seen
+  /// describe bytes that are gone; the T-state count jumps, so a region
+  /// open across it would time nothing real.
+  package func forgetDebugHistory(memoryReplaced: Bool) {
+    // Writers are seen only while tracked, which keeps a debugger attached.
+    if memoryReplaced { debugger?.clearWriteHistory() }
+    profiler?.abandonOpenRegions()
+  }
+
+  /// Counts the main CPU's T-states by instruction address while set. It
+  /// sees only the debugger path (`tick`); the fast path never looks.
+  package var profiler: Profiler?
 
   /// Sub-CPU fractional clock accumulator (BubiC `d_cpu[i].accum_clocks`).
   ///
@@ -394,6 +416,7 @@ package final class Machine: @unchecked Sendable {
     subAccumClocks = 0
     subDebt = 0
     clock8MHz = true
+    forgetDebugHistory(memoryReplaced: !preserveRAM)
     traceLog.removeAll()
     pendingIOTraces.removeAll()
 
@@ -516,8 +539,11 @@ package final class Machine: @unchecked Sendable {
   @discardableResult
   package func tick() -> Int {
     let cycles: Int
-    bus.debugMainPC = cpu.pc
+    let pc = cpu.pc
+    let halted = cpu.halted
+    bus.debugMainPC = pc
     bus.currentTState = totalTStates
+    profiler?.willExecute(pc: pc, halted: halted, now: totalTStates)
     // Debugger trace ring buffer (captured BEFORE stepping so the
     // register snapshot reflects the state leading INTO the
     // instruction). Also triggered on direct tick() calls so
@@ -554,6 +580,7 @@ package final class Machine: @unchecked Sendable {
     let waitCycles = bus.pendingWaitStates
     bus.pendingWaitStates = 0
     let totalCycles = cycles + waitCycles
+    profiler?.didExecute(pc: pc, halted: halted, cycles: totalCycles, waits: waitCycles)
 
     // Advance all timing-driven devices
     crtc.tick(tStates: totalCycles, tStatesPerFrame: tStatesPerFrame)
@@ -577,7 +604,11 @@ package final class Machine: @unchecked Sendable {
 
     // Interrupt dispatch
     if cpu.iff1, let irq = interruptBox.controller.resolve() {
+      bus.debugInInterrupt = true
+      let waitsBefore = bus.pendingWaitStates
       let ackCycles = cpu.interrupt(vector: irq.vectorOffset, bus: bus)
+      bus.debugInInterrupt = false
+      profiler?.didAcknowledgeInterrupt(cycles: ackCycles, waits: bus.pendingWaitStates - waitsBefore)
       interruptBox.controller.acknowledge(level: irq.level)
 
       // Advance devices by interrupt acknowledge cycles too

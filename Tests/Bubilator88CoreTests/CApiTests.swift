@@ -212,4 +212,23 @@ struct CApiTests {
       #expect(b88_is_cd_drive_active(h) == 0)
     }
   }
+
+  // MARK: - MCP
+
+  @Test func mcpMessagesRoundTrip() throws {
+    withHandle { h in
+      func send(_ json: String) -> String {
+        let bytes = Array(json.utf8)
+        let length = bytes.withUnsafeBufferPointer { b88_mcp_handle(h, $0.baseAddress, Int32($0.count)) }
+        guard length > 0 else { return "" }
+        let reply = readBytes { b88_mcp_reply(h, $0, $1) }
+        #expect(reply.count == Int(length))
+        return String(decoding: reply, as: UTF8.self)
+      }
+      #expect(send(#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#) == #"{"id":1,"jsonrpc":"2.0","result":{}}"#)
+      #expect(send(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).isEmpty)
+      let run = send(#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_frames","arguments":{"frames":2}}}"#)
+      #expect(run.contains("Ran 2 frame(s)."))
+    }
+  }
 }
