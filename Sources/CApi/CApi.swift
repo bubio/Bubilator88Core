@@ -20,7 +20,7 @@
 // time. CI compares the DLL's export table with the `@_cdecl` names.
 
 import Bubilator88Automation
-import Bubilator88Core
+@_spi(Debug) import Bubilator88Core
 import Foundation
 
 /// Owns one emulated machine plus its render scratch state.
@@ -78,6 +78,9 @@ public final class B88Context {
   let pasteQueue = TextPasteQueue()
   let tapeAutoBoot = TapeAutoBoot()
   let memoryImageBoot = MemoryImageBoot()
+
+  /// The debugger shared by successive app-owned MCP sessions.
+  let mcpAppDebugger = Debugger()
 
   /// The MCP server behind `b88_mcp_handle`, made on first use.
   lazy var mcp = MCPHandler(tools: AutomationTools(host: PC88AutomationHost(pc88: pc88)))
