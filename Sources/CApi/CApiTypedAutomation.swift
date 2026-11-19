@@ -27,6 +27,16 @@ public typealias B88MCPMountDisk = @convention(c) (UnsafeMutableRawPointer?, Int
 public typealias B88MCPEjectDisk = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Void
 /// Path is NUL-terminated UTF-8. Use normal application save/load commands.
 public typealias B88MCPStateFile = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void
+/// B88MCPRunFrame with an after-frame action: once the frame has run, still
+/// under the machine lock and before discarding its audio, invoke `after`
+/// with `afterData` exactly once. Return as B88MCPRunFrame does; when no
+/// frame ran, do not invoke `after`. Tools that read a frame's audio
+/// (capture_audio) need this; without it they hear nothing.
+public typealias B88MCPRunFrameAfter = @convention(c) (UnsafeMutableRawPointer?, B88MCPMachineAction?, UnsafeMutableRawPointer?,
+                                                       B88MCPMachineAction?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Int32
+/// drive: 0/1, protected: 0/1. Use the app's normal write-protect command, so
+/// its drive state, menus and save states follow.
+public typealias B88MCPSetWriteProtect = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, UnsafeMutableRawPointer?) -> Void
 
 private final class AppHostResult {
   var error: String?
@@ -75,6 +85,9 @@ private final class TypedAppAutomationHost: CAppSessionHost {
   let eject: B88MCPEjectDisk
   let save: B88MCPStateFile
   let load: B88MCPStateFile
+  /// Optional callbacks added after the factory; nil keeps the defaults.
+  var frameAfter: B88MCPRunFrameAfter?
+  var writeProtect: B88MCPSetWriteProtect?
   // Sessions are serial. Reuse this small result cell; hot callbacks allocate
   // neither a JSON payload nor an output byte buffer.
   private let result = AppHostResult()
@@ -128,6 +141,39 @@ private final class TypedAppAutomationHost: CAppSessionHost {
     return ran
   }
 
+  func runFrames(_ count: Int, beforeEach: (PC88) -> Bool, afterEach: (PC88) -> Void) throws -> Int {
+    guard let frameAfter else {
+      return try runFramesWithLateAfterEach(count, beforeEach: beforeEach, afterEach: afterEach)
+    }
+    try setRunningInRealTime(false)
+    var ran = 0
+    try withoutActuallyEscaping(beforeEach) { predicate in
+      try withoutActuallyEscaping(afterEach) { after in
+        let before = TypedMachineAction { predicate(self.context.pc88) ? 1 : 0 }
+        let afterAction = TypedMachineAction { after(self.context.pc88); return 1 }
+        while ran < count {
+          guard try call({
+            frameAfter(user, performTypedAction, Unmanaged.passUnretained(before).toOpaque(),
+                       performTypedAction, Unmanaged.passUnretained(afterAction).toOpaque(), $0)
+          }) == 1 else { break }
+          ran += 1
+          if debugger.isPaused { break }
+        }
+        withExtendedLifetime((before, afterAction)) {}
+      }
+    }
+    try call { publish(user, $0) }
+    return ran
+  }
+
+  func setWriteProtect(drive: Int, protected: Bool) throws {
+    guard let writeProtect else {
+      try withMachine { $0.setWriteProtect(drive: drive, protected: protected) }
+      return
+    }
+    try call { writeProtect(user, Int32(drive), protected ? 1 : 0, $0) }
+  }
+
   func setDebuggerAttached(_ attached: Bool) throws {
     var executed = false
     let action = TypedMachineAction {
@@ -174,14 +220,42 @@ private final class TypedAppAutomationHost: CAppSessionHost {
 /// Call creation under the machine lock; handle/destroy WITHOUT that lock.
 @_cdecl("b88_mcp_app_session_create")
 public func b88_mcp_app_session_create(_ machine: UnsafeMutableRawPointer?, _ user: UnsafeMutableRawPointer?,
-  _ execute: B88MCPExecute?, _ frame: B88MCPRunFrame?, _ publish: B88MCPPublish?,
-  _ getRunning: B88MCPGetRunning?, _ setRunning: B88MCPSetRunning?, _ attach: B88MCPSetDebugger?,
-  _ reset: B88MCPReset?, _ mount: B88MCPMountDisk?, _ eject: B88MCPEjectDisk?,
-  _ save: B88MCPStateFile?, _ load: B88MCPStateFile?, _ version: UnsafePointer<CChar>?) -> UnsafeMutableRawPointer? {
+                                       _ execute: B88MCPExecute?, _ frame: B88MCPRunFrame?, _ publish: B88MCPPublish?,
+                                       _ getRunning: B88MCPGetRunning?, _ setRunning: B88MCPSetRunning?, _ attach: B88MCPSetDebugger?,
+                                       _ reset: B88MCPReset?, _ mount: B88MCPMountDisk?, _ eject: B88MCPEjectDisk?,
+                                       _ save: B88MCPStateFile?, _ load: B88MCPStateFile?, _ version: UnsafePointer<CChar>?) -> UnsafeMutableRawPointer? {
   guard let context = context(machine), let execute, let frame, let publish, let getRunning,
         let setRunning, let attach, let reset, let mount, let eject, let save, let load else { return nil }
   let host = TypedAppAutomationHost(context: context, user: user, execute: execute, frame: frame,
-    publish: publish, getRunning: getRunning, setRunning: setRunning, attach: attach,
-    reset: reset, mount: mount, eject: eject, save: save, load: load)
+                                    publish: publish, getRunning: getRunning, setRunning: setRunning, attach: attach,
+                                    reset: reset, mount: mount, eject: eject, save: save, load: load)
   return Unmanaged.passRetained(CAppMCPSession(host: host, version: string(version) ?? "1.0.0")).toOpaque()
+}
+
+/// Give a typed app session (b88_mcp_app_session_create) its after-frame
+/// callback, B88MCPRunFrameAfter. Call right after creation, before the first
+/// b88_mcp_session_handle; the callback must live until session_destroy
+/// finishes. Returns 1, or 0 for any other session (nothing changes).
+@_cdecl("b88_mcp_app_session_set_frame_after")
+public func b88_mcp_app_session_set_frame_after(_ session: UnsafeMutableRawPointer?,
+                                                _ callback: B88MCPRunFrameAfter?) -> Int32 {
+  guard let host = typedHost(session) else { return 0 }
+  host.frameAfter = callback
+  return 1
+}
+
+/// Give a typed app session its write-protect callback, B88MCPSetWriteProtect.
+/// Same rules as b88_mcp_app_session_set_frame_after. Without it the tool sets
+/// the flag in the machine only.
+@_cdecl("b88_mcp_app_session_set_write_protect")
+public func b88_mcp_app_session_set_write_protect(_ session: UnsafeMutableRawPointer?,
+                                                  _ callback: B88MCPSetWriteProtect?) -> Int32 {
+  guard let host = typedHost(session) else { return 0 }
+  host.writeProtect = callback
+  return 1
+}
+
+private func typedHost(_ session: UnsafeMutableRawPointer?) -> TypedAppAutomationHost? {
+  guard let session else { return nil }
+  return Unmanaged<CAppMCPSession>.fromOpaque(session).takeUnretainedValue().host as? TypedAppAutomationHost
 }

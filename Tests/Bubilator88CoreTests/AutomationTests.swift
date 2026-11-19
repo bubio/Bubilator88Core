@@ -579,4 +579,151 @@ struct AutomationTests {
     #expect(f.call("profile_region", ["name": "x", "begin": 0])["isError"] == true)
     #expect(f.call("profile_region", ["name": "x"])["isError"] == true)
   }
+
+  // MARK: - Media
+
+  @Test func statusReportsTheCDAndTheCassette() throws {
+    let f = try Fixture()
+    let status = try JSONValue(parsing: Data(f.text("status").utf8))
+    #expect(status["cd"]?["mounted"] == false)
+    #expect(status["tape"]?["loaded"] == false)
+  }
+
+  @Test func diskImagesListsEveryImageInAFile() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    var second = D88Disk.createFormatted(type: .twoD, name: "DISK B")
+    second.writeProtected = true
+    let bytes = try #require(D88Disk.createFormatted(type: .twoD, name: "DISK A").serialize())
+      + #require(second.serialize())
+    let url = dir.appendingPathComponent("set.d88")
+    try Data(bytes).write(to: url)
+    let path = JSONValue.string(url.path)
+
+    let list = f.text("disk_images", ["path": path])
+    #expect(list.contains("2 image(s)"))
+    #expect(list.contains("0  DISK A"))
+    #expect(list.contains("1  DISK B  (write-protected)"))
+    #expect(f.text("mount_disk", ["drive": 2, "path": path, "image": 1]).contains("holds 2 images"))
+    #expect(f.host.pc88.mountedDisk(drive: 1)?.name == "DISK B")
+    #expect(f.call("disk_images", ["path": "/nonexistent/x.d88"])["isError"] == true)
+  }
+
+  @Test func writeProtectFollowsTheTool() throws {
+    let f = try Fixture()
+    #expect(f.call("set_write_protect", ["drive": 1, "protected": true])["isError"] == true)
+    f.host.pc88.mountDisk(drive: 0, disk: D88Disk.createFormatted(type: .twoD))
+    _ = f.call("set_write_protect", ["drive": 1, "protected": true])
+    #expect(f.host.pc88.isWriteProtected(drive: 0))
+    _ = f.call("set_write_protect", ["drive": 1, "protected": false])
+    #expect(!f.host.pc88.isWriteProtected(drive: 0))
+  }
+
+  @Test func mediaToolsReportWhatIsWrong() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let small = dir.appendingPathComponent("small.n80")
+    try Data([0, 1, 2]).write(to: small)
+    let result = f.call("load_memory_image", ["path": .string(small.path)])
+    #expect(result["isError"] == true)
+    #expect(Fixture.text(of: result).contains("\(PC88.memoryImageSize)"))
+    #expect(f.call("cd", ["action": "mount", "path": "/nonexistent/x.cue"])["isError"] == true)
+    #expect(f.call("tape", ["action": "boot"])["isError"] == true)
+    #expect(f.call("cd", ["action": "eject"])["isError"] == false)
+  }
+
+  @Test func recordingRefusesTheMediaTools() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    _ = f.call("record_start", ["path": .string(dir.appendingPathComponent("r.b88s").path)])
+    #expect(f.call("cd", ["action": "eject"])["isError"] == true)
+    #expect(f.call("set_write_protect", ["drive": 1, "protected": true])["isError"] == true)
+    #expect(f.call("wait_for", ["stable_frames": 2, "max_frames": 30])["isError"] == false)
+    _ = f.call("record_stop")
+  }
+
+  // MARK: - Waiting and sound
+
+  @Test func waitForStopsWhenTheScreenSettles() throws {
+    let f = try Fixture()
+    // The fixture's program never draws, so the screen is still from the start.
+    let result = f.call("wait_for", ["stable_frames": 20, "max_frames": 600])
+    #expect(result["isError"] == false)
+    #expect(Fixture.text(of: result).contains("settled"))
+    let status = try JSONValue(parsing: Data(f.text("status").utf8))
+    #expect((status["frames_run"]?.intValue ?? 0) < 600)
+  }
+
+  @Test func waitForGivesUpOnMissingText() throws {
+    let f = try Fixture()
+    let result = f.call("wait_for", ["text": "NEVER THERE", "max_frames": 15])
+    #expect(result["isError"] == true)
+    #expect(Fixture.text(of: result).contains("Gave up after 15 frame(s)"))
+    #expect(f.call("wait_for", ["max_frames": 5])["isError"] == true)
+    #expect(f.call("wait_for", ["text": "A", "stable_frames": 5])["isError"] == true)
+  }
+
+  @Test func captureAudioWritesAWAVAndRestoresTheSettings() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("a.wav")
+    let text = f.text("capture_audio", ["frames": 70, "path": .string(url.path)])
+    #expect(text.contains("Captured 70 frame(s)"))
+    #expect(text.contains("By source"))
+    #expect(!f.host.pc88.audioOutputEnabled)
+    #expect(!f.host.pc88.immersiveOutputEnabled)
+
+    let wav = [UInt8](try Data(contentsOf: url))
+    #expect(Array(wav[0..<4]) == Array("RIFF".utf8))
+    #expect(Array(wav[8..<16]) == Array("WAVEfmt ".utf8))
+    let dataSize = Int(wav[40]) | Int(wav[41]) << 8 | Int(wav[42]) << 16 | Int(wav[43]) << 24
+    #expect(dataSize == wav.count - 44)
+    // About 70/60 s of 44.1kHz stereo 16-bit.
+    #expect(abs(dataSize - 70 * 44100 * 4 / 60) < 44100 * 4 / 10)
+  }
+
+  @Test func wavHeaderDescribesStereo16Bit() {
+    let wav = WAVEncoder.encode(stereo16: [1, -1, 32767, -32768], sampleRate: 44100)
+    #expect(wav.count == 44 + 8)
+    #expect(wav[22] == 2 && wav[34] == 16)
+    #expect(Array(wav[44...]) == [1, 0, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x80])
+  }
+
+  @Test func lateAfterEachRunsOncePerFrame() throws {
+    let f = try Fixture()
+    var before = 0, after = 0
+    // Stopped by beforeEach after three frames, and by the count.
+    let stopped = try f.host.runFramesWithLateAfterEach(10, beforeEach: { _ in
+      before += 1
+      return before <= 3
+    }, afterEach: { _ in after += 1 })
+    #expect(stopped == 3 && after == 3)
+    after = 0
+    let counted = try f.host.runFramesWithLateAfterEach(4, beforeEach: { _ in true }, afterEach: { _ in after += 1 })
+    #expect(counted == 4 && after == 4)
+  }
+
+  @Test func cdThatCannotBootIsTakenOutAgain() throws {
+    let f = try Fixture()
+    let dir = try Self.temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try Data(count: 2352 * 16).write(to: dir.appendingPathComponent("x.bin"))
+    let cue = dir.appendingPathComponent("x.cue")
+    try "FILE \"x.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n".write(to: cue, atomically: true, encoding: .utf8)
+
+    // The fixture has no CD BIOS, so the drive cannot start.
+    let result = f.call("cd", ["action": "mount", "path": .string(cue.path)])
+    #expect(result["isError"] == true)
+    #expect(Fixture.text(of: result).contains("CDBIOS.ROM"))
+    #expect(!f.host.pc88.isCDMounted)
+    #expect(!f.host.pc88.cdDriveInstalled)
+
+    // Without booting it stays in, for the next reset.
+    #expect(f.call("cd", ["action": "mount", "path": .string(cue.path), "boot": false])["isError"] == false)
+    #expect(f.host.pc88.isCDMounted)
+  }
 }
