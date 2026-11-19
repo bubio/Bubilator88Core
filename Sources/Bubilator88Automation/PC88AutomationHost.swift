@@ -39,9 +39,14 @@ public final class PC88AutomationHost: AutomationHost {
   }
 
   public func runFrames(_ count: Int, beforeEach: (PC88) -> Bool) throws -> Int {
+    try runFrames(count, beforeEach: beforeEach, afterEach: { _ in })
+  }
+
+  public func runFrames(_ count: Int, beforeEach: (PC88) -> Bool, afterEach: (PC88) -> Void) throws -> Int {
     var run = 0
     while run < count, beforeEach(pc88) {
       pc88.runFrame()
+      afterEach(pc88)
       run += 1
       if debugger.isPaused { break }
     }
@@ -59,6 +64,9 @@ public final class PC88AutomationHost: AutomationHost {
   }
 
   public func reset(cold: Bool, mode: BootMode?, clock8MHz: Bool?) throws {
+    // As the app does: the drive is fitted while a CD is in, so the CD
+    // boots, and taken away once it is out, so the disks and BASIC do.
+    pc88.cdDriveInstalled = pc88.isCDMounted
     if cold {
       if let mode { pc88.setBootMode(mode) }
       if let clock8MHz { self.clock8MHz = clock8MHz }
@@ -112,8 +120,9 @@ public enum BIOSDirectory {
     return base.appendingPathComponent("Bubilator88", isDirectory: true)
   }
 
-  /// Load every ROM present in `directory` into `pc88` and install 128KB of
-  /// extended RAM, as the app does by default. Only N88.ROM is required.
+  /// Load every ROM present in `directory` into `pc88`, CDBIOS.ROM
+  /// included, and install 128KB of extended RAM, as the app does by
+  /// default. Only N88.ROM is required.
   public static func load(into pc88: PC88, from directory: URL) throws {
     var files: [(PC88.ROM, [String])] = [
       (.n88Basic, ["N88.ROM"]), (.nBasic, ["N80.ROM"]), (.font, ["FONT.ROM"]),
@@ -136,6 +145,10 @@ public enum BIOSDirectory {
     }
     if let data = try? Data(contentsOf: directory.appendingPathComponent("JISYO.ROM")) {
       pc88.loadDictionaryROM(Array(data))
+    }
+    // The drive itself is fitted when a CD goes in (`mountCD`).
+    if let data = try? Data(contentsOf: directory.appendingPathComponent("CDBIOS.ROM")) {
+      pc88.loadCDBios(Array(data))
     }
     pc88.installExtRAM(cards: 1, banksPerCard: 4)
   }

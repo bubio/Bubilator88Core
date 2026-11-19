@@ -30,7 +30,7 @@ extension AutomationTools {
   /// replay could not repeat them, so they are refused while recording.
   static let refusedWhileRecording: Set<String> = [
     "reset", "resume", "step", "mount_disk", "eject_disk", "load_state", "write_memory",
-    "set_registers", "load_bin", "tape", "replay",
+    "set_registers", "load_bin", "tape", "replay", "cd", "set_write_protect", "load_memory_image",
   ]
 
   static let recordingTools: [Tool] = [

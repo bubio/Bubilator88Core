@@ -82,11 +82,15 @@ extension AutomationTools {
           + files.map(\.lastPathComponent).joined(separator: ", ") + ".")])
     },
     tool("tape", """
-    The cassette: mount a T88 or CMT image, rewind it, or eject it. Loading from it is \
-    up to the software, such as CLOAD or MON in BASIC.
+    The cassette: mount a T88 or CMT image, rewind it, or eject it. mount only inserts it; \
+    loading is up to the software, such as CLOAD or MON in BASIC. boot does it all: empties \
+    the drives and the CD, rewinds, resets into N88-BASIC V1S at 4MHz, types LOAD "CAS:" \
+    and RUN once loaded, running frames until done.
     """, [
-      "action": ["type": "string", "enum": ["mount", "rewind", "eject"]],
+      "action": ["type": "string", "enum": ["mount", "rewind", "eject", "boot"]],
       "path": ["type": "string", "description": "mount: absolute path of the .t88 or .cmt file."],
+      "max_frames": ["type": "integer", "minimum": 1, "maximum": 36000,
+                     "description": "boot: give up after this many frames. Default 36000."],
     ], required: ["action"]) { tools, args in
       try tools.tape(args)
     },
@@ -272,8 +276,10 @@ extension AutomationTools {
     case "eject":
       try host.ejectTape()
       return ToolResult([.text("The cassette is empty.")])
+    case "boot":
+      return try bootTape(args)
     case let other:
-      throw AutomationError("Unknown action \(other); use mount, rewind or eject.")
+      throw AutomationError("Unknown action \(other); use mount, rewind, eject or boot.")
     }
   }
 }

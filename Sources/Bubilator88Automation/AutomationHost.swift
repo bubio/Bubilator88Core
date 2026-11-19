@@ -62,10 +62,87 @@ public protocol AutomationHost: AnyObject {
   func rewindTape() throws
 
   func ejectTape() throws
+
+  /// `runFrames(_:beforeEach:)`, also calling `afterEach` after each frame
+  /// the machine ran, before the host does anything else with it (such as
+  /// dropping its sound).
+  func runFrames(_ count: Int, beforeEach: (PC88) -> Bool, afterEach: (PC88) -> Void) throws -> Int
+
+  /// Insert the CD sheet (`.cue` / `.ccd`) at `url`, fitting the drive so
+  /// that the next reset brings it in. Does not reset.
+  func mountCD(url: URL) throws
+
+  /// Take the CD out.
+  func ejectCD() throws
+
+  /// Set or clear the write-protect tab on the disk in `drive` (0 or 1).
+  func setWriteProtect(drive: Int, protected: Bool) throws
+
+  /// The names the host shows for the CD and the cassette, nil when it
+  /// keeps none or the drive is empty.
+  var cdName: String? { get }
+  var tapeName: String? { get }
 }
 
-/// The plain cassette operations, for a host with no cassette display to
-/// keep up to date.
+/// The plain operations, for a host with no display of its own to keep up
+/// to date.
+public extension AutomationHost {
+  func runFrames(_ count: Int, beforeEach: (PC88) -> Bool, afterEach: (PC88) -> Void) throws -> Int {
+    try runFramesWithLateAfterEach(count, beforeEach: beforeEach, afterEach: afterEach)
+  }
+
+  /// `runFrames(_:beforeEach:afterEach:)` built on `runFrames(_:beforeEach:)`:
+  /// `afterEach` for a frame runs just before the next frame's `beforeEach`,
+  /// or after the run for the last frame, once per frame either way. Enough
+  /// where the host keeps what the frame left behind until the next one;
+  /// hosts that drop state after each frame (such as its sound) override
+  /// `runFrames(_:beforeEach:afterEach:)` instead.
+  func runFramesWithLateAfterEach(_ count: Int, beforeEach: (PC88) -> Bool,
+                                  afterEach: (PC88) -> Void) throws -> Int {
+    // A frame has run whose afterEach is still to come.
+    var pending = false
+    let frames = try runFrames(count) { pc88 in
+      if pending {
+        afterEach(pc88)
+        pending = false
+      }
+      guard beforeEach(pc88) else { return false }
+      pending = true
+      return true
+    }
+    if pending { try withMachine { afterEach($0) } }
+    return frames
+  }
+
+  func mountCD(url: URL) throws {
+    try withMachine { pc88 in
+      do {
+        try pc88.mountCD(url: url)
+      } catch {
+        throw AutomationError("Cannot open \(url.lastPathComponent) as a CD: \(error).")
+      }
+      // Only once the disc is in: a drive fitted with nothing in it would
+      // take over the next reset.
+      pc88.cdDriveInstalled = true
+    }
+  }
+
+  func ejectCD() throws {
+    try withMachine { pc88 in
+      pc88.ejectCD()
+      // From the next reset the machine starts from the disks or BASIC.
+      pc88.cdDriveInstalled = false
+    }
+  }
+
+  func setWriteProtect(drive: Int, protected: Bool) throws {
+    try withMachine { $0.setWriteProtect(drive: drive, protected: protected) }
+  }
+
+  var cdName: String? { nil }
+  var tapeName: String? { nil }
+}
+
 public extension AutomationHost {
   func mountTape(url: URL) throws -> TapeFormat {
     let data: Data

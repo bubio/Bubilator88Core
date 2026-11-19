@@ -35,7 +35,7 @@ public struct ToolDefinition: Sendable {
 /// typed and the frames run so far. Call from one thread at a time.
 public final class AutomationTools {
   public let host: AutomationHost
-  private let pasteQueue = TextPasteQueue()
+  let pasteQueue = TextPasteQueue()
   private var framesRun = 0
   /// The instruction trace is on (`trace`); it needs the debugger attached.
   var tracing = false
@@ -98,12 +98,14 @@ public final class AutomationTools {
     "description": "0-65535, hex as \"0xC000\", \"C000H\" or \"$C000\", or a name from load_symbols.",
   ]
 
-  private static let tools = basicTools + developmentTools + watchTools + profileTools + recordingTools
+  private static let tools = basicTools + mediaTools + observeTools + developmentTools + watchTools
+    + profileTools + recordingTools
 
   private static let basicTools: [Tool] = [
     tool("status", """
     The machine's state: BASIC mode, clock, whether time runs in real time, \
-    the debugger's run state, frames run, the main CPU's PC and the mounted disks.
+    the debugger's run state, frames run, the main CPU's PC, the disks, the CD and the cassette. \
+    A CD in the drive boots instead of the disks at a reset.
     """) { tools, _ in
       try tools.status()
     },
@@ -298,9 +300,11 @@ public final class AutomationTools {
 
   /// Run up to `count` frames, leaving any breakpoint stop first. Returns
   /// the frames run and, when a breakpoint ended the run, a line saying so.
-  func run(_ count: Int, beforeEach: (PC88) -> Bool = { _ in true }) throws -> (frames: Int, stop: String?) {
+  func run(_ count: Int, beforeEach: (PC88) -> Bool = { _ in true },
+           afterEach: ((PC88) -> Void)? = nil) throws -> (frames: Int, stop: String?) {
     try withMachine { leaveBreakpoint($0) }
-    let frames = try host.runFrames(count, beforeEach: beforeEach)
+    let frames = try afterEach.map { try host.runFrames(count, beforeEach: beforeEach, afterEach: $0) }
+      ?? host.runFrames(count, beforeEach: beforeEach)
     framesRun += frames
     recording?.input.frames += frames
     return (frames, try withMachine { stopDescription($0) })
@@ -381,6 +385,8 @@ public final class AutomationTools {
     let debugger = host.debugger
     let realTime = host.isRunningInRealTime
     let frames = framesRun
+    let cdName = host.cdName
+    let tapeName = host.tapeName
     let value = try withMachine { pc88 -> JSONValue in
       var disks: [JSONValue] = []
       for drive in 0..<2 {
@@ -406,6 +412,15 @@ public final class AutomationTools {
         "t_states": .number(Double(pc88.totalTStates)),
         "pc": .string(String(format: "%04X", pc88.registers(of: .main).pc)),
         "disks": .array(disks),
+        "cd": pc88.isCDMounted
+          ? ["mounted": true, "name": cdName.map(JSONValue.string) ?? .null,
+             "tracks": .number(Double(pc88.cdTrackCount)), "drive_active": .bool(pc88.isCDDriveActive)]
+          : ["mounted": false, "drive_active": .bool(pc88.isCDDriveActive)],
+        "tape": pc88.isTapeLoaded
+          ? ["loaded": true, "name": tapeName.map(JSONValue.string) ?? .null,
+             "progress": .number((pc88.tapeProgress * 1000).rounded() / 1000),
+             "motor": .bool(pc88.isTapeMotorRunning)]
+          : ["loaded": false],
         "recording": .bool(recording != nil),
         "write_tracking": .bool(debugger.isTrackingWrites),
         "watches": .number(Double(debugger.watches.count)),
@@ -444,7 +459,13 @@ public final class AutomationTools {
     let image = try args.int("image", in: 0...255, default: 0)
     let protected = try args.bool("write_protected", default: false)
     let name = try host.mountDisk(drive: drive - 1, url: url, imageIndex: image, writeProtected: protected)
-    return ToolResult([.text("Drive \(drive): \(name.isEmpty ? url.lastPathComponent : name).")])
+    var text = "Drive \(drive): \(name.isEmpty ? url.lastPathComponent : name)."
+    // A file of several images: say which others there are, so the next
+    // disk of a set can be found without guessing.
+    if let images = try? Self.diskImages(at: url), images.count > 1 {
+      text += " The file holds \(images.count) images:\n" + Self.describeDiskImages(images)
+    }
+    return ToolResult([.text(text)])
   }
 
   // MARK: - Input
@@ -511,7 +532,7 @@ public final class AutomationTools {
 
   // MARK: - Screen
 
-  private func renderPNG() throws -> [UInt8] {
+  func renderPNG() throws -> [UInt8] {
     let rgba = try withMachine { pc88 -> [UInt8] in
       var buffer = [UInt8](repeating: 0, count: PC88.frameBufferSize)
       pc88.render(into: &buffer, blinkCursor: false)
