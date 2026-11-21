@@ -483,7 +483,28 @@ package final class YM2608 {
 
   // MARK: - Init
 
+  private var ssgToneBase = YM2608.ssgTonePeriodBase
+  private var ssgNoiseBase = YM2608.ssgNoisePeriodBase
+  private var ssgEnvelopeBase = YM2608.ssgEnvelopePeriodBase
+  private var adpcmBase = YM2608.adpcmPlaybackBase
+
   package init() {}
+
+  /// Set the external master clock for standalone synthesis after reset.
+  package func configureStandaloneClock(_ masterClock: Int) {
+    cpuClockHz = masterClock
+    let clock = masterClock / 2
+    fmSynth.setRatio(clock: clock, rate: Self.sampleRate)
+    let ssgClock = Int64(clock / 4)
+    ssgToneBase = UInt32((1 << (Self.ssgToneShift - 2)) * ssgClock / Int64(Self.sampleRate))
+    ssgNoiseBase = UInt32((1 << (Self.ssgNoiseShift - 2)) * ssgClock / Int64(Self.sampleRate))
+    ssgEnvelopeBase = UInt32((1 << (Self.ssgEnvShift - 2)) * ssgClock / Int64(Self.sampleRate))
+    adpcmBase = Self.adpcmFixedPointUnit * (clock / 72) / Self.sampleRate
+    for channel in 0..<3 { updateSSGToneStep(channel) }
+    updateSSGNoiseStep()
+    updateSSGEnvelopeStep()
+    updateADPCMPlaybackDelta()
+  }
 
   /// Reset to power-on state.
   package func reset() {
@@ -975,7 +996,7 @@ package final class YM2608 {
 
   private func updateADPCMPlaybackDelta() {
     let deltaN = max(256, Int(adpcmDeltaN))
-    adpcmPlaybackDelta = max(1, (deltaN * Self.adpcmPlaybackBase) >> 16)
+    adpcmPlaybackDelta = max(1, (deltaN * adpcmBase) >> 16)
   }
 
   private func writeADPCMRAMByte(_ value: UInt8) {
@@ -1159,19 +1180,19 @@ package final class YM2608 {
 
   private func updateSSGToneStep(_ ch: Int) {
     let raw = Int(ssgTonePeriod[ch] & 0x0FFF)
-    ssgToneStep[ch] = raw > 0 ? Self.ssgTonePeriodBase / UInt32(raw) : Self.ssgTonePeriodBase
+    ssgToneStep[ch] = raw > 0 ? ssgToneBase / UInt32(raw) : ssgToneBase
   }
 
   private func updateSSGNoiseStep() {
     let raw = Int(ssgNoisePeriod & 0x1F)
-    ssgNoiseStep = raw > 0 ? Self.ssgNoisePeriodBase / UInt32(raw) : Self.ssgNoisePeriodBase
+    ssgNoiseStep = raw > 0 ? ssgNoiseBase / UInt32(raw) : ssgNoiseBase
   }
 
   private func updateSSGEnvelopeStep() {
     let raw = Int(ssgEnvPeriod)
     ssgEnvelopeStep = raw > 0
-      ? Self.ssgEnvelopePeriodBase / UInt32(raw)
-      : Self.ssgEnvelopePeriodBase * 2
+      ? ssgEnvelopeBase / UInt32(raw)
+      : ssgEnvelopeBase * 2
   }
 
   private func updateSSGOutputLevel(_ ch: Int) {

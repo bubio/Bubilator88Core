@@ -23,6 +23,11 @@ let package = Package(
             name: "Bubilator88Core",
             targets: ["Bubilator88Core"]
         ),
+        .library(
+            name: "Bubilator88Shared",
+            type: .dynamic,
+            targets: ["Bubilator88Core", "Bubilator88Automation"]
+        ),
         // Windows native port: C ABI shim built as a dynamic library (DLL).
         // The C# WinUI 3 shell loads this via P/Invoke. macOS continues to
         // static-link Bubilator88Core through the Xcode project, unaffected.
