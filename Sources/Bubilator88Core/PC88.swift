@@ -639,6 +639,28 @@ public final class PC88: @unchecked Sendable {
     try machine.loadSaveState(data)
   }
 
+  // MARK: - VGM
+
+  /// Whether sound chip writes are being logged as VGM.
+  public var isVGMLogging: Bool {
+    machine.isVGMLogging
+  }
+
+  /// Start logging what the program writes to the OPNA, for a VGM file.
+  /// The log starts from the chip's current state and counts emulated time,
+  /// so speed changes and pauses do not affect it. A reset or state load
+  /// while logging carries on in the same log. Restarts a running log.
+  public func startVGMLogging() {
+    machine.startVGMLogging()
+  }
+
+  /// Stop logging and return the uncompressed VGM file (version 1.51, one
+  /// YM2608), or `nil` if no log was running. `gameName` goes into the GD3
+  /// tag. The beeper is not in it: VGM has no way to describe it.
+  public func stopVGMLogging(gameName: String) -> [UInt8]? {
+    machine.stopVGMLogging(gameName: gameName)
+  }
+
   // MARK: - Text
 
   /// The text screen as a Unicode string, one line per row.

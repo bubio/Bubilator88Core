@@ -217,6 +217,10 @@ package final class Machine: @unchecked Sendable {
 
   /// Clock mode: true = 8MHz, false = 4MHz
   package var clock8MHz: Bool = true {
+    willSet {
+      // Count the time so far at the old rate before it changes.
+      bus.vgmLogger?.catchUp(to: totalTStates, cpuClockHz: vgmCPUClockHz)
+    }
     didSet {
       bus.cpuClock8MHz = clock8MHz
       sound.clock8MHz = clock8MHz
@@ -397,6 +401,8 @@ package final class Machine: @unchecked Sendable {
   /// front-panel RESET behavior where DRAM/VRAM contents remain available
   /// across the CPU and device reset sequence.
   package func reset(preserveRAM: Bool = false) {
+    let vgmADPCM = prepareVGMLoggerForJump()
+    defer { resyncVGMLogger(previousADPCM: vgmADPCM) }
     cpu.reset()
     bus.reset(preserveRAM: preserveRAM)
     interruptBox.controller.reset()
@@ -831,6 +837,42 @@ package final class Machine: @unchecked Sendable {
         machineLog.warning("FREEZE detected at PC=0x\(hex(pc))")
       }
     }
+  }
+
+  // MARK: - VGM Logging
+
+  /// Whether OPNA writes are being logged as VGM.
+  package var isVGMLogging: Bool { bus.vgmLogger != nil }
+
+  private var vgmCPUClockHz: Int { VGMLogger.cpuClockHz(eightMHz: bus.cpuClock8MHz) }
+
+  /// Start logging OPNA writes as VGM, from the chip's current state.
+  /// Restarts the log if one is running.
+  package func startVGMLogging() {
+    bus.vgmLogger = VGMLogger(chip: sound, tState: totalTStates, cpuClockHz: vgmCPUClockHz)
+  }
+
+  /// Stop logging and return the VGM file, or `nil` if no log was running.
+  package func stopVGMLogging(gameName: String) -> [UInt8]? {
+    guard let logger = bus.vgmLogger else { return nil }
+    bus.vgmLogger = nil
+    return logger.finish(tState: totalTStates, cpuClockHz: vgmCPUClockHz, gameName: gameName)
+  }
+
+  /// Before a reset or state load: count the time played up to it and return
+  /// the ADPCM RAM the player holds, for `resyncVGMLogger`. Empty when no
+  /// log is running.
+  func prepareVGMLoggerForJump() -> [UInt8] {
+    guard let logger = bus.vgmLogger else { return [] }
+    logger.catchUp(to: totalTStates, cpuClockHz: vgmCPUClockHz)
+    return sound.adpcmRAM
+  }
+
+  /// Carry a running VGM log across a reset or state load, which move the
+  /// T-state counter and replace the chip state.
+  func resyncVGMLogger(previousADPCM: [UInt8]) {
+    bus.vgmLogger?.resync(chip: sound, previousADPCM: previousADPCM,
+                          tState: totalTStates, cpuClockHz: vgmCPUClockHz)
   }
 
   // MARK: - ROM Loading
