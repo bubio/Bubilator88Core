@@ -157,3 +157,39 @@ public func b88_glyph(_ handle: UnsafeMutableRawPointer?, _ code: Int32,
   guard let c = context(handle) else { return 0 }
   return copyOut(c.pc88.glyph(for: UInt8(truncatingIfNeeded: code)), out, outCap)
 }
+
+// MARK: - VGM logging
+
+/// Start logging OPNA writes as VGM (`PC88.startVGMLogging`). Restarts a
+/// running log.
+@_cdecl("b88_vgm_start")
+public func b88_vgm_start(_ handle: UnsafeMutableRawPointer?) {
+  context(handle)?.pc88.startVGMLogging()
+}
+
+/// 1 while a VGM log is running, else 0.
+@_cdecl("b88_vgm_is_logging")
+public func b88_vgm_is_logging(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+  (context(handle)?.pc88.isVGMLogging ?? false) ? 1 : 0
+}
+
+/// Stop the VGM log (`PC88.stopVGMLogging`) and keep the uncompressed file
+/// for `b88_vgm_read`. `gameNameUtf8` (NUL-terminated, may be null) goes
+/// into the GD3 tag. Returns the file's length, or 0 if no log was running.
+@_cdecl("b88_vgm_stop")
+public func b88_vgm_stop(_ handle: UnsafeMutableRawPointer?,
+                         _ gameNameUtf8: UnsafePointer<CChar>?) -> Int32 {
+  guard let c = context(handle) else { return 0 }
+  c.vgmBlob = c.pc88.stopVGMLogging(gameName: string(gameNameUtf8) ?? "") ?? []
+  return Int32(c.vgmBlob.count)
+}
+
+/// Copy the file `b88_vgm_stop` kept into `out` (capacity `outCap` bytes).
+/// Returns the file's length; pass a nil buffer to ask for it.
+@_cdecl("b88_vgm_read")
+public func b88_vgm_read(_ handle: UnsafeMutableRawPointer?,
+                         _ out: UnsafeMutablePointer<UInt8>?,
+                         _ outCap: Int32) -> Int32 {
+  guard let c = context(handle) else { return 0 }
+  return copyOut(c.vgmBlob, out, outCap)
+}

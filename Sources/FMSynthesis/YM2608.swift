@@ -1317,6 +1317,27 @@ package final class YM2608 {
     return data
   }
 
+  /// The value the chip behaves as if `register` held. `registers` and
+  /// `extRegisters` only record writes, and three registers reset to
+  /// something other than zero: the FM pan bits (0xB4–0xB6 in both banks,
+  /// L+R), the SSG mixer (0x07) and the ADPCM pan (secondary 0x01, L+R). A
+  /// program written for the OPN never writes the FM pan and relies on that
+  /// default.
+  package func effectiveRegister(secondary: Bool, _ register: UInt8) -> UInt8 {
+    let raw = secondary ? extRegisters[Int(register)] : registers[Int(register)]
+    switch (secondary, register) {
+    case (_, 0xB4...0xB6):
+      let ch = fmSynth.ch[Int(register - 0xB4) + (secondary ? 3 : 0)]
+      return raw & 0x3F | (ch.panLeft ? 0x80 : 0) | (ch.panRight ? 0x40 : 0)
+    case (false, 0x07):
+      return ssgMixer
+    case (true, 0x01):
+      return adpcmControl2
+    default:
+      return raw
+    }
+  }
+
   /// Write port 0x44: address select (SSG + FM ch1-3)
   package func writeAddr(_ value: UInt8) {
     selectedAddr = value

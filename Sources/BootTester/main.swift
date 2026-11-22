@@ -1104,6 +1104,23 @@ let audioWAVPath: String? = {
 
 var capturedAudio: [Float] = []
 
+/// BOOTTEST_VGM: logs the OPNA writes of the whole run to an uncompressed VGM
+/// file, for comparing with BOOTTEST_AUDIO_WAV from the same run.
+let vgmPath: String? = {
+  let raw = ProcessInfo.processInfo.environment["BOOTTEST_VGM"] ?? ""
+  return raw.isEmpty ? nil : raw
+}()
+
+func writeVGM(from machine: Machine) {
+  guard let vgmPath, let bytes = machine.stopVGMLogging(gameName: "BootTester") else { return }
+  do {
+    try Data(bytes).write(to: URL(fileURLWithPath: vgmPath))
+    print("  VGM (\(bytes.count) bytes) written to \(vgmPath)")
+  } catch {
+    print("  Failed to write VGM: \(error)")
+  }
+}
+
 /// Writes interleaved stereo float samples as a 16-bit PCM WAV file.
 func writeWAV(path: String, samples: [Float], rate: Int) throws {
   let frames = samples.count / 2
@@ -1183,6 +1200,7 @@ if let loadStatePath {
                sm.bus.graphicsColorMode ? 1 : 0))
 
   snd.debugOutputMask = audioDebugMask
+  if vgmPath != nil { sm.startVGMLogging() }
 
   // ADPCM trace: log output level per frame
   var adpcmTraceLines: [String] = []
@@ -1322,6 +1340,8 @@ if let loadStatePath {
     }
   }
 
+  writeVGM(from: sm)
+
   // Write rendered audio
   if let audioWAVPath, !capturedAudio.isEmpty {
     do {
@@ -1431,6 +1451,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
       print(String(format: "  DIP SW2 override: %02X", v))
     }
     let dm = setupMachine(dipSw2: sw2Override ?? defaultSw2)
+    if vgmPath != nil { dm.startVGMLogging() }
     dm.bus.directBasicBoot = false
     // Image index overrides: allow selecting a non-default image from a
     // multi-image D88 for each drive. Useful for games like ヴァルナ where
@@ -2143,6 +2164,7 @@ if let diskData = try? Data(contentsOf: URL(fileURLWithPath: diskPath)) {
         print(String(format: "  First audio frame: %d peak=%.6f", firstAudioFrame, audioPeak))
       }
     }
+    writeVGM(from: dm)
     if let audioWAVPath, !capturedAudio.isEmpty {
       do {
         try writeWAV(path: audioWAVPath, samples: capturedAudio, rate: YM2608.sampleRate)

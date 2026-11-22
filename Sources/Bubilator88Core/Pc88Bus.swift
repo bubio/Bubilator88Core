@@ -403,6 +403,10 @@ package final class Pc88Bus: Bus {
   /// YM2608 reference for port 0x44-0x47
   package weak var sound: YM2608?
 
+  /// Logs OPNA data writes as VGM while set. `nil` by default so the port
+  /// write path pays only a pointer comparison.
+  package var vgmLogger: VGMLogger?
+
   /// Called when SINTM transitions from masked→unmasked (port 0x32 bit 7: 1→0).
   /// Machine wires this to re-request sound IRQ if the OPNA line is still active.
   package var onSoundUnmask: (() -> Void)?
@@ -1436,9 +1440,21 @@ package final class Pc88Bus: Bus {
 
     // YM2608 ports
     case 0x44: sound?.writeAddr(value)
-    case 0x45: sound?.writeData(value)
+    case 0x45:
+      sound?.writeData(value)
+      if let vgmLogger, let sound {
+        vgmLogger.log(secondary: false, register: sound.selectedAddr, value: value,
+                      tState: currentTState,
+                      cpuClockHz: VGMLogger.cpuClockHz(eightMHz: cpuClock8MHz))
+      }
     case 0x46: sound?.writeExtAddr(value)
-    case 0x47: sound?.writeExtData(value)
+    case 0x47:
+      sound?.writeExtData(value)
+      if let vgmLogger, let sound {
+        vgmLogger.log(secondary: true, register: sound.selectedExtAddr, value: value,
+                      tState: currentTState,
+                      cpuClockHz: VGMLogger.cpuClockHz(eightMHz: cpuClock8MHz))
+      }
 
     // CRTC ports
     case 0x50: crtc?.writeParameter(value)

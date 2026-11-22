@@ -32,6 +32,7 @@ public final class B88Context {
   /// can query the length and then copy it out in a second call (the blob is
   /// variable-length: RAM + disk images, so the host can't pre-size a buffer).
   var saveStateBlob: [UInt8] = []
+  var vgmBlob: [UInt8] = []
   /// Stereo samples taken from the core but not yet handed to the host.
   /// `b88_drain_audio` returns at most what the host asks for, while
   /// `PC88.takeAudioSamples()` takes everything, so the rest waits here. Cleared

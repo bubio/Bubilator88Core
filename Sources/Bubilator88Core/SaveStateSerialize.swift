@@ -764,8 +764,12 @@ extension Machine {
 
   /// Load a complete save state file, restoring all components and disk images.
   package func loadSaveState(_ data: [UInt8]) throws {
+    let vgmADPCM = prepareVGMLoggerForJump()
     // Even a load that fails part-way has replaced some memory.
-    defer { forgetDebugHistory(memoryReplaced: true) }
+    defer {
+      forgetDebugHistory(memoryReplaced: true)
+      resyncVGMLogger(previousADPCM: vgmADPCM)
+    }
     let sections = try SaveStateFile.parse(data)
 
     guard let mainData = sections[SaveStateFile.fourCC("MAIN")] else {
